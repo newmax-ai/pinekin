@@ -55,11 +55,13 @@ export function parseDeepLink(value: string): string | null {
   return match ? match[1] : null
 }
 export const adapters: SessionAdapter[] = [
-  ...[{ id: 'newmax', name: 'NewMax' }, { id: 'claude-code', name: 'Claude Code' }, { id: 'codex', name: 'Codex' }]
+  ...[{ id: 'newmax', name: 'NewMax' }, { id: 'claude-code', name: 'Claude Code' }]
     .map(a => ({ ...a, id: a.id as Source,
       capabilities: { readLocal: false, importArchive: false, nativeResume: false, deepLink: false },
       archiveStatus: 'unknown' as const,
     })),
+  { id: 'codex', name: 'Codex', archiveStatus: 'fixture-tested', constraints: '仅用户选择的单文件 legacy JSONL 文本投影；不扫描目录，不支持原生恢复',
+    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
   { id: 'cindy', name: 'Cindy', archiveStatus: 'fixture-tested', constraints: '仅未加密普通 v1 分享包；合成夹具验证，原生恢复不支持',
     capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
   { id: 'deepseek', name: 'DeepSeek', archiveStatus: 'documented', constraints: '官方有导出入口；格式待脱敏样本验证，Staithe 尚未支持导入',

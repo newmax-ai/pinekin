@@ -14,6 +14,7 @@ Staithe 是一个独立的、本地优先的 AI 会话档案桌面客户端，�
 - 「导入会话文件」：用户选文件 → 只读预览来源和损失 → 明确确认 → 保存原件与文本档案；取消不落盘。
 - Staithe 文本包 v1 / v2，兼容旧 Ember v1 包；严格版本和字段校验。
 - **Cindy `.cshare` / `.xdtshare` 未加密普通 v1 包**的文本投影。固定官方源码提交、合成夹具验证；加密包、Orca 协同包及未来版本明确拒绝，尚未用真实客户端导出包验收。
+- **Codex 单文件 legacy JSONL** 的文本投影。只提取顶层消息，避免事件副本重复；工具、推理、压缩和回退的损失明确报告。分页、继承与子会话边界暂不支持，不扫描目录，不启动 resume。
 - 5 MiB 输入上限；ZIP 展开、累计压缩数据处理量、条目数、压缩比与路径限制；逐文件 CRC32、SHA-256 和长度校验。不执行或落盘解压包内文件。
 - 新档案保存在 `userData/imports/<sha256>/`，原件与索引暂存后整体原子发布；旧 `library.json` 继续读取，不自动改写。
 - 相同文件重复导入复用已有本地 ID，不按正文合并不同会话；预览后源文件变化不会替代已确认的快照。
@@ -23,7 +24,7 @@ Staithe 是一个独立的、本地优先的 AI 会话档案桌面客户端，�
 ## 明确未实现
 
 - **DeepSeek 导出适配**：官方有导出入口，但没有已验证的格式契约或脱敏样本；不能用模型 API / Harness 格式代替聊天产品格式。
-- NewMax、Claude Code、Codex 等客户端的真实目录扫描、日志接入与数据库读取。
+- 客户端的真实目录自动扫描与数据库读取；NewMax、Claude Code 日志适配尚未实现。Codex 仅支持用户选择的有限 JSONL 布局，未做真实客户端验收。
 - 写入其他客户端数据库、原生会话恢复、自动创建目标会话或跨 harness 跳转。
 - 附件、结构化工具状态、权限、模型状态、分支树的迁移；Cindy 原包中的这些内容只保留在本地原件，不进入文本快照。
 - SQLite、后台解析 worker、大库分页/增量索引、逐会话删除界面与自动备份。
@@ -76,6 +77,7 @@ E2E 通过 Playwright 启动项目安装的 Electron，无需下载浏览器。�
 - [架构与迁移边界](docs/architecture.md)
 - [只读导入格式、支持矩阵与资源限制](docs/import-formats.md)
 - [第一批只读导入验收](docs/import-verification.md)
+- [Codex JSONL 适配边界](docs/codex-import.md) · [Codex 验收](docs/codex-verification.md)
 - [后续接入路线](docs/roadmap.md)
 - [产品调研](docs/research/harness-landscape-2026-10-16.md) · [接入方案](docs/research/integration-proposal-2026-10-16.md)
 - [首版验证与依赖告警](docs/verification.md) · [Staithe 更名验收](docs/rename-verification.md)

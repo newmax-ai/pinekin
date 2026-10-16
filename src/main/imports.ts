@@ -3,16 +3,18 @@ import { MAX_BYTES, parseBundle } from '../core/session'
 import type { ImportPreview, ParsedArchive, Session } from '../core/types'
 import type { Library } from './library'
 import { parseCindy } from './cindy'
+import { isCodexRollout, parseCodex } from './codex'
 
 export async function parseArchive(input: Uint8Array): Promise<ParsedArchive> {
   if (input.byteLength > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
   const bytes = Buffer.from(input)
   if (bytes.subarray(0, 8).equals(Buffer.from('XDTSHARE'))) return parseCindy(bytes)
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  if (isCodexRollout(text)) return parseCodex(text)
   let bundle
   try { bundle = parseBundle(text) }
-  catch (error) {
-    throw new Error('文件格式不支持或已损坏。支持 Staithe / Ember 文本包与未加密 Cindy v1 包；DeepSeek 导出格式尚待样本验证。', { cause: error })
+  catch {
+    throw new Error('文件格式不支持或已损坏。支持 Staithe / Ember 文本包、未加密 Cindy v1 包和 Codex 单文件 JSONL；DeepSeek 导出格式尚待样本验证。')
   }
   const session: Session = bundle.session
   return { session, adapterId: 'staithe-bundle', adapterVersion: '0.1.0',

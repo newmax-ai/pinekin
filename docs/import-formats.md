@@ -20,7 +20,10 @@ IPC 只有 `previewImport()`、`confirmImport(token)`、`cancelImport(token)`，
 | Staithe 文本快照 v2 | 合成夹具验证 | 新来源标识、文本、来源摘要与损失报告 | 原始二进制文件、附件、结构化事件树 |
 | Cindy `.cshare` / `.xdtshare` | 固定源码格式 + 合成夹具验证 | 未加密、普通单会话 v1 包的文本投影 | 加密包、Orca 协同包、v2/未来格式、原生恢复 |
 | DeepSeek 消费者聊天导出 | 官方有导出说明；Staithe 未支持 | 无 | 缺少官方 schema 或获授权脱敏样本，不能猜测适配 |
-| Claude Code / Codex 日志 | 本轮未实现 | 无 | 不自动扫描本地日志、不启动 resume |
+| Codex 单文件 legacy JSONL | 固定源码布局 + 合成夹具验证 | 顶层消息文本及来源报告，原件保留 | 分页、继承、子会话边界；不重建有效分支、不启动 resume |
+| Claude Code 日志 | 尚未实现 | 无 | 不自动扫描本地日志、不启动 resume |
+
+Codex 的消息/事件去重、压缩/回退语义及独立限额见 [Codex 专项说明](codex-import.md)。下列 ZIP 和清单规则仅用于 Cindy，不套用到 Codex JSONL。
 
 Cindy 实现锚点为官方仓库提交 `e532ef3d8fe8271a3decf7f478d09d8ce959f824`，不是对全部发布版本的兼容承诺。所有夹具都是本仓库自己构造的虚构内容；尚未用真实 Cindy 客户端生成的脱敏包验收。来源包里的产品版本和完整度仅是输入声明，不是身份或完整性的认证。
 
@@ -114,4 +117,4 @@ userData/imports/<sha256>/
 - `https://github.com/makecindy/cindy/blob/e532ef3d8fe8271a3decf7f478d09d8ce959f824/apps/desktop/src/main/session-share/__tests__/sessionShareImport.test.ts`：L289–338 合成正文编码。
 - `https://cdn.deepseek.com/policies/zh-CN/deepseek-privacy-policy.html`：第 2.2(d) 说明导出入口，不提供具体 schema。
 
-下一步：获得用户主动提供的 Cindy / DeepSeek 脱敏导出样本，先核对格式差异，再扩充夹具；继续一个 Claude Code 或 Codex 固定版本日志适配。原生恢复仍需独立授权与验收。
+后续已接入 Codex 单文件日志文本投影，详见专项文档。下一步：获得用户主动提供的 Cindy / Codex / DeepSeek 脱敏样本，先核对格式差异再扩充夹具；Claude Code 可后续独立适配。原生恢复仍需独立授权与验收。

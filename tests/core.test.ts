@@ -80,6 +80,11 @@ describe('可移植会话', () => {
     expect(makeHandoff(s, '通用')).toContain('附件未映射')
     expect(makeHandoff(s, '通用')).toContain('原始文件不随交接导出')
   })
+  it('Codex 仅声明已做夹具测试的文件归档能力，不把 DeepSeek 官方入口当作已实现', () => {
+    expect(adapters.find(adapter => adapter.id === 'codex')).toMatchObject({ archiveStatus: 'fixture-tested',
+      capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false } })
+    expect(adapters.find(adapter => adapter.id === 'deepseek')?.capabilities.importArchive).toBe(false)
+  })
   it('尚未实现的适配器绝不声明原生迁移能力', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(3)
     expect(adapters.every(a => !a.capabilities.nativeResume && !a.capabilities.readLocal)).toBe(true)

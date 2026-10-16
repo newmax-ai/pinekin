@@ -6,6 +6,7 @@ import { makeBundle } from '../src/core/session'
 import { demoSessions } from '../src/core/demo'
 import { Library } from '../src/main/library'
 import { ImportCoordinator } from '../src/main/imports'
+import { codexFixture, codexThreadId } from './fixtures/codex'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true }))) })
@@ -32,6 +33,23 @@ describe('用户确认的只读导入', () => {
     expect(result.session.archive?.sha256).toBe(preview.sha256)
     expect(await readFile(join(directory, 'imports', preview.sha256, 'original.bin'))).toEqual(bytes)
     expect(await new Library(directory).list()).toEqual(await library.list())
+  })
+  it('Codex 日志走同一确认流程，保存精确原件与来源报告并复用已有档案', async () => {
+    const { directory, importer } = await setup()
+    const bytes = codexFixture()
+    const preview = await importer.prepare(bytes)
+    expect(preview).toMatchObject({ sourceName: 'Codex JSONL', evidence: 'fixture-tested', messageCount: 2 })
+    expect(await readdir(directory)).toEqual([])
+    const imported = await importer.commit(preview.token)
+    expect(imported.session.archive).toMatchObject({ adapterId: 'codex-rollout', originalSessionId: codexThreadId, sourceVersion: '0.0.0-synthetic' })
+    expect((await readFile(join(directory, 'imports', preview.sha256, 'original.bin'))).equals(bytes)).toBe(true)
+    expect(makeBundle(imported.session).version).toBe(2)
+    const repeated = await importer.prepare(bytes)
+    expect(repeated.duplicate).toBe(true)
+    expect((await importer.commit(repeated.token)).session.id).toBe(imported.session.id)
+    const corrupt = Buffer.concat([bytes, Buffer.from('{"truncated":')])
+    await expect(importer.prepare(corrupt)).rejects.toThrow()
+    expect(await readdir(join(directory, 'imports'))).toEqual([preview.sha256])
   })
   it('取消、错误 token、过期及已使用 token 都不会产生档案', async () => {
     const { directory, importer } = await setup()

@@ -7,7 +7,7 @@ export default defineConfig({
     include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
-      include: ['src/core/**/*.ts', 'src/main/{library,imports,import-file,cindy,zip}.ts', 'src/renderer/src/App.tsx'],
+      include: ['src/core/**/*.ts', 'src/main/{library,imports,import-file,cindy,codex,zip}.ts', 'src/renderer/src/App.tsx'],
       exclude: ['src/core/types.ts', 'src/core/demo.ts'],
       thresholds: { lines: 80, statements: 80, functions: 80, branches: 80 },
     },

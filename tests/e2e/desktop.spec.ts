@@ -1,6 +1,7 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
 import { cindyFixture } from '../fixtures/cindy'
+import { codexFixture, codexThreadId } from '../fixtures/codex'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -115,6 +116,41 @@ test('Cindy 文件预览、取消、快照确认、去重与文本交接', async
   expect(badToken).toBe(true)
   await app.close(); await launch()
   await expect(page.getByRole('heading', { level: 2, name: 'Cindy 合成档案' })).toBeVisible()
+})
+
+test('Codex JSONL 只读导入不重复事件副本，可导出带损失报告的 v2 包', async () => {
+  const file = join(directory, 'synthetic-rollout.jsonl'), output = join(directory, 'codex.staithe.json')
+  await writeFile(file, codexFixture())
+  await app.evaluate(({ dialog }, paths) => {
+    dialog.showOpenDialog = async (...args: [Electron.BaseWindow, Electron.OpenDialogOptions] | [Electron.OpenDialogOptions]) => {
+      const options = args.length === 2 ? args[1] : args[0]
+      if (!options.filters?.some(filter => filter.extensions.includes('jsonl'))) throw new Error('选择框缺少 JSONL 类型')
+      return { canceled: false, filePaths: [paths.file] }
+    }
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: paths.output })
+  }, { file, output })
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Codex JSONL · 2 条消息')
+  await expect(page.getByRole('dialog')).toContainText('工具')
+  expect(await readdir(directory)).not.toContain('imports')
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: `Codex · ${codexThreadId.slice(0, 8)}` })).toBeVisible()
+  await expect(page.locator('.message-body p')).toHaveCount(2)
+  await expect(page.locator('.message-body p').first()).toHaveText('<script>不执行</script> 合成 Codex 问题')
+  await page.getByRole('complementary').getByRole('button', { name: /^Codex/ }).click()
+  await page.getByText('导入报告 · 仅文本档案').click()
+  await expect(page.locator('.archive-report')).toContainText('事件记录')
+  await page.getByRole('button', { name: '带走这段对话' }).click()
+  await expect(page.locator('.handoff-preview')).toContainText('工具')
+  await page.getByRole('button', { name: '导出 Staithe 包', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
+  const exported = JSON.parse(await readFile(output, 'utf8'))
+  expect(exported.version).toBe(2)
+  expect(exported.session.archive.originalSessionId).toBe(codexThreadId)
+  expect(exported.session.messages).toHaveLength(2)
+  await page.keyboard.press('Escape')
+  await app.close(); await launch()
+  await expect(page.getByRole('heading', { level: 2, name: `Codex · ${codexThreadId.slice(0, 8)}` })).toBeVisible()
 })
 
 test('取消文件选择与加密包拒绝不写入档案', async () => {
