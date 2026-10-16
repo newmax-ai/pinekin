@@ -21,14 +21,14 @@ export function App() {
 
   useEffect(() => {
     let active = true
-    window.ember.list().then(data => { if (active) { setSessions(data); setLoaded(true) } })
+    window.staithe.list().then(data => { if (active) { setSessions(data); setLoaded(true) } })
       .catch(error => { if (active) setStatus(String(error.message)) })
     return () => { active = false }
   }, [])
   useEffect(() => {
     if (!loaded) return
-    return window.ember.onOpenSession(id => {
-      if (!sessions.some(s => s.id === id)) { setStatus('本机没有这段会话，请先导入对应的 Ember 包。'); return }
+    return window.staithe.onOpenSession(id => {
+      if (!sessions.some(s => s.id === id)) { setStatus('本机没有这段会话，请先导入对应的 Staithe 包。'); return }
       setQuery(''); setSource('all'); setSelectedId(id); setHandoff(false)
     })
   }, [sessions, loaded])
@@ -41,25 +41,25 @@ export function App() {
   }
   function importBundle() {
     void perform(async () => {
-      const imported = await window.ember.importBundle()
+      const imported = await window.staithe.importBundle()
       if (!imported) return
-      setSessions(await window.ember.list()); setSelectedId(imported.id); setQuery(''); setSource('all')
+      setSessions(await window.staithe.list()); setSelectedId(imported.id); setQuery(''); setSource('all')
       setStatus('已导入本地档案，未修改来源客户端')
     })
   }
   function exportSession(format: ExportFormat) {
     void perform(async () => {
-      const saved = await window.ember.exportSession(selected.id, format, target)
+      const saved = await window.staithe.exportSession(selected.id, format, target)
       setStatus(saved ? '已导出到你选择的位置' : '已取消导出')
     })
   }
   function copy(text: string, message: string) {
-    void perform(async () => { await window.ember.copy(text); setStatus(message) })
+    void perform(async () => { await window.staithe.copy(text); setStatus(message) })
   }
 
   return <div className="shell">
     <aside className="sidebar">
-      <div className="brand"><span className="flame" aria-hidden="true">✦</span><span>ember<span className="brand-dot">.</span></span></div>
+      <div className="brand"><span className="flame" aria-hidden="true">✦</span><span>staithe<span className="brand-dot">.</span></span></div>
       <div className="sidebar-tagline">让每一次思考，都有下文。</div>
       <div className="nav-label">你的档案馆</div>
       <button className={`nav-item ${source === 'all' ? 'active' : ''}`} onClick={() => setSource('all')}>
@@ -74,13 +74,13 @@ export function App() {
       </button>
       <div className="connection-note"><span className="tiny-dot" /> 尚未连接真实客户端<br /><span>不会自动扫描或读取本地会话</span></div>
       <div className="sidebar-bottom"><div className="orbit" aria-hidden="true"><span>✦</span></div>
-        <p>思考没有围墙。<br /><em>火种，可以带走。</em></p>
+        <p>工具可以换。<br /><em>思考，不必重来。</em></p>
         <div className="local-label">● &nbsp; 本地优先 <span>0.1 · 预览版</span></div>
       </div>
     </aside>
     <main>
       <header className="topbar"><span>个人档案 <span className="slash">/</span> 会话</span>
-        <button className="button small" disabled={busy} onClick={importBundle}><span aria-hidden="true">＋</span> 导入 Ember 包</button>
+        <button className="button small" disabled={busy} onClick={importBundle}><span aria-hidden="true">＋</span> 导入 Staithe 包</button>
       </header>
       <section className="intro"><div><div className="eyebrow">A HOME FOR YOUR THOUGHTS</div>
         <h1>换个地方，<span>继续思考。</span></h1><p>收好散落的对话，把下一步留给可能性。</p></div>
@@ -117,14 +117,14 @@ export function App() {
       {!handoff && status && <div className="toast" role="status">{status}</div>}
     </main>
     {handoff && selected && <dialog ref={modal} className="handoff" aria-labelledby="handoff-title" onCancel={event => { event.preventDefault(); setHandoff(false) }}>
-      <div className="dialog-top"><span className="eyebrow">CARRY THE SPARK</span><button className="close" aria-label="关闭交接面板" onClick={() => setHandoff(false)}>×</button></div>
+      <div className="dialog-top"><span className="eyebrow">CONTINUE ELSEWHERE</span><button className="close" aria-label="关闭交接面板" onClick={() => setHandoff(false)}>×</button></div>
       <h2 id="handoff-title">让这段思考，有下文。</h2><p className="dialog-description">带走完整文本，交给下一个工具继续。<br />这不是原生恢复，不会迁移工具状态、附件或权限。</p>
       <label className="target-label">接续目标<select aria-label="接续目标" value={target} onChange={event => setTarget(event.target.value as Target)}>
         {(['通用', 'NewMax', 'Claude Code', 'Codex'] as const).map(t => <option key={t}>{t}</option>)}</select></label>
       <div className="preview-label">交接文本预览 <span>只生成文本，不自动执行</span></div>
       <pre className="handoff-preview">{makeHandoff(selected, target)}</pre>
       <p className="privacy-note">导出前请检查敏感信息。当前不会自动脱敏，也不会上传或发送给目标客户端。</p>
-      <div className="export-actions"><button className="button" disabled={busy} onClick={() => exportSession('bundle')}>导出 Ember 包</button>
+      <div className="export-actions"><button className="button" disabled={busy} onClick={() => exportSession('bundle')}>导出 Staithe 包</button>
         <button className="button" disabled={busy} onClick={() => exportSession('markdown')}>导出 Markdown</button>
         <button className="button primary" disabled={busy} onClick={() => copy(makeHandoff(selected, target), '已复制交接文本，粘贴到目标客户端后继续')}>复制交接文本</button></div>
       {status && <div className="dialog-status" role="status">{status}</div>}

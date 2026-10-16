@@ -19,7 +19,7 @@ export interface SessionAdapter {
   // 未来接入只能读取用户明确授权的位置，不默认扫描主目录。
   read?: (authorizedPath: string) => Promise<Session[]>
 }
-export interface EmberAPI {
+export interface StaitheAPI {
   list(): Promise<Session[]>
   importBundle(): Promise<Session | null>
   exportSession(id: string, format: ExportFormat, target: Target): Promise<boolean>

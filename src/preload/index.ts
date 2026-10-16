@@ -1,16 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { EmberAPI } from '../core/types'
+import type { StaitheAPI } from '../core/types'
 
-const api: EmberAPI = {
-  list: () => ipcRenderer.invoke('ember:list'),
-  importBundle: () => ipcRenderer.invoke('ember:import'),
-  exportSession: (id, format, target) => ipcRenderer.invoke('ember:export', id, format, target),
-  copy: text => ipcRenderer.invoke('ember:copy', text),
+const api: StaitheAPI = {
+  list: () => ipcRenderer.invoke('staithe:list'),
+  importBundle: () => ipcRenderer.invoke('staithe:import'),
+  exportSession: (id, format, target) => ipcRenderer.invoke('staithe:export', id, format, target),
+  copy: text => ipcRenderer.invoke('staithe:copy', text),
   onOpenSession: callback => {
     const listener = (_event: Electron.IpcRendererEvent, id: string) => callback(id)
-    ipcRenderer.on('ember:open-session', listener)
-    void ipcRenderer.invoke('ember:ready')
-    return () => { ipcRenderer.removeListener('ember:open-session', listener) }
+    ipcRenderer.on('staithe:open-session', listener)
+    void ipcRenderer.invoke('staithe:ready')
+    return () => { ipcRenderer.removeListener('staithe:open-session', listener) }
   },
 }
-contextBridge.exposeInMainWorld('ember', api)
+contextBridge.exposeInMainWorld('staithe', api)

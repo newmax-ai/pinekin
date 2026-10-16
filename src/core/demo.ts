@@ -3,12 +3,13 @@ import type { Session } from './types'
 // 全部为虚构演示内容，不来自用户的真实客户端。
 export const demoSessions: Session[] = [
   {
+    // 保留已发布的演示 ID，让旧链接仍能定位。
     id: 'demo-ember', title: '让思考跨越工具，继续生长', source: 'newmax',
-    updatedAt: '2026-10-16T09:30:00.000Z', tags: ['产品构想', 'Ember'], demo: true,
+    updatedAt: '2026-10-16T09:30:00.000Z', tags: ['产品构想', 'Staithe'], demo: true,
     messages: [
       { role: 'user', content: '我想把分散在不同 AI 客户端里的对话放在一起。不是简单备份，而是能带着上下文，换个地方继续思考。' },
       { role: 'assistant', content: '可以把它分成三层：\n\n01  档案：用统一格式保存对话与来源。\n02  交接：保留原文、角色和待办，让下一个工具理解上下文。\n03  接续：只有目标客户端确实支持时，才提供原生恢复。\n\n先保证记忆不会丢失，再逐个验证客户端的迁移能力。' },
-      { role: 'user', content: '名字就叫 Ember。像把火种带到另一个地方，重新点燃。第一版先做好本地档案和上下文交接包。' },
+      { role: 'user', content: '名字就叫 Staithe。像一个让对话停靠、汇聚与再次出发的码头。第一版先做好本地档案和上下文交接包。' },
       { role: 'assistant', content: '已明确方向：本地优先，不自动上传，不读取未经授权的客户端目录。\n\n下一步：验证各客户端的数据格式、工作区绑定、附件与工具消息，区分“可阅读的记录”和“可执行的会话状态”。' },
     ],
   },

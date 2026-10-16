@@ -7,7 +7,7 @@ import { demoSessions } from '../src/core/demo'
 afterEach(cleanup)
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
-  window.ember = {
+  window.staithe = {
     list: vi.fn().mockResolvedValue(demoSessions),
     importBundle: vi.fn().mockResolvedValue(null),
     exportSession: vi.fn().mockResolvedValue(true),
@@ -36,48 +36,48 @@ describe('档案界面', () => {
     fireEvent.click(screen.getByRole('button', { name: '带走这段对话' }))
     fireEvent.change(screen.getByLabelText('接续目标'), { target: { value: 'NewMax' } })
     fireEvent.click(screen.getByRole('button', { name: '复制交接文本' }))
-    await waitFor(() => expect(window.ember.copy).toHaveBeenCalledWith(expect.stringContaining('目标：NewMax')))
+    await waitFor(() => expect(window.staithe.copy).toHaveBeenCalledWith(expect.stringContaining('目标：NewMax')))
     fireEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
     await screen.findByText('已导出到你选择的位置')
-    expect(window.ember.exportSession).toHaveBeenCalledWith(demoSessions[0].id, 'markdown', 'NewMax')
-    vi.mocked(window.ember.exportSession).mockResolvedValueOnce(false)
-    fireEvent.click(screen.getByRole('button', { name: '导出 Ember 包' }))
+    expect(window.staithe.exportSession).toHaveBeenCalledWith(demoSessions[0].id, 'markdown', 'NewMax')
+    vi.mocked(window.staithe.exportSession).mockResolvedValueOnce(false)
+    fireEvent.click(screen.getByRole('button', { name: '导出 Staithe 包' }))
     await screen.findByText('已取消导出')
     fireEvent.click(screen.getByRole('button', { name: '关闭交接面板' }))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
   it('导入成功刷新列表，取消不改变，错误显示提示', async () => {
     await open()
-    fireEvent.click(screen.getByRole('button', { name: '导入 Ember 包' }))
-    await waitFor(() => expect(window.ember.importBundle).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: '导入 Staithe 包' }))
+    await waitFor(() => expect(window.staithe.importBundle).toHaveBeenCalledOnce())
     const imported = { ...demoSessions[0], id: 'imported', title: '导入的档案', demo: false }
-    vi.mocked(window.ember.importBundle).mockResolvedValueOnce(imported)
-    vi.mocked(window.ember.list).mockResolvedValueOnce([imported, ...demoSessions])
-    fireEvent.click(screen.getByRole('button', { name: '导入 Ember 包' }))
+    vi.mocked(window.staithe.importBundle).mockResolvedValueOnce(imported)
+    vi.mocked(window.staithe.list).mockResolvedValueOnce([imported, ...demoSessions])
+    fireEvent.click(screen.getByRole('button', { name: '导入 Staithe 包' }))
     await screen.findByRole('heading', { level: 2, name: '导入的档案' })
-    vi.mocked(window.ember.importBundle).mockRejectedValueOnce(new Error('坏输入'))
-    fireEvent.click(screen.getByRole('button', { name: '导入 Ember 包' }))
+    vi.mocked(window.staithe.importBundle).mockRejectedValueOnce(new Error('坏输入'))
+    fireEvent.click(screen.getByRole('button', { name: '导入 Staithe 包' }))
     await screen.findByText('坏输入')
   })
   it('复制本地深链并处理导出错误', async () => {
     await open()
     fireEvent.click(screen.getByRole('button', { name: '复制本地链接' }))
-    await waitFor(() => expect(window.ember.copy).toHaveBeenCalledWith(`newmax-ember://session/${demoSessions[0].id}`))
+    await waitFor(() => expect(window.staithe.copy).toHaveBeenCalledWith(`newmax-staithe://session/${demoSessions[0].id}`))
     fireEvent.click(screen.getByRole('button', { name: '带走这段对话' }))
-    vi.mocked(window.ember.exportSession).mockRejectedValueOnce(new Error('无法写入'))
+    vi.mocked(window.staithe.exportSession).mockRejectedValueOnce(new Error('无法写入'))
     fireEvent.click(screen.getByRole('button', { name: '导出 Markdown' }))
     await screen.findByText('无法写入')
   })
   it('深链切换到已存在的会话，未知 ID 给出明确提示', async () => {
     await open()
-    const callback = vi.mocked(window.ember.onOpenSession).mock.calls[0][0]
+    const callback = vi.mocked(window.staithe.onOpenSession).mock.calls[0][0]
     callback(demoSessions[1].id)
     await screen.findByRole('heading', { level: 2, name: demoSessions[1].title })
     callback('unknown')
-    await screen.findByText('本机没有这段会话，请先导入对应的 Ember 包。')
+    await screen.findByText('本机没有这段会话，请先导入对应的 Staithe 包。')
   })
   it('加载失败不伪造成功状态', async () => {
-    vi.mocked(window.ember.list).mockRejectedValueOnce(new Error('档案无法读取'))
+    vi.mocked(window.staithe.list).mockRejectedValueOnce(new Error('档案无法读取'))
     render(<App />)
     await screen.findByText('档案无法读取')
   })

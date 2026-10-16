@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 test('开发入口隔离宿主环境并真正渲染 React', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'ember-dev-test-'))
+  const directory = await mkdtemp(join(tmpdir(), 'staithe-dev-test-'))
   const child = spawn(process.execPath, ['scripts/desktop.mjs', 'dev'], {
     detached: process.platform !== 'win32',
-    env: { ...process.env, EMBER_DATA_DIR: directory, REMOTE_DEBUGGING_PORT: '0',
+    env: { ...process.env, STAITHE_DATA_DIR: directory, EMBER_DATA_DIR: join(directory, 'unused-legacy'), REMOTE_DEBUGGING_PORT: '0',
       ELECTRON_EXEC_PATH: 'invalid-parent-electron', ELECTRON_RENDERER_URL: 'http://localhost:1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

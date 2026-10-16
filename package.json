@@ -1,8 +1,8 @@
 {
-  "name": "@newmax-ai/ember",
+  "name": "@newmax-ai/staithe",
   "version": "0.1.0",
   "private": true,
-  "description": "Ember — 换个地方，继续思考。",
+  "description": "Staithe — 换个地方，继续思考。",
   "author": "newmax-ai",
   "type": "module",
   "main": "out/main/index.js",
@@ -42,8 +42,8 @@
     "vitest": "5.0.5"
   },
   "build": {
-    "appId": "ai.newmax.ember",
-    "productName": "Ember",
+    "appId": "ai.newmax.staithe",
+    "productName": "Staithe",
     "directories": {
       "output": "release"
     },
@@ -53,8 +53,9 @@
     ],
     "protocols": [
       {
-        "name": "Ember 本地会话",
+        "name": "Staithe 本地会话",
         "schemes": [
+          "newmax-staithe",
           "newmax-ember"
         ]
       }

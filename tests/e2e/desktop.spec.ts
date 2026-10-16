@@ -1,22 +1,31 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { makeBundle } from '../../src/core/session'
 import { demoSessions } from '../../src/core/demo'
 
 let app: ElectronApplication
 let page: Page
 let directory: string
-async function launch() {
-  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
-  app = await electron.launch({ args: [resolve('out/main/index.js')], env: { ...env, EMBER_DATA_DIR: directory } })
+function isolatedEnv(): Record<string, string> {
+  return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
+    entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR'].includes(entry[0])))
+}
+async function launch(legacyEnv = false, link?: string) {
+  const env = isolatedEnv()
+  app = await electron.launch({ args: [resolve('out/main/index.js'), ...(link ? [link] : [])],
+    env: { ...env, [legacyEnv ? 'EMBER_DATA_DIR' : 'STAITHE_DATA_DIR']: directory } })
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.getByRole('heading', { level: 2, name: '让思考跨越工具，继续生长' })).toBeVisible()
+  await expect(page.locator('.brand > span:last-child')).toHaveText('staithe.')
+  await expect(page).toHaveTitle('Staithe · 换个地方，继续思考')
+  expect(await app.evaluate(({ app }) => app.getName())).toBe('Staithe')
+  expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(directory)
 }
 test.beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), 'ember-e2e-'))
+  directory = await mkdtemp(join(tmpdir(), 'staithe-e2e-'))
   await launch()
 })
 test.afterEach(async () => { await app?.close(); await rm(directory, { recursive: true, force: true }) })
@@ -33,61 +42,92 @@ test('桌面启动、全文搜索、来源筛选与视觉检查', async () => {
   await expect(page.getByRole('heading', { level: 2, name: '一份不丢失来源的适配器契约' })).toBeVisible()
   await page.getByRole('button', { name: /所有会话/ }).click()
   await page.getByRole('button', { name: /让思考跨越工具/ }).click()
-  await page.screenshot({ path: 'test-results/ember-desktop.png' })
+  await page.screenshot({ path: 'test-results/staithe-desktop.png' })
   expect(errors).toEqual([])
   expect(await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
 })
 
-test('原生文件对话框路径下的导入、持久化及无效输入保护', async () => {
-  const file = join(directory, 'import.ember.json')
-  const imported = { ...demoSessions[0], title: '从文件带来的火种', messages: [{ role: 'user' as const, content: '<script>alert("不执行")</script>' }] }
-  await writeFile(file, JSON.stringify(makeBundle(imported)))
-  await app.evaluate(({ dialog }, filePath) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
-  }, file)
-  await page.getByRole('button', { name: '导入 Ember 包' }).click()
-  await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
-  await expect(page.locator('.message-body p')).toHaveText(imported.messages[0].content)
-  const stored = JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))
-  expect(stored).toHaveLength(1)
-  expect(stored[0].demo).toBe(false)
-  await writeFile(file, '{"invalid":true}')
-  await page.getByRole('button', { name: '导入 Ember 包' }).click()
-  await expect(page.getByRole('status')).toBeVisible()
-  expect(JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))).toHaveLength(1)
-  await app.close()
-  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
-  app = await electron.launch({ args: [resolve('out/main/index.js')], env: { ...env, EMBER_DATA_DIR: directory } })
-  page = await app.firstWindow()
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
-})
+for (const format of ['staithe.session', 'ember.session']) {
+  test(`${format} 文件导入、持久化及无效输入保护`, async () => {
+    const file = join(directory, format === 'ember.session' ? 'import.ember.json' : 'import.staithe.json')
+    const imported = { ...demoSessions[0], title: '从文件接续的思考', messages: [{ role: 'user' as const, content: '<script>alert("不执行")</script>' }] }
+    await writeFile(file, JSON.stringify({ ...makeBundle(imported), format }))
+    await app.evaluate(({ dialog }, filePath) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
+    }, file)
+    await page.getByRole('button', { name: '导入 Staithe 包' }).click()
+    await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
+    await expect(page.locator('.message-body p')).toHaveText(imported.messages[0].content)
+    const stored = JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))
+    expect(stored).toHaveLength(1)
+    expect(stored[0].demo).toBe(false)
+    await writeFile(file, '{"invalid":true}')
+    await page.getByRole('button', { name: '导入 Staithe 包' }).click()
+    await expect(page.getByRole('status')).toBeVisible()
+    expect(JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))).toHaveLength(1)
+    await app.close()
+    await launch(format === 'ember.session')
+    await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
+  })
+}
 
 test('交接包与 Markdown 真实导出，复制不改动系统剪贴板', async () => {
   const output = join(directory, 'handoff.json')
   await app.evaluate(({ dialog, clipboard }, filePath) => {
-    dialog.showSaveDialog = async () => ({ canceled: false, filePath })
+    dialog.showSaveDialog = async (...args: [Electron.BaseWindow, Electron.SaveDialogOptions] | [Electron.SaveDialogOptions]) => {
+      const options = args.length === 2 ? args[1] : args[0]
+      ;(globalThis as unknown as { testDefaultPath: string }).testDefaultPath = options.defaultPath ?? ''
+      return { canceled: false, filePath }
+    }
     clipboard.writeText = async text => { (globalThis as unknown as { testClipboard: string }).testClipboard = text }
   }, output)
   await page.getByRole('button', { name: '带走这段对话' }).click()
   await page.getByLabel('接续目标').selectOption('NewMax')
-  await page.getByRole('button', { name: '导出 Ember 包', exact: true }).click()
+  await page.getByRole('button', { name: '导出 Staithe 包', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
-  expect(JSON.parse(await readFile(output, 'utf8')).format).toBe('ember.session')
+  expect(JSON.parse(await readFile(output, 'utf8')).format).toBe('staithe.session')
+  expect(await app.evaluate(() => (globalThis as unknown as { testDefaultPath: string }).testDefaultPath)).toBe(`staithe-${demoSessions[0].id}.staithe.json`)
   await page.getByRole('button', { name: '导出 Markdown' }).click()
   await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
-  expect(await readFile(output, 'utf8')).toContain('目标：NewMax')
+  const markdown = await readFile(output, 'utf8')
+  expect(markdown).toContain('目标：NewMax')
+  expect(markdown).toContain('# Staithe 上下文交接')
   await page.getByRole('button', { name: '复制交接文本' }).click()
   await expect(page.getByRole('status')).toContainText('已复制交接文本')
   expect(await app.evaluate(() => (globalThis as unknown as { testClipboard: string }).testClipboard)).toContain('不是原生会话恢复')
-  await page.screenshot({ path: 'test-results/ember-handoff.png' })
+  await page.screenshot({ path: 'test-results/staithe-handoff.png' })
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).not.toBeVisible()
 })
 
-test('接收本地深链，只定位会话而不执行任意链接', async () => {
-  await app.evaluate(({ app }) => app.emit('open-url', { preventDefault() {} }, 'newmax-ember://session/demo-migration'))
-  await expect(page.getByRole('heading', { level: 2, name: '迁移前，先画清安全边界' })).toBeVisible()
-  await app.evaluate(({ app }) => app.emit('open-url', { preventDefault() {} }, 'newmax-ember://session/unknown'))
-  await expect(page.getByRole('status')).toContainText('本机没有这段会话')
+test('更名后沿用旧默认档案目录，不重写会话和 ID', async () => {
+  await app.close()
+  const legacyDirectory = join(directory, '@newmax-ai/ember')
+  await mkdir(legacyDirectory, { recursive: true })
+  const previous = { ...demoSessions[0], id: 'before-rename', title: 'Ember 中保存的真实格式夹具', demo: false }
+  const original = JSON.stringify([previous])
+  await writeFile(join(legacyDirectory, 'library.json'), original)
+  // 先重定向 appData，再加载主进程；绝不读取用户的真实目录。
+  const bootstrap = join(directory, 'isolated-start.cjs')
+  await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('appData', ${JSON.stringify(directory)}); import(${JSON.stringify(pathToFileURL(resolve('out/main/index.js')).href)});`)
+  app = await electron.launch({ args: [bootstrap], env: isolatedEnv() })
+  page = await app.firstWindow()
+  await expect(page.getByRole('heading', { level: 2, name: previous.title })).toBeVisible()
+  expect(await app.evaluate(({ app }) => app.getName())).toBe('Staithe')
+  expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(legacyDirectory)
+  expect(await readFile(join(legacyDirectory, 'library.json'), 'utf8')).toBe(original)
 })
+
+for (const scheme of ['newmax-staithe', 'newmax-ember']) {
+  test(`${scheme} 深链支持冷启动、应用事件与第二实例定位`, async () => {
+    await app.close()
+    await launch(false, `${scheme}://session/demo-migration`)
+    await expect(page.getByRole('heading', { level: 2, name: '迁移前，先画清安全边界' })).toBeVisible()
+    await app.evaluate(({ app }, link) => app.emit('open-url', { preventDefault() {} }, link), `${scheme}://session/demo-ember`)
+    await expect(page.getByRole('heading', { level: 2, name: '让思考跨越工具，继续生长' })).toBeVisible()
+    await app.evaluate(({ app }, link) => app.emit('second-instance', {}, ['staithe', link]), `${scheme}://session/demo-adapter`)
+    await expect(page.getByRole('heading', { level: 2, name: '一份不丢失来源的适配器契约' })).toBeVisible()
+    await app.evaluate(({ app }, link) => app.emit('open-url', { preventDefault() {} }, link), `${scheme}://session/unknown`)
+    await expect(page.getByRole('status')).toContainText('本机没有这段会话')
+  })
+}

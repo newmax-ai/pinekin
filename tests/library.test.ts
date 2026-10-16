@@ -9,7 +9,7 @@ import { demoSessions } from '../src/core/demo'
 const dirs: string[] = []
 afterEach(async () => { await Promise.all(dirs.splice(0).map(d => rm(d, { recursive: true, force: true }))) })
 async function setup() {
-  const dir = await mkdtemp(join(tmpdir(), 'ember-test-')); dirs.push(dir)
+  const dir = await mkdtemp(join(tmpdir(), 'staithe-test-')); dirs.push(dir)
   return { dir, library: new Library(dir) }
 }
 describe('本地档案存储', () => {
