@@ -20,7 +20,7 @@ IPC 只有 `previewImport()`、`confirmImport(token)`、`cancelImport(token)`，
 | Staithe 文本快照 v2 | 合成夹具验证 | 新来源标识、文本、来源摘要与损失报告 | 原始二进制文件、附件、结构化事件树 |
 | Cindy `.cshare` / `.xdtshare` | 固定源码格式 + 合成夹具验证 | 未加密、普通单会话 v1 包的文本投影 | 加密包、Orca 协同包、v2/未来格式、原生恢复 |
 | DeepSeek 消费者聊天导出 | 官方有导出说明；Staithe 未支持 | 无 | 缺少官方 schema 或获授权脱敏样本，不能猜测适配 |
-| Codex 单文件 legacy JSONL | 固定源码布局 + 合成夹具验证 | 顶层消息文本及来源报告，原件保留 | 分页、继承、子会话边界；不重建有效分支、不启动 resume |
+| Codex 独立主会话 JSONL / JSONL.ZST | 合成回归 + 少量获授权本机文件抽样 | legacy 或从 0 连续编号、无引用的分页主会话；有界解压、原件与来源报告 | 有引用/缺序号的分页、继承、子会话、超限文件；不重建有效分支、不启动 resume |
 | Claude Code 日志 | 尚未实现 | 无 | 不自动扫描本地日志、不启动 resume |
 
 Codex 的消息/事件去重、压缩/回退语义及独立限额见 [Codex 专项说明](codex-import.md)。下列 ZIP 和清单规则仅用于 Cindy，不套用到 Codex JSONL。

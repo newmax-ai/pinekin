@@ -139,7 +139,7 @@ export function App() {
       <p>验证状态：合成夹具通过，未经第三方客户端实机验证。</p>
       <ul className="import-warnings">{importPreview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
       <p className="privacy-note">确认后在本机明文保存原始文件和文本档案，原件可能包含附件、工作区路径及敏感信息。不会上传、执行历史指令或修改来源客户端。原件不随交接导出。</p>
-      <p className="privacy-note">支持 Staithe / Ember 包、未加密 Cindy v1 分享包与 Codex 单文件 legacy JSONL。DeepSeek 官方导出格式尚待样本验证；不支持原生恢复。</p>
+      <p className="privacy-note">支持 Staithe / Ember 包、未加密 Cindy v1 分享包与 Codex 单文件 JSONL / JSONL.ZST（仅独立主会话）。DeepSeek 官方导出格式尚待样本验证；不支持原生恢复。</p>
       {importPreview.duplicate && <p>这个文件已导入，将打开已有档案，不新增副本。</p>}
       <div className="export-actions"><button className="button" disabled={busy} onClick={cancelImport}>取消导入</button>
         <button className="button primary" disabled={busy} onClick={confirmImport}>{importPreview.duplicate ? '打开已有档案' : '确认保存到本地'}</button></div>

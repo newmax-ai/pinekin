@@ -6,7 +6,8 @@ import { makeBundle } from '../src/core/session'
 import { demoSessions } from '../src/core/demo'
 import { Library } from '../src/main/library'
 import { ImportCoordinator } from '../src/main/imports'
-import { codexFixture, codexThreadId } from './fixtures/codex'
+import { codexFixture, codexThreadId, codexPaginatedFixture } from './fixtures/codex'
+import { zstdCompressSync } from 'node:zlib'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true }))) })
@@ -50,6 +51,19 @@ describe('用户确认的只读导入', () => {
     const corrupt = Buffer.concat([bytes, Buffer.from('{"truncated":')])
     await expect(importer.prepare(corrupt)).rejects.toThrow()
     expect(await readdir(join(directory, 'imports'))).toEqual([preview.sha256])
+  })
+  it('压缩分页日志保存压缩原件并按压缩字节去重，不悄悄替换成展开内容', async () => {
+    const { directory, importer } = await setup()
+    const bytes = zstdCompressSync(codexPaginatedFixture())
+    const preview = await importer.prepare(bytes)
+    expect(preview).toMatchObject({ sourceName: 'Codex JSONL · Zstandard', byteLength: bytes.length, messageCount: 2 })
+    expect(await readdir(directory)).toEqual([])
+    const imported = await importer.commit(preview.token)
+    expect(imported.session.archive?.adapterVersion).toBe('0.2.0')
+    expect((await readFile(join(directory, 'imports', preview.sha256, 'original.bin'))).equals(bytes)).toBe(true)
+    const again = await importer.prepare(bytes)
+    expect(again.duplicate).toBe(true)
+    expect((await importer.commit(again.token)).session.id).toBe(imported.session.id)
   })
   it('取消、错误 token、过期及已使用 token 都不会产生档案', async () => {
     const { directory, importer } = await setup()

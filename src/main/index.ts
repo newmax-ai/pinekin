@@ -77,7 +77,7 @@ else {
       try {
         const result = await dialog.showOpenDialog(window!, {
           title: '选择会话文件，只读预览后确认导入', properties: ['openFile'],
-          filters: [{ name: 'Staithe / Ember / Cindy / Codex 会话文件', extensions: ['json', 'jsonl', 'cshare', 'xdtshare'] }],
+          filters: [{ name: 'Staithe / Ember / Cindy / Codex 会话文件', extensions: ['json', 'jsonl', 'zst', 'cshare', 'xdtshare'] }],
         })
         assertSender(event)
         if (result.canceled || !result.filePaths[0]) return null

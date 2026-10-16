@@ -4,17 +4,19 @@ import type { ImportPreview, ParsedArchive, Session } from '../core/types'
 import type { Library } from './library'
 import { parseCindy } from './cindy'
 import { isCodexRollout, parseCodex } from './codex'
+import { isZstandard, parseCompressedCodex } from './codex-zstd'
 
 export async function parseArchive(input: Uint8Array): Promise<ParsedArchive> {
   if (input.byteLength > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
   const bytes = Buffer.from(input)
+  if (isZstandard(bytes)) return parseCompressedCodex(bytes)
   if (bytes.subarray(0, 8).equals(Buffer.from('XDTSHARE'))) return parseCindy(bytes)
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   if (isCodexRollout(text)) return parseCodex(text)
   let bundle
   try { bundle = parseBundle(text) }
   catch {
-    throw new Error('文件格式不支持或已损坏。支持 Staithe / Ember 文本包、未加密 Cindy v1 包和 Codex 单文件 JSONL；DeepSeek 导出格式尚待样本验证。')
+    throw new Error('文件格式不支持或已损坏。支持 Staithe / Ember 文本包、未加密 Cindy v1 包和 Codex 独立主会话 JSONL / JSONL.ZST；DeepSeek 导出格式尚待样本验证。')
   }
   const session: Session = bundle.session
   return { session, adapterId: 'staithe-bundle', adapterVersion: '0.1.0',

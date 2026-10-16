@@ -7,7 +7,7 @@
 | 桌面主进程 | `src/main/index.ts` | 窗口、受限 IPC、原生选择框、剪贴板、协议入口 |
 | 选择文件读取 | `src/main/import-file.ts` | 非阻塞打开、句柄类型检查、有界读取快照 |
 | 导入协调 | `src/main/imports.ts` | 内容识别、快照、预览 token、失效/确认与重复检测 |
-| 外部格式解析 | `src/main/cindy.ts`、`codex.ts`、`zip.ts` | 固定格式映射、ZIP / JSONL 资源约束、来源校验、损失报告 |
+| 外部格式解析 | `src/main/cindy.ts`、`codex.ts`、`codex-zstd.ts`、`zip.ts` | 固定格式映射、ZIP / Zstandard / JSONL 资源约束、来源校验、损失报告 |
 | 本地档案服务 | `src/main/library.ts` | 串行入库、原件与记录整体发布、旧库读取和损坏保护 |
 | 安全桥 | `src/preload/index.ts` | 只暴露具名能力，不暴露任意 IPC、路径读写或 Node.js |
 | 会话核心 | `src/core/` | 文本模型、版本校验、搜索、交接文本、深链、来源能力 |
@@ -45,7 +45,7 @@ v2 只接受 `staithe.session`，扩展 Cindy / DeepSeek 来源标识和可选�
 
 ## 四种动作分开建模与验收
 
-1. **档案导入**：能阅读和保存历史；当前 Cindy 和 Codex JSONL 仅合成夹具验证，不代表全部真实版本兼容。Codex 为追加日志文本投影，不重建当前有效分支。
+1. **档案导入**：能阅读和保存历史；Cindy 与 Codex 均有合成回归，Codex 另做过少量获授权本机文件只读抽样，不代表全部版本兼容。Codex 支持受限 Zstandard 以及序号从 0 连续、无继承的分页主会话，但始终是追加日志文本投影，不重建有效分支。
 2. **上下文交接**：把文本原文、角色与损失报告交给目标工具；不自动发送，不保证目标模型抵抗提示注入。
 3. **打开来源**：当前只有 Staithe 自身本地定位；未接入来源客户端打开入口。
 4. **原生恢复／迁移**：涉及原会话 ID、工作区、工具状态、权限、模型、客户端版本和正式恢复入口；本版全部未支持。
@@ -79,4 +79,4 @@ v2 只接受 `staithe.session`，扩展 Cindy / DeepSeek 来源标识和可选�
 - 桌面：真实 Electron + preload + IPC + 文件服务；对话框与剪贴板替换，只用合成数据。Cindy 第三方客户端自身未在测试中运行。
 - 覆盖率阈值 80%，包括 `src/core`、主进程纯解析/存储/文件读取模块和 App；类型、演示数据、启动事件编排及 preload 不计入数值，后两者通过 E2E 验证主要路径。这不是全仓覆盖率承诺。
 
-验收见 [第一批只读导入验收](import-verification.md) 和 [Codex 后续验收](codex-verification.md)；Codex 字段与不支持范围见 [专项格式说明](codex-import.md)。
+验收见 [第一批只读导入](import-verification.md)、[Codex 首批](codex-verification.md) 和 [获授权本机抽样及格式修正](local-validation-2026-10-17.md)；Codex 当前支持边界见 [专项格式说明](codex-import.md)。

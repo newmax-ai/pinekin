@@ -1,7 +1,8 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
 import { cindyFixture } from '../fixtures/cindy'
-import { codexFixture, codexThreadId } from '../fixtures/codex'
+import { codexFixture, codexThreadId, codexPaginatedFixture } from '../fixtures/codex'
+import { zstdCompressSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -151,6 +152,27 @@ test('Codex JSONL 只读导入不重复事件副本，可导出带损失报告�
   await page.keyboard.press('Escape')
   await app.close(); await launch()
   await expect(page.getByRole('heading', { level: 2, name: `Codex · ${codexThreadId.slice(0, 8)}` })).toBeVisible()
+})
+
+test('Codex 压缩分页根日志经 Electron 有界解码与确认，原件不被展开替换', async () => {
+  const file = join(directory, 'synthetic-rollout.jsonl.zst')
+  const bytes = zstdCompressSync(codexPaginatedFixture())
+  await writeFile(file, bytes)
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = async (...args: [Electron.BaseWindow, Electron.OpenDialogOptions] | [Electron.OpenDialogOptions]) => {
+      const options = args.length === 2 ? args[1] : args[0]
+      if (!options.filters?.some(filter => filter.extensions.includes('zst'))) throw new Error('选择框缺少 Zstandard 类型')
+      return { canceled: false, filePaths: [filePath] }
+    }
+  }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Zstandard · 2 条消息')
+  await expect(page.getByRole('dialog')).toContainText('分页')
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: `Codex · ${codexThreadId.slice(0, 8)}` })).toBeVisible()
+  const folders = await readdir(join(directory, 'imports'))
+  expect(folders).toHaveLength(1)
+  expect((await readFile(join(directory, 'imports', folders[0], 'original.bin'))).equals(bytes)).toBe(true)
 })
 
 test('取消文件选择与加密包拒绝不写入档案', async () => {

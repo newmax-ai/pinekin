@@ -15,6 +15,11 @@ export function codexMeta(patch: Record<string, unknown> = {}) {
 export function codexMessage(role = 'user', content: unknown = [{ type: 'input_text', text: '<script>不执行</script> 合成 Codex 问题' }], patch: Record<string, unknown> = {}) {
   return codexRecord('response_item', { type: 'message', role, content, ...patch })
 }
+export function codexPaginatedFixture(): Buffer {
+  const rows = codexFixture().toString().trim().split('\n').map(line => JSON.parse(line))
+  rows[0].payload.history_mode = 'paginated'
+  return codexFixture(rows.map((row, ordinal) => ({ ...row, ordinal })))
+}
 export function codexFixture(records: unknown[] = [
   codexMeta(),
   codexRecord('turn_context', { cwd: '/synthetic/project', approval_policy: 'never', sandbox_policy: { type: 'read-only' }, model: 'synthetic-model' }),

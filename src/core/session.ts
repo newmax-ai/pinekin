@@ -60,7 +60,7 @@ export const adapters: SessionAdapter[] = [
       capabilities: { readLocal: false, importArchive: false, nativeResume: false, deepLink: false },
       archiveStatus: 'unknown' as const,
     })),
-  { id: 'codex', name: 'Codex', archiveStatus: 'fixture-tested', constraints: '仅用户选择的单文件 legacy JSONL 文本投影；不扫描目录，不支持原生恢复',
+  { id: 'codex', name: 'Codex', archiveStatus: 'fixture-tested', constraints: '仅独立主会话 JSONL / JSONL.ZST 文本投影；分页须从 0 连续编号且无引用，不扫描目录或恢复运行态',
     capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
   { id: 'cindy', name: 'Cindy', archiveStatus: 'fixture-tested', constraints: '仅未加密普通 v1 分享包；合成夹具验证，原生恢复不支持',
     capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },

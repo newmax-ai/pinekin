@@ -56,7 +56,7 @@ export function isCodexRollout(text: string): boolean {
 export function parseCodex(text: string): ParsedArchive {
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
   const warnings = new Set<string>([
-    '仅固定源码结构的合成夹具验证，CLI 版本是输入声明；不是原生恢复，未验证真实 Codex 客户端。',
+    '格式解析经合成夹具验证，CLI 版本只作为输入声明；这不是原生恢复，未验证客户端运行状态迁移。',
     '仅提取顶层 response_item.message；这是追加日志的文本投影，不保证等同当前有效分支或完整可恢复上下文。',
     '工作区路径、指令、权限、工具状态、消息 ID/时间/阶段及未映射字段保存在本地原件，不沿引用读取文件，不执行历史内容。',
     '标题由会话 ID 生成，不是来源客户端标题；原始 JSONL 不随文本包或交接导出。',
@@ -66,6 +66,7 @@ export function parseCodex(text: string): ParsedArchive {
   const ids = new Set<string>()
   let meta: z.infer<typeof metaSchema> | undefined
   let updatedAt = -Infinity, line = 0, offset = 0
+  let expectedOrdinal: number | undefined
   while (offset < text.length) {
     line += 1
     if (line > CODEX_LIMITS.lines) throw new Error('Codex 日志行数超过 20,000 行，未截断导入')
@@ -76,11 +77,20 @@ export function parseCodex(text: string): ParsedArchive {
     if (Buffer.byteLength(raw) > CODEX_LIMITS.lineBytes) throw new Error(`Codex 第 ${line} 行超过单行 512 KiB 预算`)
     if (!raw.trim()) continue
     const record = checked(recordSchema, decodeLine(raw, line), line)
+    if (expectedOrdinal !== undefined) {
+      if (record.ordinal !== expectedOrdinal) throw new Error(`Codex 第 ${line} 行分页记录序号缺失或不连续，不能将片段当作完整单文件`)
+      expectedOrdinal += 1
+    }
     updatedAt = Math.max(updatedAt, Date.parse(record.timestamp))
     if (!meta) {
       if (record.type !== 'session_meta') throw new Error('Codex 首条记录必须是 session_meta')
       meta = checked(metaSchema, record.payload, line)
-      if (meta.history_mode !== undefined && meta.history_mode !== 'legacy') throw new Error('Codex 分页或未知历史模式尚未支持，请选择单文件 legacy 日志')
+      if (meta.history_mode !== undefined && !['legacy', 'paginated'].includes(meta.history_mode)) throw new Error('Codex 未知历史模式尚未支持')
+      if (meta.history_mode === 'paginated') {
+        if (record.ordinal !== 0) throw new Error('Codex 分页日志首条记录序号必须为 0，不能导入缺少前缀的片段')
+        expectedOrdinal = 1
+        warnings.add('分页日志仅作为无外部历史引用、序号从 0 连续的单文件文本档案读取；不重放分页状态，也不保证会话已结束。')
+      }
       if (meta.history_base != null || meta.forked_from_id != null) throw new Error('Codex 继承其他历史的日志尚未支持，不会读取引用文件')
       if (meta.parent_thread_id != null || meta.subagent_history_start_ordinal != null ||
         (meta.session_id !== undefined && meta.session_id !== meta.id) ||
@@ -143,7 +153,7 @@ export function parseCodex(text: string): ParsedArchive {
   if (counts.responses) warnings.add(`未映射响应项：${counts.responses} 条。当前不能解释的类型保存在原件中。`)
   if (counts.context) warnings.add(`上下文、用量、Agent 间消息或其他状态记录未映射：${counts.context} 条，仅保存在原件中。`)
   if (counts.blocks) warnings.add(`未映射内容块：${counts.blocks} 个。图片、音频和未知结构仅显示占位符，不联网或读取本地引用。`)
-  return { adapterId: 'codex-rollout', adapterVersion: '0.1.0', sourceName: 'Codex JSONL',
+  return { adapterId: 'codex-rollout', adapterVersion: '0.2.0', sourceName: 'Codex JSONL',
     sourceVersion: meta.cli_version, originalSessionId: meta.id, warnings: [...warnings],
     session: sessionSchema.parse({ id: meta.id, title: `Codex · ${meta.id.slice(0, 8)}`, source: 'codex',
       updatedAt: new Date(updatedAt).toISOString(), tags: ['Codex', '文本投影'], messages, demo: false }),

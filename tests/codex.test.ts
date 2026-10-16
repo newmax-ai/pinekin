@@ -6,7 +6,7 @@ const parse = (records: unknown[]) => parseArchive(codexFixture(records))
 describe('Codex 单文件 JSONL 文本投影', () => {
   it('按内容识别，保留来源 ID/声明版本/原始时间，不重复导入事件副本', async () => {
     const result = await parseArchive(codexFixture())
-    expect(result).toMatchObject({ adapterId: 'codex-rollout', adapterVersion: '0.1.0', sourceName: 'Codex JSONL',
+    expect(result).toMatchObject({ adapterId: 'codex-rollout', adapterVersion: '0.2.0', sourceName: 'Codex JSONL',
       originalSessionId: codexThreadId, sourceVersion: '0.0.0-synthetic', session: {
         source: 'codex', title: `Codex · ${codexThreadId.slice(0, 8)}`, updatedAt: '2026-10-16T00:00:05.000Z', demo: false,
         messages: [{ role: 'user', content: '<script>不执行</script> 合成 Codex 问题' }, { role: 'assistant', content: '这是合成答复。' }],
