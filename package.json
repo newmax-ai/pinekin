@@ -1,0 +1,74 @@
+{
+  "name": "@newmax-ai/ember",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ember — 换个地方，继续思考。",
+  "author": "newmax-ai",
+  "type": "module",
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "node scripts/desktop.mjs dev",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "node scripts/desktop.mjs preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "pack": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "latest",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "@vitest/coverage-v8": "5.0.5",
+    "electron": "44.8.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "6.0.0",
+    "jsdom": "latest",
+    "typescript": "^5.9.0",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "build": {
+    "appId": "ai.newmax.ember",
+    "productName": "Ember",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "protocols": [
+      {
+        "name": "Ember 本地会话",
+        "schemes": [
+          "newmax-ember"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
+  }
+}
