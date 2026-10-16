@@ -22,6 +22,7 @@
   "dependencies": {
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "yauzl": "3.3.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -31,6 +32,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/yauzl": "3.4.0",
     "@vitejs/plugin-react": "6.1.2",
     "@vitest/coverage-v8": "5.0.5",
     "electron": "44.8.0",

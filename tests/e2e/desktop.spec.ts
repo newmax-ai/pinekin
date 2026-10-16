@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
+import { cindyFixture } from '../fixtures/cindy'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -55,21 +56,78 @@ for (const format of ['staithe.session', 'ember.session']) {
     await app.evaluate(({ dialog }, filePath) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
     }, file)
-    await page.getByRole('button', { name: '导入 Staithe 包' }).click()
+    await page.getByRole('button', { name: '导入会话文件' }).click()
+    await expect(page.getByRole('dialog', { name: '确认导入档案' })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: imported.title })).not.toBeVisible()
+    await page.getByRole('button', { name: '确认保存到本地' }).click()
     await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
     await expect(page.locator('.message-body p')).toHaveText(imported.messages[0].content)
-    const stored = JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))
-    expect(stored).toHaveLength(1)
-    expect(stored[0].demo).toBe(false)
+    const folders = await readdir(join(directory, 'imports'))
+    expect(folders).toHaveLength(1)
+    const stored = JSON.parse(await readFile(join(directory, 'imports', folders[0], 'record.json'), 'utf8'))
+    expect(stored.session.demo).toBe(false)
     await writeFile(file, '{"invalid":true}')
-    await page.getByRole('button', { name: '导入 Staithe 包' }).click()
+    await page.getByRole('button', { name: '导入会话文件' }).click()
     await expect(page.getByRole('status')).toBeVisible()
-    expect(JSON.parse(await readFile(join(directory, 'library.json'), 'utf8'))).toHaveLength(1)
+    expect(await readdir(join(directory, 'imports'))).toEqual(folders)
     await app.close()
     await launch(format === 'ember.session')
     await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
   })
 }
+
+test('Cindy 文件预览、取消、快照确认、去重与文本交接', async () => {
+  const file = join(directory, 'synthetic.cshare')
+  const bytes = cindyFixture()
+  await writeFile(file, bytes)
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
+  }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Cindy · 2 条消息')
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  expect(await readdir(directory)).not.toContain('imports')
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await writeFile(file, '选择后被修改的文件不能替代预览快照')
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'Cindy 合成档案' })).toBeVisible()
+  await expect(page.locator('.message-body p').first()).toHaveText('<script>不执行</script> 合成的 Cindy 会话')
+  const folders = await readdir(join(directory, 'imports'))
+  expect(folders).toHaveLength(1)
+  expect(await readFile(join(directory, 'imports', folders[0], 'original.bin'))).toEqual(bytes)
+  await writeFile(file, bytes)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('这个文件已导入')
+  await page.getByRole('button', { name: '打开已有档案' }).click()
+  await expect(page.getByRole('status')).toContainText('未创建副本')
+  await page.getByRole('complementary').getByRole('button', { name: /^Cindy/ }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'Cindy 合成档案' })).toBeVisible()
+  await page.getByText('导入报告 · 仅文本档案').click()
+  await expect(page.locator('.archive-report')).toContainText('db-only')
+  await page.getByRole('button', { name: '带走这段对话' }).click()
+  await expect(page.locator('.handoff-preview')).toContainText('原始文件不随交接导出')
+  await page.keyboard.press('Escape')
+  const badToken = await page.evaluate(async () => {
+    try { await window.staithe.confirmImport('../outside'); return false } catch { return true }
+  })
+  expect(badToken).toBe(true)
+  await app.close(); await launch()
+  await expect(page.getByRole('heading', { level: 2, name: 'Cindy 合成档案' })).toBeVisible()
+})
+
+test('取消文件选择与加密包拒绝不写入档案', async () => {
+  await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }) })
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).not.toBeVisible()
+  const file = join(directory, 'encrypted.cshare'), bytes = cindyFixture()
+  bytes[9] = 1; await writeFile(file, bytes)
+  await app.evaluate(({ dialog }, filePath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] }) }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('status')).toContainText('暂不支持加密')
+  expect(await readdir(directory)).not.toContain('imports')
+})
 
 test('交接包与 Markdown 真实导出，复制不改动系统剪贴板', async () => {
   const output = join(directory, 'handoff.json')

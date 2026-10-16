@@ -4,12 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { open } from 'node:fs/promises'
 import { z } from 'zod'
 import { Library } from './library'
+import { ImportCoordinator } from './imports'
+import { readImportFile } from './import-file'
 import { MAX_BYTES, idSchema, makeBundle, makeHandoff, parseDeepLink } from '../core/session'
 
 const here = dirname(fileURLToPath(import.meta.url))
 let window: BrowserWindow | null = null
 let rendererReady = false
 let pendingId: string | null = null
+let importer: ImportCoordinator | undefined
+let choosingImport = false
 // 显示名与存储身份分离，沿用旧包名对应的目录，不搬动或重写已有档案。
 const dataOverride = !app.isPackaged && (process.env.STAITHE_DATA_DIR || process.env.EMBER_DATA_DIR)
 app.setPath('userData', dataOverride || join(app.getPath('appData'), '@newmax-ai/ember'))
@@ -38,8 +42,9 @@ function createWindow() {
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
+  window.webContents.on('did-start-loading', () => importer?.clear())
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  window.on('closed', () => { window = null; rendererReady = false })
+  window.on('closed', () => { window = null; rendererReady = false; importer?.clear() })
   if (import.meta.env.DEV && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void window.loadFile(join(here, '../renderer/index.html'))
 }
@@ -54,6 +59,8 @@ else {
   process.argv.forEach(deliverLink)
   void app.whenReady().then(() => {
     const library = new Library(app.getPath('userData'))
+    const imports = new ImportCoordinator(library)
+    importer = imports
     ipcMain.handle('staithe:list', event => { assertSender(event); return library.list() })
     ipcMain.handle('staithe:ready', event => {
       assertSender(event); rendererReady = true
@@ -62,26 +69,28 @@ else {
     ipcMain.handle('staithe:copy', (event, text: unknown) => {
       assertSender(event); return clipboard.writeText(z.string().max(MAX_BYTES * 2).parse(text))
     })
-    ipcMain.handle('staithe:import', async event => {
+    ipcMain.handle('staithe:import-preview', async event => {
       assertSender(event)
-      const result = await dialog.showOpenDialog(window!, {
-        title: '导入 Staithe 会话包（兼容 Ember）', properties: ['openFile'], filters: [{ name: 'Staithe / Ember 会话包', extensions: ['json'] }],
-      })
-      if (result.canceled || !result.filePaths[0]) return null
-      const file = await open(result.filePaths[0], 'r')
+      if (choosingImport) throw new Error('已有文件选择或导入预览正在处理')
+      choosingImport = true
+      imports.clear()
       try {
-        if (!(await file.stat()).isFile()) throw new Error('请选择普通文件')
-        // 有界读取，避免文件选择后被替换或增长而造成无界内存分配。
-        const buffer = Buffer.alloc(MAX_BYTES + 1)
-        let count = 0
-        while (count < buffer.length) {
-          const { bytesRead } = await file.read(buffer, count, buffer.length - count, null)
-          if (bytesRead === 0) break
-          count += bytesRead
-        }
-        if (count > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
-        return await library.importText(buffer.subarray(0, count).toString('utf8'))
-      } finally { await file.close() }
+        const result = await dialog.showOpenDialog(window!, {
+          title: '选择会话文件，只读预览后确认导入', properties: ['openFile'],
+          filters: [{ name: 'Staithe / Ember / Cindy 会话文件', extensions: ['json', 'cshare', 'xdtshare'] }],
+        })
+        assertSender(event)
+        if (result.canceled || !result.filePaths[0]) return null
+        const buffer = await readImportFile(result.filePaths[0])
+        assertSender(event)
+        return await imports.prepare(buffer)
+      } finally { choosingImport = false }
+    })
+    ipcMain.handle('staithe:import-confirm', (event, token: unknown) => {
+      assertSender(event); return imports.commit(z.uuid().parse(token))
+    })
+    ipcMain.handle('staithe:import-cancel', (event, token: unknown) => {
+      assertSender(event); imports.cancel(z.uuid().parse(token))
     })
     ipcMain.handle('staithe:export', async (event, rawId: unknown, rawFormat: unknown, rawTarget: unknown) => {
       assertSender(event)
@@ -91,12 +100,13 @@ else {
       const session = (await library.list()).find(s => s.id === id)
       if (!session) throw new Error('未找到会话')
       const isBundle = format === 'bundle'
+      const content = isBundle ? JSON.stringify(makeBundle(session), null, 2) : makeHandoff(session, target)
+      if (isBundle && Buffer.byteLength(content) > MAX_BYTES) throw new Error('文本包超过 5 MB，无法保证重新导入；请改用 Markdown')
       const result = await dialog.showSaveDialog(window!, {
         title: '导出前请检查是否包含敏感内容', defaultPath: `staithe-${id}.${isBundle ? 'staithe.json' : 'md'}`,
         filters: [{ name: isBundle ? 'Staithe 会话包' : 'Markdown', extensions: [isBundle ? 'json' : 'md'] }],
       })
       if (result.canceled || !result.filePath) return false
-      const content = isBundle ? JSON.stringify(makeBundle(session), null, 2) : makeHandoff(session, target)
       const file = await open(result.filePath, 'w', 0o600)
       try { await file.writeFile(content, 'utf8') } finally { await file.close() }
       return true

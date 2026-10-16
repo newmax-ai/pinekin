@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ExportFormat, Session, Source, Target } from '../../core/types'
+import type { ExportFormat, ImportPreview, Session, Source, Target } from '../../core/types'
 import { adapters, filterSessions, makeDeepLink, makeHandoff } from '../../core/session'
 
-const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', other: '其他来源' }
+const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 
 export function App() {
@@ -16,6 +16,8 @@ export function App() {
   const [handoff, setHandoff] = useState(false)
   const [target, setTarget] = useState<Target>('通用')
   const modal = useRef<HTMLDialogElement>(null)
+  const importModal = useRef<HTMLDialogElement>(null)
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const visible = filterSessions(sessions, query, source)
   const selected = visible.find(s => s.id === selectedId) ?? visible[0]
 
@@ -33,18 +35,28 @@ export function App() {
     })
   }, [sessions, loaded])
   useEffect(() => { if (handoff) modal.current?.showModal() }, [handoff])
+  useEffect(() => { if (importPreview) importModal.current?.showModal() }, [importPreview])
 
   async function perform(action: () => Promise<void>) {
     setBusy(true); setStatus('')
     try { await action() } catch (error) { setStatus(error instanceof Error ? error.message : String(error)) }
     finally { setBusy(false) }
   }
-  function importBundle() {
+  function previewImport() {
+    void perform(async () => { setImportPreview(await window.staithe.previewImport()) })
+  }
+  function cancelImport() {
+    if (busy || !importPreview) return
+    const token = importPreview.token
+    void perform(async () => { await window.staithe.cancelImport(token); setImportPreview(null) })
+  }
+  function confirmImport() {
+    if (!importPreview) return
     void perform(async () => {
-      const imported = await window.staithe.importBundle()
-      if (!imported) return
-      setSessions(await window.staithe.list()); setSelectedId(imported.id); setQuery(''); setSource('all')
-      setStatus('已导入本地档案，未修改来源客户端')
+      const result = await window.staithe.confirmImport(importPreview.token)
+      setImportPreview(null)
+      setSessions(await window.staithe.list()); setSelectedId(result.session.id); setQuery(''); setSource('all')
+      setStatus(result.duplicate ? '已打开相同文件的已有档案，未创建副本' : '已导入本地档案并保留原件，未修改来源客户端')
     })
   }
   function exportSession(format: ExportFormat) {
@@ -80,7 +92,7 @@ export function App() {
     </aside>
     <main>
       <header className="topbar"><span>个人档案 <span className="slash">/</span> 会话</span>
-        <button className="button small" disabled={busy} onClick={importBundle}><span aria-hidden="true">＋</span> 导入 Staithe 包</button>
+        <button className="button small" disabled={busy} onClick={previewImport}><span aria-hidden="true">＋</span> 导入会话文件</button>
       </header>
       <section className="intro"><div><div className="eyebrow">A HOME FOR YOUR THOUGHTS</div>
         <h1>换个地方，<span>继续思考。</span></h1><p>收好散落的对话，把下一步留给可能性。</p></div>
@@ -106,6 +118,10 @@ export function App() {
             <div className="detail-header"><div className="eyebrow">{selected.demo ? 'DEMO CONVERSATION · 演示数据' : 'IMPORTED ARCHIVE · 本地档案'}</div>
               <h2>{selected.title}</h2><div className="detail-meta"><span>{names[selected.source]}</span><span>{selected.messages.length} 条消息</span><span>{selected.updatedAt.slice(0, 10)}</span></div>
             </div>
+            {selected.archive && <details className="archive-report"><summary>导入报告 · 仅文本档案</summary>
+              <p>适配器：{selected.archive.adapterId} · {selected.archive.adapterVersion}。原始文件不随交接导出。</p>
+              <ul>{selected.archive.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+            </details>}
             <div className="messages">{selected.messages.map((message, index) => <article key={index} className={`message ${message.role}`}>
               <div className="avatar" aria-hidden="true">{message.role === 'user' ? 'J' : '✦'}</div><div className="message-body"><div className="message-role">{roles[message.role]} <span>{String(index + 1).padStart(2, '0')}</span></div><p>{message.content}</p></div>
             </article>)}</div>
@@ -114,8 +130,21 @@ export function App() {
           </> : <div className="empty detail-empty">选一段对话，让思考继续。</div>}
         </section>
       </div>
-      {!handoff && status && <div className="toast" role="status">{status}</div>}
+      {!handoff && !importPreview && status && <div className="toast" role="status">{status}</div>}
     </main>
+    {importPreview && <dialog ref={importModal} className="handoff" aria-labelledby="import-title" onCancel={event => { event.preventDefault(); cancelImport() }}>
+      <div className="dialog-top"><span className="eyebrow">READ-ONLY IMPORT</span></div>
+      <h2 id="import-title">确认导入档案</h2>
+      <p className="dialog-description">{importPreview.title}<br />{importPreview.sourceName} · {importPreview.messageCount} 条消息 · {importPreview.byteLength} 字节</p>
+      <p>验证状态：合成夹具通过，未经第三方客户端实机验证。</p>
+      <ul className="import-warnings">{importPreview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+      <p className="privacy-note">确认后在本机明文保存原始文件和文本档案，原件可能包含附件、工作区路径及敏感信息。不会上传、执行历史指令或修改来源客户端。原件不随交接导出。</p>
+      <p className="privacy-note">支持 Staithe / Ember 包与未加密 Cindy v1 分享包。DeepSeek 官方导出格式尚待样本验证；不支持原生恢复。</p>
+      {importPreview.duplicate && <p>这个文件已导入，将打开已有档案，不新增副本。</p>}
+      <div className="export-actions"><button className="button" disabled={busy} onClick={cancelImport}>取消导入</button>
+        <button className="button primary" disabled={busy} onClick={confirmImport}>{importPreview.duplicate ? '打开已有档案' : '确认保存到本地'}</button></div>
+      {status && <div className="dialog-status" role="status">{status}</div>}
+    </dialog>}
     {handoff && selected && <dialog ref={modal} className="handoff" aria-labelledby="handoff-title" onCancel={event => { event.preventDefault(); setHandoff(false) }}>
       <div className="dialog-top"><span className="eyebrow">CONTINUE ELSEWHERE</span><button className="close" aria-label="关闭交接面板" onClick={() => setHandoff(false)}>×</button></div>
       <h2 id="handoff-title">让这段思考，有下文。</h2><p className="dialog-description">带走完整文本，交给下一个工具继续。<br />这不是原生恢复，不会迁移工具状态、附件或权限。</p>

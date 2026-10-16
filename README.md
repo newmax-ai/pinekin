@@ -6,27 +6,31 @@ Staithe 是一个独立的、本地优先的 AI 会话档案桌面客户端，�
 
 仓库：`https://github.com/newmax-ai/staithe`
 
-> 当前为可运行的桌面骨架，不是已经完成所有客户端迁移的正式产品。启动时展示 3 段明确标记的虚构演示会话，不读取任何真实客户端目录。
+> 当前是桌面原型与第一批只读导入验证，不是已经完成所有客户端迁移的正式产品。启动时展示 3 段明确标记的虚构演示会话，不读取任何真实客户端目录。外部格式目前仅完成合成夹具验证。
 
 ## 已实现
 
-- Electron + React + TypeScript 桌面应用。
-- 会话列表、来源筛选、标题 / 标签 / 正文全文搜索、纯文本详情。
-- 用户主动选择 `.staithe.json` 文件导入，兼容旧 `.ember.json` 包；严格版本 / 字段校验，5 MB 上限。
-- 导入档案保存到 Electron `userData` 下的 `library.json`，串行写入、原子替换；原始文件不被修改。
-- 导出 Staithe 会话包；导出 Markdown 或复制上下文交接文本，支持选择通用、NewMax、Claude Code、Codex 作为文本交接目标。
-- `newmax-staithe://session/<本地ID>` 会话定位，兼容旧 `newmax-ember://` 链接；支持冷启动参数、macOS `open-url` 与第二实例事件处理。
-- 预留客户端适配器接口，能力显式声明，尚未实现的能力均为 `false`。
+- Electron + React + TypeScript 桌面应用；会话列表、来源筛选、标题 / 标签 / 正文搜索、纯文本详情。
+- 「导入会话文件」：用户选文件 → 只读预览来源和损失 → 明确确认 → 保存原件与文本档案；取消不落盘。
+- Staithe 文本包 v1 / v2，兼容旧 Ember v1 包；严格版本和字段校验。
+- **Cindy `.cshare` / `.xdtshare` 未加密普通 v1 包**的文本投影。固定官方源码提交、合成夹具验证；加密包、Orca 协同包及未来版本明确拒绝，尚未用真实客户端导出包验收。
+- 5 MiB 输入上限；ZIP 展开、累计压缩数据处理量、条目数、压缩比与路径限制；逐文件 CRC32、SHA-256 和长度校验。不执行或落盘解压包内文件。
+- 新档案保存在 `userData/imports/<sha256>/`，原件与索引暂存后整体原子发布；旧 `library.json` 继续读取，不自动改写。
+- 相同文件重复导入复用已有本地 ID，不按正文合并不同会话；预览后源文件变化不会替代已确认的快照。
+- 导入报告在详情和上下文交接中保留；导出 Staithe 文本包、Markdown 或复制交接文本。支持通用、NewMax、Claude Code、Codex 作为**文本交接目标**。
+- `newmax-staithe://session/<本地ID>` 会话定位，兼容 `newmax-ember://`；支持冷启动参数、macOS `open-url` 与第二实例事件。
 
 ## 明确未实现
 
-- NewMax、Claude Code、Codex 等客户端的真实数据扫描与读取。
+- **DeepSeek 导出适配**：官方有导出入口，但没有已验证的格式契约或脱敏样本；不能用模型 API / Harness 格式代替聊天产品格式。
+- NewMax、Claude Code、Codex 等客户端的真实目录扫描、日志接入与数据库读取。
 - 写入其他客户端数据库、原生会话恢复、自动创建目标会话或跨 harness 跳转。
-- 附件、工具执行状态、权限、模型状态、分支树的迁移。
+- 附件、结构化工具状态、权限、模型状态、分支树的迁移；Cindy 原包中的这些内容只保留在本地原件，不进入文本快照。
+- SQLite、后台解析 worker、大库分页/增量索引、逐会话删除界面与自动备份。
 - 云同步、公开分享页面、自动脱敏、加密存储、AI 自动摘要。
 - 安装包签名、公证、自动更新，以及 Windows / Linux 实机验收。
 
-“选择接续目标”只改变交接文本中的目标说明，不会自动把对话发送给目标应用，也不表示该应用支持原生恢复。
+“选择接续目标”只改变交接文本中的目标说明，不会自动发送给目标应用，也不表示该应用支持原生恢复。导出 v2 文本快照不携带原始二进制文件；不能把它当成完整 Cindy 分享包。
 
 ## 开发
 
@@ -38,40 +42,43 @@ npm run dev
 ```
 
 ```bash
-npm run test:coverage  # 核心逻辑、文件存储、界面组件
+npm run test:coverage  # 核心逻辑、归档解析、文件存储与界面组件
 npm run build         # TypeScript 检查 + Electron 构建
 npm run test:e2e       # 构建后启动真实 Electron，临时档案隔离
 npm run preview       # 运行构建产物
 npm run pack          # 生成未签名的当前平台应用目录
 ```
 
-E2E 通过 Playwright 启动项目安装的 Electron，无需下载浏览器。测试选择框被替换为临时文件路径，真实经过 preload、IPC、文件校验和持久化；不会改动用户档案或系统剪贴板。Linux 运行 E2E 需要图形会话或 Xvfb。CI 使用 macOS 运行桌面测试。
+E2E 通过 Playwright 启动项目安装的 Electron，无需下载浏览器。文件选择框被替换为临时合成文件路径，真实经过 preload、IPC、解析和持久化；系统剪贴板被替换，不影响真实用户档案。Linux E2E 需要图形会话或 Xvfb。CI 使用 macOS 运行桌面测试。
 
-开发模式不注册系统协议。已打包应用使用独立协议 `newmax-staithe`，并保留 `newmax-ember` 兼容入口。本地链接只携带 ID，不包含正文；不能用链接把会话传到其他设备。导入时分配新的本地 ID，因此原链接不会自动跟随导入。
+开发模式不注册系统协议。已打包应用使用独立协议 `newmax-staithe`，保留 `newmax-ember` 兼容入口。本地链接只携带 ID，不包含正文；跨设备需先传递并导入文件包。首次导入会分配新本地 ID，相同字节文件的后续导入复用该 ID。
 
 ## 从 Ember 更名的兼容约定
 
-- 产品名改为 **Staithe**，npm 包名为 `@newmax-ai/staithe`，应用标识为 `ai.newmax.staithe`。
-- 新导出使用 `.staithe.json` 和 `format: "staithe.session"`；仍接受 `format: "ember.session"` 的 v1 包。旧版 Ember 不支持新格式；本次兼容方向是旧包导入新版。
-- 会话内容和已有 ID 不做品牌替换。演示会话的历史 ID `demo-ember` 保留，避免旧链接失效。
-- **存储目录刻意保留旧身份**：默认 `userData` 为系统 `appData` 下的 `@newmax-ai/ember`，不因改名切换目录或自动搬动已有档案。
-- 开发隔离目录优先使用 `STAITHE_DATA_DIR`，兼容 `EMBER_DATA_DIR`；打包应用忽略这两个变量。
-- 首版验证记录保留当时的产品名称，新名称的验收单独记录，不改写历史结果。
+- 产品名 **Staithe**，npm 包名 `@newmax-ai/staithe`，应用标识 `ai.newmax.staithe`。
+- 新导出使用 `.staithe.json` 和 `format: "staithe.session"`。无扩展数据的旧会话继续输出 v1；含新来源或来源报告的文本快照使用 v2。读取旧 `ember.session` v1；不支持 Ember v2。旧版不能读取新版扩展格式。
+- 用户正文和已有 ID 不做品牌替换；演示 ID `demo-ember` 保留。
+- **存储目录保留旧身份**：默认 `userData` 为系统 `appData` 下的 `@newmax-ai/ember`，不因更名自动搬动已有档案。
+- 开发隔离目录优先使用 `STAITHE_DATA_DIR`，兼容 `EMBER_DATA_DIR`；打包应用忽略两者。
+- 历史验收文档保留当时名称，新增验收单独记录，不改写历史结果。
 
 ## 数据与隐私
 
-- 不配置云端、不自动上传、不扫描主目录；数据源目录接入必须另行授权。
-- `library.json` 为明文。文件创建时使用 `0600` 权限，但这不是加密，Windows 权限语义也不同。
-- 导出包和交接文本会包含原始会话内容。请先检查凭据、个人信息和项目机密；当前没有自动脱敏功能。
-- 历史内容以纯文本展示，不执行 HTML、脚本、工具命令或历史指令。交接文本附带不可信历史资料提示，这不是对目标模型的提示注入防护保证。
-- 档案损坏会明确报错，不静默清空后覆盖。需要自行保留和恢复 `library.json`。
+- 不配置云端、不自动上传、不扫描主目录；只读取用户通过文件选择框授权的文件。
+- `library.json`、新档案记录和 `original.bin` 都是**明文**。新归档目录创建权限 `0700`，文件 `0600`；这不是加密，Windows 权限语义也不同。
+- 确认导入会保存整个原始包，可能包含附件、工作区路径和敏感信息；预览明确告知。原件默认不随对外导出传递。
+- 导出的文本仍可能包含凭据、个人信息和项目机密；当前没有自动脱敏。
+- 历史以纯文本展示，不执行 HTML、脚本、工具命令或授权字段，不自动加载外部媒体。交接中的提示不构成对目标模型的提示注入防护保证。
+- 档案损坏明确报错，不静默覆盖。备份时保留 `library.json` 与完整 `imports`；新档案的原件和记录不能分开删除。详细恢复/删除边界见格式文档。
 
 ## 文档
 
 - [架构与迁移边界](docs/architecture.md)
+- [只读导入格式、支持矩阵与资源限制](docs/import-formats.md)
+- [第一批只读导入验收](docs/import-verification.md)
 - [后续接入路线](docs/roadmap.md)
-- [首版验证与已知依赖告警](docs/verification.md)
-- [Staithe 更名验收](docs/rename-verification.md)
+- [产品调研](docs/research/harness-landscape-2026-10-16.md) · [接入方案](docs/research/integration-proposal-2026-10-16.md)
+- [首版验证与依赖告警](docs/verification.md) · [Staithe 更名验收](docs/rename-verification.md)
 - [贡献约束](AGENTS.md)
 
 ## 品牌与许可

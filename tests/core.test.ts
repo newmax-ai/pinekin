@@ -66,6 +66,20 @@ describe('可移植会话', () => {
     }
     expect(() => makeDeepLink('../bad')).toThrow()
   })
+  it('带来源报告的文本快照使用 v2，兼容 v1 但不隐式降级', () => {
+    const s = { ...session(), source: 'cindy' as const, archive: {
+      adapterId: 'cindy-cshare', adapterVersion: '0.1.0', sha256: 'a'.repeat(64),
+      importedAt: '2026-10-16T00:00:00.000Z', originalSessionId: 'source-session',
+      fidelity: 'text-only' as const, warnings: ['附件未映射'],
+    } }
+    const bundle = makeBundle(s)
+    expect(bundle.version).toBe(2)
+    expect(parseBundle(JSON.stringify(bundle)).session).toEqual(s)
+    expect(() => parseBundle(JSON.stringify({ ...bundle, version: 1 }))).toThrow()
+    expect(() => parseBundle(JSON.stringify({ ...bundle, format: 'ember.session' }))).toThrow()
+    expect(makeHandoff(s, '通用')).toContain('附件未映射')
+    expect(makeHandoff(s, '通用')).toContain('原始文件不随交接导出')
+  })
   it('尚未实现的适配器绝不声明原生迁移能力', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(3)
     expect(adapters.every(a => !a.capabilities.nativeResume && !a.capabilities.readLocal)).toBe(true)
