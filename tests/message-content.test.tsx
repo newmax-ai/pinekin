@@ -14,6 +14,10 @@ describe('只读消息排版', () => {
   it('多个代码块与未知语言均作为文本，不执行或自动链接', () => {
     const { container } = render(<MessageContent content={'开始\n```js\nalert(1)\n```\n中间\n~~~unknown\nhttps://example.invalid\n~~~\n结束'} />)
     expect(container.querySelectorAll('pre code')).toHaveLength(2)
+    for (const code of container.querySelectorAll('pre')) {
+      expect(code.classList.contains('ds-scroll-area')).toBe(true)
+      expect(code.tabIndex).toBe(0)
+    }
     expect(screen.getByText('unknown')).toBeTruthy()
     expect(container.querySelector('a')).toBeNull()
     expect(container.querySelectorAll('p')).toHaveLength(3)

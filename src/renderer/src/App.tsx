@@ -6,6 +6,7 @@ import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
 import { Sidebar } from './components/Sidebar'
 import { FadeText } from './components/FadeText'
+import { ScrollArea } from './components/ScrollArea'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 
 const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
@@ -154,7 +155,7 @@ export function App() {
         <DsButton variant="ghost" size="small" iconOnly iconRelaxed className="search-trigger" aria-label="搜索" aria-haspopup="dialog" aria-expanded={searchOpen} aria-keyshortcuts="Meta+K Control+K"
           data-active={Boolean(query)} disabled={!loaded || busy} onClick={openSearch}><DesignIcon name="search" /></DsButton>
       </div>
-      <div className="sidebar-section">
+      <ScrollArea className="sidebar-section">
         <button type="button" className="nav-item" aria-label="导入会话文件" aria-haspopup="dialog" disabled={busy || !loaded} onClick={previewImport}>
           <span><DesignIcon name="plus" /><FadeText text="导入会话" /></span>
         </button>
@@ -166,7 +167,7 @@ export function App() {
           <button key={adapter.id} className={`nav-item ${source === adapter.id ? 'active' : ''}`} aria-pressed={source === adapter.id}
             onClick={() => navigate({ source: adapter.id })}><span><SourceIcon source={adapter.id} /><FadeText text={adapter.name} /></span>
             <span className="count">{sessions.filter(s => s.source === adapter.id).length}</span></button>)}
-      </div>
+      </ScrollArea>
       <div className="sidebar-bottom">
         <section className="storage-note" aria-label="本地存储与隐私">
           <div className="storage-copy">
@@ -183,7 +184,7 @@ export function App() {
         <section className="session-pane" aria-label="会话列表">
           {!separateNavigation && <header className="topbar">{navigationButtons}</header>}
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{visible.length} 段会话</span></div>
-          <div className="session-list" aria-busy={!loaded && !loadError}>
+          <ScrollArea className="session-list" aria-busy={!loaded && !loadError}>
             {!loaded && !loadError && <div className="empty" role="status"><DesignIcon name="archive" size={24} /><p>正在读取本地档案…</p></div>}
             {loadError && <div className="empty"><DesignIcon name="info" size={24} /><h3>暂时无法读取档案</h3><p role="alert">{loadError}</p><DsButton onClick={() => setLoadAttempt(value => value + 1)}>重新加载</DsButton></div>}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
@@ -191,7 +192,7 @@ export function App() {
               <h3>{s.title}</h3>
             </button>)}
             {loaded && !visible.length && <div className="empty"><DesignIcon name="search" size={24} /><h3>{sessions.length ? '没有找到匹配的会话' : '还没有会话档案'}</h3><p>{sessions.length ? '试试其他关键词，或清空当前筛选。' : '导入后，你的会话会出现在这里。'}</p>{sessions.length > 0 && <DsButton onClick={resetFilters}>清空筛选</DsButton>}</div>}
-          </div>
+          </ScrollArea>
         </section>
         <section className="detail" aria-label="会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
@@ -200,15 +201,15 @@ export function App() {
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{names[selected.source]}</span><span>{selected.messages.length} 条消息</span><time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>仅文本 · 非原生会话</span></div>
             </div>
             {selected.archive && <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>导入报告 · 仅文本档案</span><span className="report-count">{selected.archive.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary>
-              <div className="report-body"><p>适配器：{selected.archive.adapterId} · {selected.archive.adapterVersion}。原始文件不随交接导出。</p>
-                <ul>{selected.archive.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>
+              <ScrollArea className="report-body"><p>适配器：{selected.archive.adapterId} · {selected.archive.adapterVersion}。原始文件不随交接导出。</p>
+                <ul>{selected.archive.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea>
             </details>}
-            <div className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{selected.messages.length ? selected.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
+            <ScrollArea className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{selected.messages.length ? selected.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
               <div className={`message-body ${message.role === 'user' ? 'message-bubble' : message.role === 'assistant' ? 'chat-assistant-content' : 'message-record'}`}>
                 {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
                 <MessageContent content={message.content} />
               </div>
-            </article>) : <div className="empty"><p>这段会话暂时没有消息</p></div>}<div className="conversation-end"><span />档案到这里，思考可以继续<span /></div></div></div>
+            </article>) : <div className="empty"><p>这段会话暂时没有消息</p></div>}<div className="conversation-end"><span />档案到这里，思考可以继续<span /></div></div></ScrollArea>
             <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton>
               <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
           </> : <div className="empty detail-empty"><div className="empty-mark"><DesignIcon name="dock" size={32} /></div><h2>{loaded && !sessions.length ? '让第一段思考，在这里停靠' : '换个地方，继续思考。'}</h2><p>{loaded && !sessions.length ? '选择一份会话文件，预览后保存到本机。' : '收好散落的对话，把上下文留给下一步。'}</p>{loaded && !sessions.length && <DsButton variant="primary" disabled={busy} onClick={previewImport}><DesignIcon name="plus" />选择会话文件</DsButton>}<span className="empty-footnote">本地归档 · 只读浏览 · 文本交接</span></div>}
@@ -226,36 +227,36 @@ export function App() {
           <DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭搜索" onClick={() => setSearchOpen(false)}><DesignIcon name="close" /></DsButton>
         </div>
       </div>
-      <div className="dialog-content search-content">
+      <ScrollArea className="dialog-content search-content">
         <p className="search-context">当前来源内 · {visible.length} 段会话</p>
-        <div className="search-results">{visible.map(session => <button key={session.id} className="search-result" aria-label={`打开档案：${session.title}`}
+        <ScrollArea className="search-results">{visible.map(session => <button key={session.id} className="search-result" aria-label={`打开档案：${session.title}`}
           onClick={() => { navigate({ selectedId: session.id }); setSearchOpen(false) }}>
           <SourceIcon source={session.source} /><span><strong>{session.title}</strong><small>{names[session.source]}</small></span><DesignIcon name="chevron" size={14} />
-        </button>)}</div>
+        </button>)}</ScrollArea>
         {!visible.length && <p className="search-empty">没有匹配的档案</p>}
-      </div>
+      </ScrollArea>
     </DsDialog>}
     {importPreview && <DsDialog titleId="import-title" onDismiss={cancelImport} busy={busy} returnFocus={importTrigger.current}>
       <div className="dialog-header"><div className="dialog-icon"><DesignIcon name="archive" size={22} /></div><div><div className="eyebrow">只读导入</div><h2 id="import-title">确认导入档案</h2></div><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭导入预览" disabled={busy} onClick={cancelImport}><DesignIcon name="close" /></DsButton></div>
-      <div className="dialog-content"><div className="import-file"><strong>{importPreview.title}</strong><p>{importPreview.sourceName} · {importPreview.messageCount} 条消息 · {importPreview.byteLength.toLocaleString('zh-CN')} 字节</p></div>
+      <ScrollArea className="dialog-content"><div className="import-file"><strong>{importPreview.title}</strong><p>{importPreview.sourceName} · {importPreview.messageCount} 条消息 · {importPreview.byteLength.toLocaleString('zh-CN')} 字节</p></div>
         <div className="notice"><DesignIcon name="info" /><div><strong>兼容范围有限</strong><p>验证状态：合成夹具通过，未经第三方客户端实机验证。</p></div></div>
         {importPreview.warnings.length > 0 && <div className="import-report"><h3>导入说明与缺失项 <span>{importPreview.warnings.length}</span></h3><ul className="import-warnings">{importPreview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
         <p className="privacy-note">确认后在本机明文保存原始文件和文本档案，原件可能包含附件、工作区路径及敏感信息。不会上传、执行历史指令或修改来源客户端。原件不随交接导出。</p>
         <details className="format-help"><summary>支持格式与能力边界</summary><p>支持 Pinekin（沿用 Staithe 格式）/ Ember 包、未加密 Cindy v1 分享包及 Pinekin Cindy 本地快照、Codex 独立主会话 JSONL / JSONL.ZST、DeepSeek Harness v4 独立主会话 JSONL / JSONL.ZSTD。DeepSeek 网页聊天导出仍未支持；不支持原生恢复。</p></details>
         {importPreview.duplicate && <p className="duplicate-note">这个文件已导入，将打开已有档案，不新增副本。</p>}
         {status && <div className="dialog-status" role="status">{status}</div>}
-      </div>
+      </ScrollArea>
       <div className="dialog-footer"><span className="footer-note"><DesignIcon name="shield" size={14} />仅保存在本机</span><div className="export-actions"><DsButton disabled={busy} onClick={cancelImport}>取消导入</DsButton><DsButton variant="primary" disabled={busy} onClick={confirmImport}>{busy ? '正在处理…' : importPreview.duplicate ? '打开已有档案' : '确认保存到本地'}</DsButton></div></div>
     </DsDialog>}
     {handoff && selected && <DsDialog titleId="handoff-title" onDismiss={() => setHandoff(false)} busy={busy}>
       <div className="dialog-header"><div className="dialog-icon"><DesignIcon name="arrow" size={22} /></div><div><div className="eyebrow">上下文交接</div><h2 id="handoff-title">让这段思考，有下文。</h2></div><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭交接面板" disabled={busy} onClick={() => setHandoff(false)}><DesignIcon name="close" /></DsButton></div>
-      <div className="dialog-content"><p className="dialog-description">带走完整文本，交给下一个工具继续。<br />这不是原生恢复，不会迁移工具状态、附件或权限。</p>
+      <ScrollArea className="dialog-content"><p className="dialog-description">带走完整文本，交给下一个工具继续。<br />这不是原生恢复，不会迁移工具状态、附件或权限。</p>
         <label className="target-label">接续目标<select aria-label="接续目标" value={target} disabled={busy} onChange={event => setTarget(event.target.value as Target)}>{(['通用', 'NewMax', 'Claude Code', 'Codex'] as const).map(t => <option key={t}>{t}</option>)}</select></label>
         <div className="preview-label">交接文本预览<span>只生成文本，不自动执行</span></div>
-        <pre className="handoff-preview" tabIndex={0}>{makeHandoff(selected, target)}</pre>
+        <ScrollArea as="pre" className="handoff-preview" tabIndex={0}>{makeHandoff(selected, target)}</ScrollArea>
         <p className="privacy-note">导出前请检查敏感信息。当前不会自动脱敏，也不会上传或发送给目标客户端。</p>
         {status && <div className="dialog-status" role="status">{status}</div>}
-      </div>
+      </ScrollArea>
       <div className="dialog-footer"><div className="export-actions"><DsButton disabled={busy} onClick={() => exportSession('bundle')}>导出 Pinekin 包</DsButton><DsButton disabled={busy} onClick={() => exportSession('markdown')}>导出 Markdown</DsButton><DsButton variant="primary" disabled={busy} onClick={() => copy(makeHandoff(selected, target), '已复制交接文本，粘贴到目标客户端后继续')}><DesignIcon name="copy" />复制交接文本</DsButton></div></div>
     </DsDialog>}
   </div>

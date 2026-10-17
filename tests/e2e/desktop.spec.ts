@@ -67,6 +67,69 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(directory, { recursive: true, force: true }) }
 })
 
+test('所有滚动区域复用 NewMax mask，边界、双轴和动态内容在深浅主题下更新', async () => {
+  await app.close()
+  const archive = { adapterId: 'fixture', adapterVersion: '1', sha256: 'a'.repeat(64), importedAt: '2026-10-17T00:00:00Z', originalSessionId: null, fidelity: 'text-only',
+    warnings: Array.from({ length: 24 }, (_, index) => `合成导入说明 ${index + 1}`) }
+  const sessions = Array.from({ length: 40 }, (_, index) => ({ ...demoSessions[0], id: `scroll-${index}`, title: `滚动测试档案 ${index + 1}`, archive,
+    messages: [{ role: 'assistant', content: '```ts\n' + 'const synthetic = "只读代码"; '.repeat(40) + '\n```\n' + '合成消息正文。\n'.repeat(50) }] }))
+  await writeFile(join(directory, 'library.json'), JSON.stringify(sessions))
+  await launch()
+  const checkVertical = async (selector: string) => {
+    const area = page.locator(selector).first()
+    await expect(area).toHaveClass(/ds-scroll-area/)
+    expect(await area.evaluate(element => element.scrollHeight > element.clientHeight + 1)).toBe(true)
+    await area.evaluate(element => { element.scrollTop = 0 })
+    // Chromium 会省略默认的 to bottom 方向；验证实际梯度，不依赖序列化保留默认值。
+    await expect(area).toHaveCSS('mask-image', /linear-gradient\((?:to bottom, )?rgb/)
+    const start = await area.evaluate(element => getComputedStyle(element).maskImage)
+    await area.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2 })
+    await expect.poll(() => area.evaluate(element => getComputedStyle(element).maskImage)).not.toBe(start)
+    const middle = await area.evaluate(element => getComputedStyle(element).maskImage)
+    await area.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await expect.poll(() => area.evaluate(element => getComputedStyle(element).maskImage)).not.toBe(middle)
+    expect(await area.evaluate(element => getComputedStyle(element).maskImage)).not.toBe(start)
+    await area.evaluate(element => { element.scrollTop = 0 })
+  }
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await checkVertical('.session-list')
+    await checkVertical('.messages')
+    await page.locator('.archive-report summary').click()
+    await checkVertical('.report-body')
+    await page.locator('.archive-report summary').click()
+    // 只改变隔离测试的可用高度，覆盖最小窗口通常不溢出的侧栏。
+    await page.locator('.sidebar-section').evaluate(element => { element.style.flex = 'none'; element.style.height = '180px' })
+    await checkVertical('.sidebar-section')
+    const code = page.locator('.code-block pre').first()
+    await expect(code).toHaveCSS('mask-image', /linear-gradient\(to right/)
+    const left = await code.evaluate(element => getComputedStyle(element).maskImage)
+    await code.evaluate(element => { element.scrollLeft = element.scrollWidth })
+    await expect.poll(() => code.evaluate(element => getComputedStyle(element).maskImage)).not.toBe(left)
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await checkVertical('.search-results')
+    await expect(page.locator('.search-header')).toHaveCSS('mask-image', 'none')
+    await page.getByRole('textbox', { name: '搜索会话' }).fill('滚动测试档案 40')
+    await expect(page.locator('.search-results')).toHaveCSS('mask-image', 'none')
+    await page.getByRole('button', { name: '清空搜索' }).click()
+    await expect(page.locator('.search-results')).toHaveCSS('mask-image', /linear-gradient/)
+    await page.getByRole('button', { name: '关闭搜索' }).click()
+    await page.getByRole('button', { name: 'Pin 走这段对话' }).click()
+    await checkVertical('.handoff-preview')
+    await page.locator('.dialog-content').evaluate(element => { element.style.maxHeight = '240px' })
+    await checkVertical('.dialog-content')
+    await expect(page.locator('.dialog-header')).toHaveCSS('mask-image', 'none')
+    await expect(page.locator('.dialog-footer')).toHaveCSS('mask-image', 'none')
+    await page.getByRole('button', { name: '关闭交接面板' }).click()
+    // ResizeObserver 必须响应原地内容变化，而非依赖 React 重新挂载。
+    await code.evaluate(element => { element.scrollLeft = 0; element.querySelector('code')!.textContent = 'short' })
+    await expect(code).toHaveCSS('mask-image', 'none')
+    await code.evaluate(element => { element.querySelector('code')!.textContent = 'long_code '.repeat(200) })
+    await expect(code).toHaveCSS('mask-image', /linear-gradient\(to right/)
+    await assertBackground()
+  }
+})
+
 test('NewMax Tooltip 统一图标按钮，支持深浅主题、键盘与原生 modal 顶层', async () => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })

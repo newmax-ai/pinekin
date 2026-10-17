@@ -118,6 +118,24 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).not.toContain('.topbar h1')
     expect(styles).toMatch(/\.session-pane\s*\{[^}]*border-right: 1px solid var\(--ds-divider\);/)
   })
+  it('右侧底部操作栏不显示分割线，保留按钮间距与其他区域边界', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const footer = /\.detail-footer\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(footer).not.toMatch(/border(?:-top)?:|box-shadow:/)
+    expect(footer).toContain('padding: 12px 24px;')
+    expect(footer).toContain('gap: 12px;')
+    expect(styles).toMatch(/\.dialog-footer\s*\{[^}]*border-top: 1px solid var\(--ds-divider\);/)
+    expect(styles).toMatch(/\.session-pane\s*\{[^}]*border-right: 1px solid var\(--ds-divider\);/)
+  })
+  it('档案末尾文字和短线共用淡化至 60% 的 tertiary，不改变间距或全局颜色', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const marker = /\.conversation-end\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(marker).toContain('color: color-mix(in srgb, var(--ds-text-tertiary) 60%, transparent);')
+    expect(marker).toContain('gap: 12px;')
+    expect(marker).toContain('margin: 32px 0 0;')
+    expect(marker).not.toContain('--ds-text-tertiary:')
+    expect(styles).toMatch(/\.conversation-end span\s*\{[^}]*width: 32px;[^}]*border-top: 1px solid currentColor;/)
+  })
   it('会话来源选中不加粗，仅保留背景与文字颜色反馈', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).not.toMatch(/\.nav-item\.active\s*\{[^}]*font-weight:/)

@@ -32,6 +32,21 @@ function closeSearch() {
   fireEvent(screen.getByRole('dialog', { name: '搜索会话' }), new Event('cancel', { bubbles: true, cancelable: true }))
 }
 describe('档案界面', () => {
+  it('侧栏、列表、正文、搜索与交接弹窗的所有滚动容器统一使用 ScrollArea', async () => {
+    await open()
+    const assertScrollArea = (selector: string) => {
+      const elements = document.querySelectorAll(selector)
+      expect(elements.length, selector).toBeGreaterThan(0)
+      for (const element of elements) expect(element.classList.contains('ds-scroll-area'), selector).toBe(true)
+    }
+    assertScrollArea('.sidebar-section, .session-list, .messages')
+    openSearch()
+    assertScrollArea('.dialog-content, .search-results')
+    closeSearch()
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 走这段对话' }))
+    assertScrollArea('.dialog-content, .handoff-preview')
+    expect(document.querySelector('.handoff-preview')?.tagName).toBe('PRE')
+  })
   it.each(['darwin', 'win32', 'linux'])('使用 preload 的 %s 平台标记，而不伪造窗口按钮', async platform => {
     window.staithe = { ...window.staithe, platform }
     await open()
