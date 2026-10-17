@@ -70,17 +70,17 @@ test.afterEach(async () => {
 test('NewMax Tooltip 统一图标按钮，支持深浅主题、键盘与原生 modal 顶层', async () => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
-    const importButton = page.getByRole('button', { name: '导入会话文件' })
-    await importButton.hover()
+    const searchButton = page.getByRole('button', { name: '搜索', exact: true })
+    await searchButton.hover()
     const tooltip = page.getByRole('tooltip')
-    await expect(tooltip).toHaveText('导入会话文件')
-    await expect(importButton).not.toHaveAttribute('title')
+    await expect(tooltip).toHaveText('搜索')
+    await expect(searchButton).not.toHaveAttribute('title')
     await expect(tooltip).toHaveCSS('padding', '8px 12px')
     await expect(tooltip).toHaveCSS('pointer-events', 'none')
     await expect(tooltip).toHaveCSS('background-color', colorScheme === 'dark' ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)')
     expect(await tooltip.evaluate(element => element.matches(':popover-open'))).toBe(true)
     const bounds = (await tooltip.boundingBox())!
-    const trigger = (await importButton.boundingBox())!
+    const trigger = (await searchButton.boundingBox())!
     expect(bounds.y).toBeCloseTo(trigger.y + trigger.height + 4)
     expect(bounds.x).toBeGreaterThanOrEqual(8)
     await page.keyboard.press('Escape')
@@ -107,8 +107,8 @@ test('NewMax Tooltip 统一图标按钮，支持深浅主题、键盘与原生 m
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(close).toHaveCount(0)
     await page.mouse.move(700, 400)
-    await importButton.hover()
-    await expect(tooltip).toHaveText('导入会话文件')
+    await searchButton.hover()
+    await expect(tooltip).toHaveText('搜索')
     await assertBackground()
   }
 })
@@ -218,18 +218,18 @@ test('原生红绿灯整合进 macOS 页头，拖动区不覆盖操作按钮', a
     await expect(page.locator('.window-toolbar')).toHaveCSS('-webkit-app-region', 'drag')
     await expect(page.locator('.window-controls-space')).toHaveCSS('-webkit-app-region', 'drag')
     await expect(page.locator('.brand')).toHaveCSS('-webkit-app-region', 'drag')
-    await expect(page.locator('.topbar')).toHaveCSS('-webkit-app-region', 'drag')
+    await expect(page.locator('.topbar')).toHaveCount(0)
     await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('-webkit-app-region', 'no-drag')
     const toolbar = (await page.locator('.window-toolbar').boundingBox())!
     const controls = (await page.locator('.window-controls-space').boundingBox())!
     expect(toolbar.height).toBe(38)
-    const header = (await page.locator('.topbar').boundingBox())!
+    const header = (await page.locator('.list-heading').boundingBox())!
     const logo = (await page.locator('.brand > span').boundingBox())!
     const navLabel = (await page.locator('.sidebar-section .nav-label').first().boundingBox())!
     expect(controls.y).toBe(0)
     expect(controls.height).toBe(toolbar.height)
     expect(header.y).toBe(controls.y + controls.height)
-    expect(header.height).toBe(36)
+    expect(header.height).toBe(48)
     const buttons = page.getByRole('navigation', { name: '浏览导航' }).getByRole('button')
     await expect(buttons).toHaveCount(3)
     let previousRight: number | undefined
@@ -311,8 +311,8 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   await expect(preview.locator('.topbar .header-navigation')).toHaveCount(0)
   await expect(preview.getByRole('navigation', { name: '浏览导航' })).toBeVisible()
   await expect(preview.locator('.brand')).toHaveCSS('height', '36px')
-  await expect(preview.locator('.topbar')).toHaveCSS('height', '36px')
-  await expect(preview.locator('.topbar')).not.toHaveCSS('-webkit-app-region', 'drag')
+  await expect(preview.locator('.topbar')).toHaveCount(0)
+  await expect(preview.locator('.list-heading')).not.toHaveCSS('-webkit-app-region', 'drag')
   const toolbar = (await preview.locator('.window-toolbar').boundingBox())!
   const navigation = (await preview.getByRole('navigation', { name: '浏览导航' }).boundingBox())!
   const buttons = preview.getByRole('navigation', { name: '浏览导航' }).getByRole('button')
@@ -330,7 +330,7 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   expect(navigation.x).toBe(12)
   const brand = (await preview.locator('.brand').boundingBox())!
   const logo = (await preview.locator('.brand > span').boundingBox())!
-  const header = (await preview.locator('.topbar').boundingBox())!
+  const header = (await preview.locator('.list-heading').boundingBox())!
   const importButton = (await preview.getByRole('button', { name: '导入会话文件' }).boundingBox())!
   expect(brand.y).toBe(toolbar.y + toolbar.height)
   expect(header.y).toBe(toolbar.y + toolbar.height)
@@ -355,7 +355,7 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   await expect.poll(() => preview.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))).toBeNull()
   await expect(preview.locator('.workspace-card')).toHaveCSS('overflow', 'hidden')
   expect(await preview.locator('.workspace-card').evaluate(el => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeCloseTo(18 * 1.348, 3)
-  expect(logo.y + logo.height / 2).toBeCloseTo(header.y + header.height / 2, 0)
+  expect(logo.y + logo.height / 2).toBeCloseTo(brand.y + brand.height / 2, 0)
   await expect(preview.locator('.sidebar .brand')).toHaveCount(1)
   await expect(preview.locator('.topbar .brand, .topbar input')).toHaveCount(0)
   const searchButton = preview.getByRole('button', { name: '搜索', exact: true })
@@ -376,8 +376,11 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   await expect(preview.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
   await preview.keyboard.press('Escape')
   await preview.getByRole('button', { name: '展开侧栏' }).click()
-  expect(importButton.height).toBe(28)
-  expect(Math.abs(importButton.y + importButton.height / 2 - (header.y + header.height / 2))).toBeLessThanOrEqual(1)
+  expect(importButton.height).toBe(36)
+  expect(importButton.x).toBe(brand.x + 12)
+  expect(importButton.x + importButton.width).toBeLessThanOrEqual(brand.x + brand.width - 12)
+  expect(importButton.y).toBeGreaterThanOrEqual(brand.y + brand.height)
+  await expect(preview.locator('.topbar').getByRole('button', { name: '导入会话文件' })).toHaveCount(0)
   expect(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await preview.getByRole('button', { name: '带走这段对话' }).click()
   await expect(preview.getByRole('dialog')).toBeVisible()
@@ -553,22 +556,36 @@ test('会话栏内容对齐，12px 列表圆角与双侧 1px 行间距保持紧�
     await expect(page.locator('.sidebar')).toHaveCSS('width', width <= 1150 ? '180px' : '200px')
     const pane = page.locator('.session-pane')
     const left = (await pane.boundingBox())!.x + 20
-    for (const selector of ['.topbar h1', '.list-heading h2', '.session-card h3', '.session-card p', '.session-card .card-meta']) {
+    for (const selector of ['.list-heading h2', '.session-card h3', '.session-card .card-meta']) {
       const boxes = await pane.locator(selector).evaluateAll(elements => elements.map(element => element.getBoundingClientRect().left))
       expect(boxes.length).toBeGreaterThan(0)
       for (const x of boxes) expect(x).toBeCloseTo(left, 1)
     }
     const cards = page.locator('.session-card')
     expect(await cards.first().evaluate(element => parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeCloseTo(12 * 1.348, 3)
-    await expect(cards.first()).toHaveCSS('padding', '12px')
+    for (const card of await cards.all()) {
+      await expect(card).toHaveCSS('padding', '8px 12px')
+      await expect(card.locator('.card-meta')).toHaveCSS('line-height', '16px')
+      await expect(card.locator('.card-meta')).toHaveCSS('margin-bottom', '4px')
+      await expect(card.locator('h3')).toHaveCSS('font-weight', '400')
+      const layout = await card.evaluate(element => {
+        const title = element.querySelector('h3')!
+        const meta = element.querySelector('.card-meta')!
+        const style = getComputedStyle(title)
+        return { gap: title.getBoundingClientRect().top - meta.getBoundingClientRect().bottom,
+          lineHeight: parseFloat(style.lineHeight), fontSize: parseFloat(style.fontSize) }
+      })
+      expect(layout.gap).toBe(4)
+      expect(layout.lineHeight).toBeCloseTo(layout.fontSize * 1.5)
+    }
     const cardBoxes = await cards.evaluateAll(elements => elements.map(element => {
       const { top, bottom } = element.getBoundingClientRect(); return { top, bottom }
     }))
     for (let index = 1; index < cardBoxes.length; index++) expect(cardBoxes[index].top - cardBoxes[index - 1].bottom).toBe(1)
     const navItems = page.locator('.nav-item')
     for (const item of await navItems.all()) await expect(item).toHaveCSS('margin-bottom', '1px')
-    // 第一项后有来源分组标题；仅比较同组的连续来源项，保留分组间距。
-    const navBoxes = await navItems.evaluateAll(elements => elements.slice(1).map(element => {
+    // 全局操作与来源分组之间保留留白；仅比较分组标题后的连续来源项。
+    const navBoxes = await page.locator('.sources-label ~ .nav-item').evaluateAll(elements => elements.map(element => {
       const { top, bottom } = element.getBoundingClientRect(); return { top, bottom }
     }))
     for (let index = 1; index < navBoxes.length; index++) expect(navBoxes[index].top - navBoxes[index - 1].bottom).toBe(1)
@@ -784,7 +801,8 @@ test('页头搜索、浏览历史与侧栏展开收起保持布局和键盘可�
   await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: '展开侧栏' })).toBeFocused()
-  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeInViewport()
+  await expect(page.locator('.sidebar').getByRole('button', { name: '导入会话文件', includeHidden: true })).toBeHidden()
+  await expect(page.locator('.session-pane').getByRole('button', { name: '导入会话文件' })).toHaveCount(0)
   await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-sidebar-collapsed.png' })
   await page.getByRole('button', { name: '展开侧栏' }).click()
   await expect(page.getByRole('complementary').getByRole('button', { name: /^Codex/ })).toHaveAttribute('aria-pressed', 'true')
@@ -876,7 +894,7 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
     await page.emulateMedia({ colorScheme })
     const card = page.locator('main.workspace-card')
     await expect(card.locator(':scope > .topbar')).toHaveCount(0)
-    await expect(card.locator('.session-pane > .topbar')).toHaveCount(1)
+    await expect(card.locator('.session-pane > .topbar')).toHaveCount(0)
     await expect(card.locator(':scope > .workspace > .session-pane')).toHaveCount(1)
     await expect(card.locator(':scope > .workspace > .detail')).toHaveCount(1)
     await expect(page.locator('.sidebar')).toHaveCSS('border-right-width', '0px')
@@ -925,7 +943,7 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
     expect(box.y).toBe(sidebar.y)
     expect(width - box.x - box.width).toBe(8)
     expect(height - box.y - box.height).toBe(8)
-    await expect(page.locator('.topbar')).toHaveCSS('background-color', await card.evaluate(el => getComputedStyle(el).backgroundColor))
+    await expect(page.locator('.list-heading')).toHaveCSS('box-shadow', 'none')
     await expect(page.getByRole('button', { name: '带走这段对话' })).toBeInViewport()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
     const noteBox = (await note.boundingBox())!
@@ -956,7 +974,7 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
   }
 })
 
-test('紧凑阅读页头不堆叠空白，正文上下留白统一且导入按钮不贴边', async () => {
+test('紧凑阅读留白不变，导入改为左侧图标加文字菜单且键盘可用', async () => {
   await app.evaluate(({ dialog }) => {
     dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] })
   })
@@ -981,37 +999,61 @@ test('紧凑阅读页头不堆叠空白，正文上下留白统一且导入按�
     await expect(page.locator('.detail-header .read-only')).toHaveText('只读')
     await expect(page.locator('.detail-meta')).toContainText('仅文本 · 非原生会话')
     const pane = page.getByRole('region', { name: '会话列表' })
-    await expect(pane.getByRole('heading', { level: 1, name: '会话库' })).toBeVisible()
-    await expect(page.locator('.workspace-card > .topbar')).toHaveCount(0)
-    const toolbar = pane.locator(':scope > .topbar')
-    const topbar = (await toolbar.boundingBox())!
+    await expect(pane.getByRole('heading', { name: '会话库' })).toHaveCount(0)
+    await expect(page.locator('.topbar')).toHaveCount(0)
+    const listHeading = pane.locator(':scope > .list-heading')
+    await expect(listHeading.getByRole('heading', { name: '所有会话', exact: true })).toBeVisible()
+    await expect(listHeading).toContainText(`${demoSessions.length} 段会话`)
+    await expect(listHeading).toHaveCSS('box-shadow', 'none')
+    await expect(listHeading).toHaveCSS('border-bottom-width', '0px')
+    await expect(page.locator('.detail-header')).toHaveCSS('box-shadow', 'none')
+    await expect(page.locator('.detail-header')).toHaveCSS('border-bottom-width', '0px')
+    const headingBox = (await listHeading.boundingBox())!
     const paneBox = (await pane.boundingBox())!
     const card = (await page.locator('.workspace-card').boundingBox())!
-    expect(topbar.y).toBe(card.y)
+    expect(headingBox.y).toBe(card.y)
     expect(detail.y).toBe(card.y)
-    expect(topbar.x).toBe(paneBox.x)
-    expect(topbar.width).toBe(paneBox.width - 1)
-    const importButton = toolbar.getByRole('button', { name: '导入会话文件' })
-    await expect(importButton).toHaveText('')
-    await expect(importButton).not.toHaveAttribute('title')
+    expect(headingBox.x).toBe(paneBox.x)
+    expect(headingBox.width).toBe(paneBox.width - 1)
+    await expect(pane.getByRole('button', { name: '导入会话文件' })).toHaveCount(0)
+    const sidebar = page.getByRole('complementary', { name: '档案导航' })
+    const importButton = sidebar.getByRole('button', { name: '导入会话文件' })
+    await expect(importButton).toHaveText('导入会话')
+    await expect(importButton).toHaveClass('nav-item')
+    await expect(importButton).toHaveAttribute('aria-haspopup', 'dialog')
+    await expect(importButton).not.toHaveAttribute('aria-pressed')
     await importButton.hover()
-    await expect(page.getByRole('tooltip')).toHaveText('导入会话文件')
+    await expect(page.getByRole('tooltip')).toHaveCount(0)
+    await expect(importButton).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await page.mouse.move(700, 400)
+    await expect(importButton).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(importButton.locator('svg.lucide-plus')).toHaveCount(1)
-    await expect(importButton).toHaveCSS('width', '35px')
-    await expect(importButton).toHaveCSS('height', '28px')
+    await expect(importButton.locator('.count')).toHaveCount(0)
+    await expect(importButton).toHaveCSS('height', '36px')
     await expect(importButton).toHaveCSS('-webkit-app-region', 'no-drag')
     const button = (await importButton.boundingBox())!
-    expect(button.x + button.width).toBeLessThanOrEqual(paneBox.x + paneBox.width - 12)
-    expect(button.y - topbar.y).toBeGreaterThanOrEqual(4)
-    expect(topbar.y + topbar.height - button.y - button.height).toBeGreaterThanOrEqual(4)
+    const sidebarBox = (await sidebar.boundingBox())!
+    const allSessions = (await sidebar.getByRole('button', { name: /所有会话/ }).boundingBox())!
+    const sources = (await sidebar.locator('.sources-label').boundingBox())!
+    expect(button.x).toBe(allSessions.x)
+    expect(button.width).toBe(allSessions.width)
+    expect(button.x).toBe(sidebarBox.x + 12)
+    expect(button.x + button.width).toBe(sidebarBox.x + sidebarBox.width - 12)
+    expect(sources.y - button.y - button.height).toBeGreaterThanOrEqual(24)
+    expect(allSessions.y).toBeGreaterThanOrEqual(sources.y + sources.height)
+    const firstSource = (await sidebar.getByRole('button', { name: /^NewMax/ }).boundingBox())!
+    expect(firstSource.y - allSessions.y - allSessions.height).toBe(1)
+    const labels = await sidebar.locator('.sidebar-section > *').evaluateAll(elements => elements.slice(0, 4).map(element => element.textContent))
+    expect(labels).toEqual(['导入会话', '会话来源', `所有会话${demoSessions.length}`, 'NewMax1'])
+    await sidebar.getByRole('button', { name: /^Codex/ }).click()
     await importButton.focus()
     await page.keyboard.press('Enter')
     await expect(importButton).toBeEnabled()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(importButton).toBeFocused()
+    await expect(sidebar.getByRole('button', { name: /^Codex/ })).toHaveAttribute('aria-pressed', 'true')
+    await sidebar.getByRole('button', { name: /所有会话/ }).click()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    await page.screenshot({ scale: 'css', path: `test-results/pinekin-library-header-${colorScheme}-v2.png` })
   }
 })
 

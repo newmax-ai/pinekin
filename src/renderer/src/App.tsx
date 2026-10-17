@@ -21,14 +21,6 @@ function sameView(a: LibraryView, b: LibraryView) {
   return a.query === b.query && a.source === b.source && a.selectedId === b.selectedId
 }
 
-function CardTags({ session }: { session: Session }) {
-  // 仅隐藏与卡片顶部来源重复的标签，不改变检索、交接或持久化的原始标签。
-  const productNames = session.source === 'other' ? [] : [names[session.source], adapters.find(adapter => adapter.id === session.source)?.name]
-    .map(name => name?.toLowerCase())
-  const tags = session.tags.filter(tag => !productNames.includes(tag.trim().toLowerCase()))
-  return tags.length > 0 ? <div className="card-footer"><span className="card-tags">{tags.map(tag => <span className="tag" key={tag}>{tag}</span>)}</span></div> : null
-}
-
 export function App() {
   const [librarySessions, setSessions] = useState<Session[]>([])
   // 兼容仍在运行的旧主进程；演示记录不能重新进入列表、计数或搜索。
@@ -163,10 +155,13 @@ export function App() {
           data-active={Boolean(query)} disabled={!loaded || busy} onClick={openSearch}><DesignIcon name="search" /></DsButton>
       </div>
       <div className="sidebar-section">
+        <button type="button" className="nav-item" aria-label="导入会话文件" aria-haspopup="dialog" disabled={busy || !loaded} onClick={previewImport}>
+          <span><DesignIcon name="plus" /><FadeText text="导入会话" /></span>
+        </button>
+        <div className="nav-label sources-label">会话来源</div>
         <button className={`nav-item ${source === 'all' ? 'active' : ''}`} aria-pressed={source === 'all'} onClick={() => navigate({ source: 'all' })}>
           <span><DesignIcon name="archive" /><FadeText text="所有会话" /></span><span className="count">{sessions.length}</span>
         </button>
-        <div className="nav-label sources-label">会话来源 <span>仅筛选</span></div>
         {[...adapters.map(a => ({ id: a.id, name: a.name })), { id: 'other' as const, name: '其他来源' }].map(adapter =>
           <button key={adapter.id} className={`nav-item ${source === adapter.id ? 'active' : ''}`} aria-pressed={source === adapter.id}
             onClick={() => navigate({ source: adapter.id })}><span><SourceIcon source={adapter.id} /><FadeText text={adapter.name} /></span>
@@ -186,19 +181,14 @@ export function App() {
     <main className="workspace-card">
       <div className="workspace">
         <section className="session-pane" aria-label="会话列表">
-          <header className="topbar">
-            {!separateNavigation && navigationButtons}
-            <h1>会话库</h1>
-            <div className="topbar-actions"><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="导入会话文件" disabled={busy || !loaded} onClick={previewImport}><DesignIcon name="plus" size={18} /></DsButton></div>
-          </header>
+          {!separateNavigation && <header className="topbar">{navigationButtons}</header>}
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{visible.length} 段会话</span></div>
           <div className="session-list" aria-busy={!loaded && !loadError}>
             {!loaded && !loadError && <div className="empty" role="status"><DesignIcon name="archive" size={24} /><p>正在读取本地档案…</p></div>}
             {loadError && <div className="empty"><DesignIcon name="info" size={24} /><h3>暂时无法读取档案</h3><p role="alert">{loadError}</p><DsButton onClick={() => setLoadAttempt(value => value + 1)}>重新加载</DsButton></div>}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
               <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><time dateTime={s.updatedAt}>{s.updatedAt.slice(5, 10).replace('-', '.')}</time></div>
-              <h3>{s.title}</h3><p>{s.messages[0]?.content || '这段会话暂时没有消息'}</p>
-              <CardTags session={s} />
+              <h3>{s.title}</h3>
             </button>)}
             {loaded && !visible.length && <div className="empty"><DesignIcon name="search" size={24} /><h3>{sessions.length ? '没有找到匹配的会话' : '还没有会话档案'}</h3><p>{sessions.length ? '试试其他关键词，或清空当前筛选。' : '导入后，你的会话会出现在这里。'}</p>{sessions.length > 0 && <DsButton onClick={resetFilters}>清空筛选</DsButton>}</div>}
           </div>

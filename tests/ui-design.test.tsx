@@ -100,8 +100,28 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).not.toContain('.scope-filter')
     expect(styles).not.toContain('.archive-badge.demo')
     expect(styles).toMatch(/\.session-list\s*\{[^}]*padding: 4px 8px 12px;/)
-    expect(styles).toMatch(/\.session-card\s*\{[^}]*padding: 12px;[^}]*margin: 0 0 1px;/)
+    expect(styles).toMatch(/\.session-card\s*\{[^}]*padding: 8px 12px;[^}]*margin: 0 0 1px;/)
     expect(styles).toMatch(/\.nav-item\s*\{[^}]*margin-bottom: 1px;/)
+  })
+  it('会话卡片纵向紧凑，标题字重 400 且最多两行', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.card-meta\s*\{[^}]*line-height: 16px;[^}]*margin-bottom: 4px;/)
+    expect(styles).toMatch(/\.session-card h3\s*\{[^}]*font-weight: 400;[^}]*line-height: 1\.5;[^}]*-webkit-line-clamp: 2;/)
+    expect(styles).not.toMatch(/\.session-card\.selected h3\s*\{[^}]*font-weight:/)
+  })
+  it('标题下不显示横向分割线，保留列表与阅读区的竖向边界', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    for (const selector of ['.topbar', '.list-heading', '.detail-header']) {
+      const rule = styles.slice(styles.indexOf(`${selector} {`)).split('}')[0]
+      expect(rule).not.toMatch(/box-shadow:|border(?:-bottom)?:/)
+    }
+    expect(styles).not.toContain('.topbar h1')
+    expect(styles).toMatch(/\.session-pane\s*\{[^}]*border-right: 1px solid var\(--ds-divider\);/)
+  })
+  it('会话来源选中不加粗，仅保留背景与文字颜色反馈', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).not.toMatch(/\.nav-item\.active\s*\{[^}]*font-weight:/)
+    expect(styles).toMatch(/\.nav-item\.active\s*\{[^}]*background: var\(--ds-on-surface\);[^}]*color: var\(--ds-text-primary\);/)
   })
   it('来源名称单行裁切且仅溢出文字渐隐，数量固定且拖拽边界不参与窗口拖动', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')

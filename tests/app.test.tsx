@@ -62,7 +62,7 @@ describe('档案界面', () => {
     expect(brand.querySelector('input')).toBeNull()
     expect(screen.queryByLabelText('搜索会话')).toBeNull()
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(document.querySelector('.topbar')!.querySelector('.brand, input')).toBeNull()
+    expect(document.querySelector('.topbar .brand, .topbar input')).toBeNull()
   })
   it.each(['darwin', 'win32', 'linux'])('%s 的 Logo 下直接显示会话导航，不显示工作空间标题与本地徽标', async platform => {
     window.staithe = { ...window.staithe, platform }
@@ -71,39 +71,83 @@ describe('档案界面', () => {
     const brand = sidebar.querySelector('.brand')!
     const section = sidebar.querySelector('.sidebar-section')!
     const allSessions = within(sidebar).getByRole('button', { name: /所有会话/ })
+    const importButton = within(sidebar).getByRole('button', { name: '导入会话文件' })
+    const sourcesLabel = within(sidebar).getByText('会话来源')
     expect(brand.nextElementSibling).toBe(section)
-    expect(section.firstElementChild).toBe(allSessions)
+    expect(section.firstElementChild).toBe(importButton)
+    expect(importButton.nextElementSibling).toBe(sourcesLabel)
+    expect(sourcesLabel.nextElementSibling).toBe(allSessions)
+    expect(allSessions.nextElementSibling).toBe(within(sidebar).getByRole('button', { name: /^NewMax/ }))
+    expect(allSessions.getAttribute('aria-pressed')).toBe('true')
+    expect(allSessions.querySelector('.count')?.textContent).toBe(String(demoSessions.length))
     expect(within(sidebar).queryByText('工作空间')).toBeNull()
     expect(within(sidebar).queryByText('本地', { exact: true })).toBeNull()
-    expect(within(sidebar).getByText('会话来源')).toBeTruthy()
+    expect(within(sidebar).getByText('会话来源').textContent).toBe('会话来源')
+    expect(within(sidebar).queryByText('仅筛选')).toBeNull()
     expect(within(sidebar).getByRole('region', { name: '本地存储与隐私' })).toBeTruthy()
   })
-  it.each(['darwin', 'win32', 'linux'])('%s 的会话库标题与纯图标导入入口属于会话列表栏', async platform => {
+  it.each(['darwin', 'win32', 'linux'])('%s 的导入是左侧图标加文字菜单，列表标题不保留入口', async platform => {
     window.staithe = { ...window.staithe, platform }
     await open()
     const pane = screen.getByRole('region', { name: '会话列表' })
-    const heading = within(pane).getByRole('heading', { level: 1, name: '会话库' })
-    const header = heading.closest('header')!
-    expect(header.parentElement).toBe(pane)
+    expect(within(pane).queryByRole('heading', { name: '会话库' })).toBeNull()
+    const heading = within(pane).getByRole('heading', { level: 2, name: '所有会话' })
+    const listHeading = heading.parentElement!
+    expect(listHeading.parentElement).toBe(pane)
+    expect(listHeading.textContent).toContain(`${demoSessions.length} 段会话`)
+    expect(pane.querySelector('.topbar')).toBe(platform === 'linux' ? pane.firstElementChild : null)
+    if (platform !== 'linux') expect(pane.firstElementChild).toBe(listHeading)
+    else expect(pane.querySelector('.topbar')!.textContent).toBe('')
     expect(document.querySelector('.workspace-card > .topbar')).toBeNull()
-    const button = within(header).getByRole('button', { name: '导入会话文件' })
-    expect(button.textContent).toBe('')
-    expect(button.hasAttribute('title')).toBe(false)
-    fireEvent.focus(button)
-    expect(screen.getByRole('tooltip').textContent).toBe('导入会话文件')
-    fireEvent.blur(button)
-    expect(button.classList.contains('ds-button-icon')).toBe(true)
-    expect(button.classList.contains('ds-button-ghost')).toBe(true)
+    expect(within(pane).queryByRole('button', { name: '导入会话文件' })).toBeNull()
+    const sidebar = screen.getByRole('complementary', { name: '档案导航' })
+    const button = within(sidebar).getByRole('button', { name: '导入会话文件' })
+    expect(screen.getAllByRole('button', { name: '导入会话文件' })).toHaveLength(1)
+    expect(button.previousElementSibling).toBeNull()
+    expect(button.nextElementSibling?.textContent).toBe('会话来源')
+    expect(button.nextElementSibling?.nextElementSibling).toBe(within(sidebar).getByRole('button', { name: /所有会话/ }))
+    expect(button.textContent).toBe('导入会话')
+    expect(button.classList.contains('nav-item')).toBe(true)
+    expect(button.classList.contains('ds-button-icon')).toBe(false)
+    expect(button.hasAttribute('aria-pressed')).toBe(false)
+    expect(button.getAttribute('aria-haspopup')).toBe('dialog')
     expect(button.querySelector('svg.lucide-plus')).not.toBeNull()
+    expect(button.querySelector('.count')).toBeNull()
+    fireEvent.focus(button)
+    expect(screen.queryByRole('tooltip')).toBeNull()
     button.focus()
     fireEvent.click(button)
     await waitFor(() => expect(window.staithe.previewImport).toHaveBeenCalledOnce())
   })
-  it('导航、搜索、导入及弹窗关闭统一使用 small relaxed 图标按钮', async () => {
+  it('左侧导入菜单在加载与处理期间禁用，取消选择不改变来源筛选', async () => {
+    let load!: (value: typeof demoSessions) => void
+    vi.mocked(window.staithe.list).mockReturnValueOnce(new Promise(resolve => { load = resolve }))
+    render(<App />)
+    const button = screen.getByRole('button', { name: '导入会话文件' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(window.staithe.previewImport).not.toHaveBeenCalled()
+    load(demoSessions)
+    await screen.findByRole('heading', { level: 2, name: demoSessions[0].title })
+    fireEvent.click(screen.getByRole('button', { name: /^Codex\s*1$/ }))
+    let finish!: (value: null) => void
+    vi.mocked(window.staithe.previewImport).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    button.focus()
+    fireEvent.click(button)
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(window.staithe.previewImport).toHaveBeenCalledOnce()
+    finish(null)
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(screen.getByRole('button', { name: /^Codex\s*1$/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('heading', { level: 2, name: demoSessions[2].title })).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+  it('导航、搜索及弹窗关闭统一使用 small relaxed 图标按钮', async () => {
     await open()
     function expectSmallRelaxedIcons() {
       const buttons = document.querySelectorAll('.ds-button-icon')
-      expect(buttons.length).toBeGreaterThanOrEqual(5)
+      expect(buttons.length).toBeGreaterThanOrEqual(4)
       for (const button of buttons) {
         expect(button.classList.contains('ds-button-small')).toBe(true)
         expect(button.classList.contains('ds-button-icon-relaxed')).toBe(true)
@@ -403,10 +447,9 @@ describe('档案界面', () => {
   it('顶部不把本地保存说明伪装为连接状态，侧栏仍说明隐私边界', async () => {
     await open()
     const pane = screen.getByRole('region', { name: '会话列表' })
-    const header = pane.querySelector('header')!
-    expect(header.querySelector('.local-state')).toBeNull()
-    expect(within(header).queryByText('本地优先')).toBeNull()
-    expect(within(header).getByRole('button', { name: '导入会话文件' })).toBeTruthy()
+    expect(pane.querySelector('.local-state')).toBeNull()
+    expect(within(pane).queryByText('本地优先')).toBeNull()
+    expect(within(pane).queryByRole('button', { name: '导入会话文件' })).toBeNull()
     const sidebar = screen.getByRole('complementary', { name: '档案导航' })
     expect(within(sidebar).getByText('仅保存在本机')).toBeTruthy()
     expect(within(sidebar).getByText('不自动扫描')).toBeTruthy()
@@ -535,22 +578,42 @@ describe('档案界面', () => {
     await screen.findByText('本机没有这段会话，请先导入对应的 Pinekin 包。')
     expect(screen.queryByRole('heading', { name: legacyDemo.title })).toBeNull()
   })
+  it.each([true, false])('会话卡片不显示描述或空消息占位，保留元信息和正文，有消息=%s', async withMessages => {
+    const session = { ...demoSessions[0], messages: withMessages ? demoSessions[0].messages : [] }
+    const original = structuredClone(session)
+    vi.mocked(window.staithe.list).mockResolvedValue([session])
+    await open()
+    const card = within(screen.getByRole('region', { name: '会话列表' })).getByRole('button', { name: new RegExp(session.title) })
+    expect(within(card).getByRole('heading', { level: 3, name: session.title })).toBeTruthy()
+    expect(within(card).getByText('NewMax', { exact: true })).toBeTruthy()
+    expect(card.querySelector('time')?.getAttribute('datetime')).toBe(session.updatedAt)
+    expect(card.querySelector('.tag, .card-tags, .card-footer')).toBeNull()
+    expect(card.querySelector('p')).toBeNull()
+    expect(within(card).queryByText('这段会话暂时没有消息')).toBeNull()
+    const messages = within(screen.getByRole('region', { name: '会话消息' }))
+    if (withMessages) {
+      expect(within(card).queryByText(session.messages[0].content)).toBeNull()
+      expect(messages.getByText(session.messages[0].content)).toBeTruthy()
+    } else {
+      expect(messages.getByText('这段会话暂时没有消息')).toBeTruthy()
+    }
+    expect(session).toEqual(original)
+  })
   it.each([
-    ['cindy', ['Cindy', '本地快照', '文本投影'], ['本地快照', '文本投影']],
-    ['cindy', [' cInDy '], []],
-    ['codex', ['Codex', 'Cindy', '文本投影'], ['Cindy', '文本投影']],
-    ['deepseek', ['DeepSeek', 'DeepSeek Harness', '文本投影'], ['文本投影']],
-    ['newmax', ['NewMax', '项目'], ['项目']],
-    ['claude-code', ['Claude Code', '项目'], ['项目']],
-    ['other', ['Cindy', '其他来源'], ['Cindy', '其他来源']],
-  ] as const)('卡片仅隐藏与 %s 来源重复的产品标签，不修改原始标签', async (source, tags, expected) => {
+    ['cindy', ['Cindy', '本地快照', '文本投影']],
+    ['cindy', [' cInDy ']],
+    ['codex', ['Codex', 'Cindy', '文本投影']],
+    ['deepseek', ['DeepSeek', 'DeepSeek Harness', '文本投影']],
+    ['newmax', ['NewMax', '项目']],
+    ['claude-code', ['Claude Code', '项目']],
+    ['other', ['Cindy', '其他来源']],
+  ] as const)('会话卡片隐藏 %s 的全部标签且不修改原始数据', async (source, tags) => {
     const session = { ...demoSessions[0], source, tags: [...tags] }
     const original = structuredClone(session)
     vi.mocked(window.staithe.list).mockResolvedValue([session])
     await open()
     const card = document.querySelector('.session-card')!
-    expect([...card.querySelectorAll('.tag')].map(tag => tag.textContent)).toEqual([...expected])
-    expect(card.querySelectorAll('.card-footer')).toHaveLength(expected.length ? 1 : 0)
+    expect(card.querySelector('.tag, .card-tags, .card-footer')).toBeNull()
     expect(card.querySelector('.card-meta .source-icon')).not.toBeNull()
     expect(session).toEqual(original)
   })
@@ -560,13 +623,31 @@ describe('档案界面', () => {
     const list = screen.getByRole('region', { name: '会话列表' })
     expect(within(list).queryByText('已导入', { exact: true })).toBeNull()
     expect(list.querySelector('.archive-badge')).toBeNull()
-    expect(list.querySelectorAll('.card-footer')).toHaveLength(withTags ? 1 : 0)
-    expect(within(list).queryByText('保留标签') !== null).toBe(withTags)
+    expect(list.querySelector('.card-footer, .card-tags, .tag')).toBeNull()
+    expect(within(list).queryByText('保留标签')).toBeNull()
     openSearch()
     const dialog = screen.getByRole('dialog', { name: '搜索会话' })
     expect(within(dialog).queryByText(/已导入/)).toBeNull()
     expect(within(dialog).getByText('NewMax', { exact: true })).toBeTruthy()
     closeSearch()
+  })
+  it('隐藏标签后仍可按标签搜索并导出原会话', async () => {
+    const session = { ...demoSessions[0], tags: ['仅用于标签检索的关键词'] }
+    const original = structuredClone(session)
+    vi.mocked(window.staithe.list).mockResolvedValue([session, demoSessions[1]])
+    await open()
+    fireEvent.change(openSearch(), { target: { value: session.tags[0] } })
+    const dialog = screen.getByRole('dialog', { name: '搜索会话' })
+    expect(within(dialog).getByRole('button', { name: `打开档案：${session.title}` })).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: `打开档案：${demoSessions[1].title}` })).toBeNull()
+    closeSearch()
+    const list = screen.getByRole('region', { name: '会话列表' })
+    expect(list.querySelectorAll('.session-card')).toHaveLength(1)
+    expect(within(list).queryByText(session.tags[0])).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '带走这段对话' }))
+    fireEvent.click(screen.getByRole('button', { name: '导出 Pinekin 包' }))
+    await waitFor(() => expect(window.staithe.exportSession).toHaveBeenCalledWith(session.id, 'bundle', '通用'))
+    expect(session).toEqual(original)
   })
   it('不显示演示分类或计数，来源过滤与深链仍可用', async () => {
     await open()
