@@ -5,6 +5,8 @@ import type { Library } from './library'
 import { parseCindy } from './cindy'
 import { isCodexRollout, parseCodex } from './codex'
 import { isZstandard, parseCompressedCodex } from './codex-zstd'
+import { isDeepSeekLog, parseDeepSeek } from './deepseek'
+import { parseCindyLocal } from './cindy-local'
 
 export async function parseArchive(input: Uint8Array): Promise<ParsedArchive> {
   if (input.byteLength > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
@@ -13,10 +15,14 @@ export async function parseArchive(input: Uint8Array): Promise<ParsedArchive> {
   if (bytes.subarray(0, 8).equals(Buffer.from('XDTSHARE'))) return parseCindy(bytes)
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
   if (isCodexRollout(text)) return parseCodex(text)
+  if (isDeepSeekLog(text)) return parseDeepSeek(text)
+  let value: unknown
+  try { value = JSON.parse(text) } catch { /* 下面统一报告未知格式。 */ }
+  if (value && typeof value === 'object' && 'format' in value && value.format === 'pinekin.cindy-local-snapshot') return parseCindyLocal(value)
   let bundle
   try { bundle = parseBundle(text) }
   catch {
-    throw new Error('文件格式不支持或已损坏。支持 Staithe / Ember 文本包、未加密 Cindy v1 包和 Codex 独立主会话 JSONL / JSONL.ZST；DeepSeek 导出格式尚待样本验证。')
+    throw new Error('文件格式不支持或已损坏。支持 Pinekin / Staithe / Ember 文本包、未加密 Cindy v1 包及 Pinekin Cindy 本地快照、Codex 独立主会话日志、DeepSeek Harness v4 日志；不支持 DeepSeek 网页聊天导出或原生恢复。')
   }
   const session: Session = bundle.session
   return { session, adapterId: 'staithe-bundle', adapterVersion: '0.1.0',

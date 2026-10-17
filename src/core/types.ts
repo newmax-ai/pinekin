@@ -55,6 +55,7 @@ export interface SessionAdapter {
   read?: (authorizedPath: string) => Promise<Session[]>
 }
 export interface StaitheAPI {
+  readonly platform: string
   list(): Promise<Session[]>
   previewImport(): Promise<ImportPreview | null>
   confirmImport(token: string): Promise<ImportResult>

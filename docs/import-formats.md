@@ -19,6 +19,8 @@ IPC 只有 `previewImport()`、`confirmImport(token)`、`cancelImport(token)`，
 | Staithe / Ember v1 | 兼容读取 | 原有文本会话 | 扩展字段、未知版本 |
 | Staithe 文本快照 v2 | 合成夹具验证 | 新来源标识、文本、来源摘要与损失报告 | 原始二进制文件、附件、结构化事件树 |
 | Cindy `.cshare` / `.xdtshare` | 固定源码格式 + 合成夹具验证 | 未加密、普通单会话 v1 包的文本投影 | 加密包、Orca 协同包、v2/未来格式、原生恢复 |
+| Pinekin Cindy 本地快照 v1 | 合成回归 + 0.1.97 本机 3 段核验 | 普通桌面主会话的字段白名单快照、当前用户/助手文本 | 非官方分享包；不自动连接数据库；分叉、bot、Orca、远程和原生恢复不支持 |
+| DeepSeek Harness v4 JSONL / JSONL.ZSTD | 合成回归 + 0.2.1-rc.1 环境下 3 份现有日志核验 | 序号从 0 连续、非继承/非子会话的用户输入和助手文本 | 网页聊天导出、未来格式、表面替换、截断或超限日志、原生恢复 |
 | DeepSeek 消费者聊天导出 | 官方有导出说明；Staithe 未支持 | 无 | 缺少官方 schema 或获授权脱敏样本，不能猜测适配 |
 | Codex 独立主会话 JSONL / JSONL.ZST | 合成回归 + 少量获授权本机文件抽样 | legacy 或从 0 连续编号、无引用的分页主会话；有界解压、原件与来源报告 | 有引用/缺序号的分页、继承、子会话、超限文件；不重建有效分支、不启动 resume |
 | Claude Code 日志 | 尚未实现 | 无 | 不自动扫描本地日志、不启动 resume |
@@ -117,4 +119,4 @@ userData/imports/<sha256>/
 - `https://github.com/makecindy/cindy/blob/e532ef3d8fe8271a3decf7f478d09d8ce959f824/apps/desktop/src/main/session-share/__tests__/sessionShareImport.test.ts`：L289–338 合成正文编码。
 - `https://cdn.deepseek.com/policies/zh-CN/deepseek-privacy-policy.html`：第 2.2(d) 说明导出入口，不提供具体 schema。
 
-后续已接入 Codex 单文件日志文本投影，详见专项文档。下一步：获得用户主动提供的 Cindy / Codex / DeepSeek 脱敏样本，先核对格式差异再扩充夹具；Claude Code 可后续独立适配。原生恢复仍需独立授权与验收。
+后续已接入 Codex 日志、Pinekin Cindy 本地快照与 DeepSeek Harness v4 文本投影；格式与本机核验范围见 [本地接入记录](cindy-deepseek-local-validation-2026-10-17.md)。Cindy 本地快照核验不等于官方分享包验收，Harness 不等于 DeepSeek 网页聊天。下一步仍需拓展版本、附件、分叉和大文件样本；原生恢复须独立授权与验收。

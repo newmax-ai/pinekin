@@ -2,6 +2,7 @@ import { constants, zstdDecompress } from 'node:zlib'
 import { MAX_BYTES } from '../core/session'
 import { isCodexRollout, parseCodex } from './codex'
 import type { ParsedArchive } from '../core/types'
+import { isDeepSeekLog, parseDeepSeek } from './deepseek'
 
 export function isZstandard(input: Buffer): boolean {
   return input.length >= 4 && input.subarray(0, 4).equals(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]))
@@ -23,8 +24,8 @@ export async function parseCompressedCodex(input: Buffer): Promise<ParsedArchive
     })
   })
   const text = new TextDecoder('utf-8', { fatal: true }).decode(decoded)
-  if (!isCodexRollout(text)) throw new Error('Zstandard 内容不是已支持的 Codex rollout；不递归解压或尝试其他格式')
-  const parsed = parseCodex(text)
-  return { ...parsed, sourceName: 'Codex JSONL · Zstandard',
+  if (!isCodexRollout(text) && !isDeepSeekLog(text)) throw new Error('Zstandard 内容不是已支持的 Codex rollout 或 DeepSeek Harness 日志；不递归解压或尝试其他格式')
+  const parsed = isDeepSeekLog(text) ? parseDeepSeek(text) : parseCodex(text)
+  return { ...parsed, sourceName: `${parsed.sourceName} · Zstandard`,
     warnings: [...parsed.warnings, '输入为 Zstandard 压缩日志；本地保存压缩原件，展示有界展开后的文本投影，不随交接导出压缩原件。'] }
 }

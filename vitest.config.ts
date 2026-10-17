@@ -7,8 +7,8 @@ export default defineConfig({
     include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
-      include: ['src/core/**/*.ts', 'src/main/{library,imports,import-file,cindy,codex,codex-zstd,zip}.ts', 'src/renderer/src/App.tsx'],
-      exclude: ['src/core/types.ts', 'src/core/demo.ts'],
+      include: ['src/core/**/*.ts', 'src/main/{library,imports,import-file,cindy,cindy-local,deepseek,codex,codex-zstd,zip,window-options,app-icon}.ts', 'src/renderer/src/**/*.tsx'],
+      exclude: ['src/core/types.ts'],
       thresholds: { lines: 80, statements: 80, functions: 80, branches: 80 },
     },
   },

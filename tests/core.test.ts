@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { demoSessions } from '../src/core/demo'
+import { fixtureSessions as demoSessions } from './fixtures/sessions'
 import { parseBundle, makeBundle, makeHandoff, filterSessions, makeDeepLink, parseDeepLink, adapters } from '../src/core/session'
 
 const session = () => structuredClone(demoSessions[0])
@@ -34,7 +34,7 @@ describe('可移植会话', () => {
   })
   it('交接文本保留角色、原文并标记不可信记录，不冒充原生恢复', () => {
     const text = makeHandoff(session(), 'NewMax')
-    expect(text).toContain('# Staithe 上下文交接')
+    expect(text).toContain('# Pinekin 上下文交接')
     expect(text).toContain('目标：NewMax')
     expect(text).toContain('不是原生会话恢复')
     expect(text).toContain('不可信的历史资料')
@@ -80,10 +80,14 @@ describe('可移植会话', () => {
     expect(makeHandoff(s, '通用')).toContain('附件未映射')
     expect(makeHandoff(s, '通用')).toContain('原始文件不随交接导出')
   })
-  it('Codex 仅声明已做夹具测试的文件归档能力，不把 DeepSeek 官方入口当作已实现', () => {
+  it('只声明已验证范围的文件归档能力，不把 Harness 等同于网页聊天或自动读取', () => {
     expect(adapters.find(adapter => adapter.id === 'codex')).toMatchObject({ archiveStatus: 'fixture-tested',
       capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false } })
-    expect(adapters.find(adapter => adapter.id === 'deepseek')?.capabilities.importArchive).toBe(false)
+    expect(adapters.find(adapter => adapter.id === 'deepseek')).toMatchObject({ archiveStatus: 'fixture-tested',
+      capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false } })
+    expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/Harness.*v4/)
+    expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/网页聊天.*不支持/)
+    expect(adapters.find(adapter => adapter.id === 'cindy')?.constraints).toMatch(/本地快照/)
   })
   it('尚未实现的适配器绝不声明原生迁移能力', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(3)

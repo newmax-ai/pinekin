@@ -1,0 +1,131 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { Sidebar } from '../src/renderer/src/components/Sidebar'
+
+const storageKey = 'pinekin.sidebar-width'
+const originalWidth = window.innerWidth
+function viewport(width: number) {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+  fireEvent(window, new Event('resize'))
+}
+function pointer(target: HTMLElement | Window, type: string, x = 0, pointerId = 1, buttons = 1, button = 0) {
+  const event = new MouseEvent(type, { bubbles: true, clientX: x, buttons, button })
+  Object.defineProperty(event, 'pointerId', { value: pointerId })
+  fireEvent(target, event)
+}
+const handle = () => screen.getByRole('separator', { name: '调整侧栏宽度' })
+const width = () => Number(handle().getAttribute('aria-valuenow'))
+beforeEach(() => { localStorage.clear(); viewport(1380) })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); viewport(originalWidth) })
+
+describe('可调宽侧栏', () => {
+  it('默认随窄窗口调整，键盘调宽并保存，双击恢复默认', () => {
+    render(<Sidebar open><span>内容</span></Sidebar>)
+    expect(width()).toBe(200)
+    expect(handle().getAttribute('aria-orientation')).toBe('vertical')
+    expect(handle().getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(handle(), { key: 'ArrowRight' })
+    expect(width()).toBe(210)
+    expect(localStorage.getItem(storageKey)).toBe('210')
+    fireEvent.keyDown(handle(), { key: 'ArrowLeft' })
+    expect(width()).toBe(200)
+    fireEvent.keyDown(handle(), { key: 'Home' })
+    expect(width()).toBe(180)
+    fireEvent.keyDown(handle(), { key: 'End' })
+    expect(width()).toBe(360)
+    fireEvent.keyDown(handle(), { key: 'a' })
+    expect(width()).toBe(360)
+    fireEvent.doubleClick(handle())
+    expect(localStorage.getItem(storageKey)).toBeNull()
+    viewport(1000)
+    expect(width()).toBe(180)
+  })
+  it('读取保存值，缩窗临时限制宽度但不覆盖偏好，收起展开保留', () => {
+    localStorage.setItem(storageKey, '360')
+    const view = render(<Sidebar open>内容</Sidebar>)
+    expect(width()).toBe(360)
+    viewport(1000)
+    expect(width()).toBe(312)
+    expect(handle().getAttribute('aria-valuemax')).toBe('312')
+    expect(localStorage.getItem(storageKey)).toBe('360')
+    view.rerender(<Sidebar open={false}>内容</Sidebar>)
+    expect(screen.queryByRole('separator')).toBeNull()
+    view.rerender(<Sidebar open>内容</Sidebar>)
+    viewport(1380)
+    expect(width()).toBe(360)
+  })
+  it.each(['NaN', 'broken', 'Infinity', ''])('无效保存值 %s 回退默认', value => {
+    localStorage.setItem(storageKey, value)
+    render(<Sidebar open>内容</Sidebar>)
+    expect(width()).toBe(200)
+  })
+  it('存储不可用仍可调宽和恢复，不影响应用', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('拒绝存储') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('拒绝存储') })
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => { throw new Error('拒绝存储') })
+    render(<Sidebar open>内容</Sidebar>)
+    fireEvent.keyDown(handle(), { key: 'ArrowRight' })
+    expect(width()).toBe(210)
+    fireEvent.doubleClick(handle())
+    expect(width()).toBe(200)
+  })
+  it('拖拽有上下限，只在松开后保存并恢复全局光标和选择状态', () => {
+    render(<Sidebar open>内容</Sidebar>)
+    document.body.style.cursor = 'default'
+    document.body.style.userSelect = 'text'
+    pointer(handle(), 'pointerdown', 200, 1, 1, 2)
+    pointer(window, 'pointermove', 300)
+    expect(width()).toBe(200)
+    pointer(handle(), 'pointerdown', 200)
+    pointer(window, 'pointermove', 300, 2)
+    expect(width()).toBe(200)
+    pointer(window, 'pointermove', 300)
+    expect(width()).toBe(300)
+    expect(localStorage.getItem(storageKey)).toBeNull()
+    pointer(window, 'pointermove', 1000)
+    expect(width()).toBe(360)
+    pointer(window, 'pointermove', -1000)
+    expect(width()).toBe(180)
+    pointer(window, 'pointermove', 300)
+    pointer(window, 'pointerup', 300, 2, 0)
+    expect(document.body.style.cursor).toBe('col-resize')
+    pointer(window, 'pointerup', 300, 1, 0)
+    expect(localStorage.getItem(storageKey)).toBe('300')
+    expect(document.body.style.cursor).toBe('default')
+    expect(document.body.style.userSelect).toBe('text')
+    pointer(window, 'pointermove', 350)
+    expect(width()).toBe(300)
+  })
+  it('Escape、pointercancel、隐藏和卸载都清理拖拽，不保存中断值', () => {
+    const view = render(<Sidebar open>内容</Sidebar>)
+    for (const action of ['escape', 'cancel', 'hidden', 'unmount']) {
+      pointer(handle(), 'pointerdown', 200)
+      pointer(window, 'pointermove', 260)
+      if (action === 'escape') fireEvent.keyDown(window, { key: 'Escape' })
+      if (action === 'cancel') pointer(window, 'pointercancel', 260)
+      if (action === 'hidden') {
+        view.rerender(<Sidebar open={false}>内容</Sidebar>)
+        view.rerender(<Sidebar open>内容</Sidebar>)
+      }
+      if (action === 'unmount') view.unmount()
+      else expect(width()).toBe(200)
+      expect(document.body.style.cursor).not.toBe('col-resize')
+      expect(document.body.style.userSelect).not.toBe('none')
+      expect(localStorage.getItem(storageKey)).toBeNull()
+    }
+  })
+  it('窗口失焦或重返窗口时已松开鼠标会结束拖拽', () => {
+    render(<Sidebar open>内容</Sidebar>)
+    pointer(handle(), 'pointerdown', 200)
+    pointer(window, 'pointermove', 240)
+    fireEvent(window, new Event('blur'))
+    expect(localStorage.getItem(storageKey)).toBe('240')
+    pointer(handle(), 'pointerdown', 240)
+    pointer(window, 'pointermove', 280)
+    pointer(window, 'pointermove', 290, 1, 0)
+    expect(width()).toBe(280)
+    expect(document.body.style.cursor).not.toBe('col-resize')
+    expect(localStorage.getItem(storageKey)).toBe('280')
+  })
+})

@@ -1,8 +1,8 @@
 {
-  "name": "@newmax-ai/staithe",
+  "name": "@newmax-ai/pinekin",
   "version": "0.1.0",
   "private": true,
-  "description": "Staithe — 换个地方，继续思考。",
+  "description": "Pinekin — 换个地方，继续思考。",
   "author": "newmax-ai",
   "type": "module",
   "main": "out/main/index.js",
@@ -20,6 +20,7 @@
     "pack": "npm run build && electron-builder --dir"
   },
   "dependencies": {
+    "lucide-react": "1.58.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "yauzl": "3.3.0",
@@ -45,17 +46,19 @@
   },
   "build": {
     "appId": "ai.newmax.staithe",
-    "productName": "Staithe",
+    "productName": "Pinekin",
     "directories": {
       "output": "release"
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "resources/pinekin.png",
+      "resources/pinekin-macos.png"
     ],
     "protocols": [
       {
-        "name": "Staithe 本地会话",
+        "name": "Pinekin 本地会话",
         "schemes": [
           "newmax-staithe",
           "newmax-ember"
@@ -63,13 +66,16 @@
       }
     ],
     "mac": {
+      "icon": "resources/pinekin.icns",
       "category": "public.app-category.productivity",
       "target": "dmg"
     },
     "win": {
+      "icon": "resources/pinekin.ico",
       "target": "nsis"
     },
     "linux": {
+      "icon": "resources/pinekin.png",
       "target": "AppImage",
       "category": "Utility"
     }

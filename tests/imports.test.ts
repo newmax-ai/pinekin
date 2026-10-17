@@ -3,11 +3,13 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeBundle } from '../src/core/session'
-import { demoSessions } from '../src/core/demo'
+import { fixtureSessions as demoSessions } from './fixtures/sessions'
 import { Library } from '../src/main/library'
 import { ImportCoordinator } from '../src/main/imports'
 import { codexFixture, codexThreadId, codexPaginatedFixture } from './fixtures/codex'
 import { zstdCompressSync } from 'node:zlib'
+import { deepseekFixture } from './fixtures/deepseek'
+import { cindyLocalFixture } from './fixtures/cindy-local'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true }))) })
@@ -61,6 +63,24 @@ describe('用户确认的只读导入', () => {
     const imported = await importer.commit(preview.token)
     expect(imported.session.archive?.adapterVersion).toBe('0.2.0')
     expect((await readFile(join(directory, 'imports', preview.sha256, 'original.bin'))).equals(bytes)).toBe(true)
+    const again = await importer.prepare(bytes)
+    expect(again.duplicate).toBe(true)
+    expect((await importer.commit(again.token)).session.id).toBe(imported.session.id)
+  })
+  it.each([
+    ['DeepSeek Harness', () => zstdCompressSync(deepseekFixture()), 'deepseek-harness-v4'],
+    ['Cindy 本地快照', cindyLocalFixture, 'cindy-local-snapshot'],
+  ] as const)('%s 预览取消不落盘，确认保存原件并重复定位', async (_name, fixture, adapterId) => {
+    const { directory, importer } = await setup()
+    const bytes = fixture()
+    const canceled = await importer.prepare(bytes)
+    importer.cancel(canceled.token)
+    expect(await readdir(directory)).toEqual([])
+    const preview = await importer.prepare(bytes)
+    expect(preview.messageCount).toBe(2)
+    const imported = await importer.commit(preview.token)
+    expect(imported.session.archive?.adapterId).toBe(adapterId)
+    expect(await readFile(join(directory, 'imports', preview.sha256, 'original.bin'))).toEqual(bytes)
     const again = await importer.prepare(bytes)
     expect(again.duplicate).toBe(true)
     expect((await importer.commit(again.token)).session.id).toBe(imported.session.id)

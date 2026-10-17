@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Library } from '../src/main/library'
 import { makeBundle } from '../src/core/session'
-import { demoSessions } from '../src/core/demo'
+import { fixtureSessions as demoSessions } from './fixtures/sessions'
 
 const dirs: string[] = []
 afterEach(async () => { await Promise.all(dirs.splice(0).map(d => rm(d, { recursive: true, force: true }))) })
@@ -13,9 +13,17 @@ async function setup() {
   return { dir, library: new Library(dir) }
 }
 describe('本地档案存储', () => {
-  it('空档案展示明确标记的演示会话，不扫描其他客户端', async () => {
-    const { library } = await setup()
-    expect(await library.list()).toEqual(demoSessions)
+  it('空库不追加任何演示数据，重新读取仍为空', async () => {
+    const { library, dir } = await setup()
+    expect(await library.list()).toEqual([])
+    expect(await new Library(dir).list()).toEqual([])
+  })
+  it('旧库演示标记不进入列表，真实档案保留且不重写原库', async () => {
+    const { library, dir } = await setup()
+    const content = JSON.stringify([{ ...demoSessions[0], demo: true }, demoSessions[1]])
+    await writeFile(join(dir, 'library.json'), content)
+    expect(await library.list()).toEqual([demoSessions[1]])
+    expect(await readFile(join(dir, 'library.json'), 'utf8')).toBe(content)
   })
   it('导入经过验证的包，分配新 ID 并持久化；并发导入不会丢失', async () => {
     const { library, dir } = await setup()

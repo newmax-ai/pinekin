@@ -6,9 +6,12 @@ import { z } from 'zod'
 import { Library } from './library'
 import { ImportCoordinator } from './imports'
 import { readImportFile } from './import-file'
+import { getBackgroundTestMode, getTestWindowOptions, getWindowChrome, presentWindow } from './window-options'
 import { MAX_BYTES, idSchema, makeBundle, makeHandoff, parseDeepLink } from '../core/session'
+import { getAppIconFilename, setDevelopmentDockIcon } from './app-icon'
 
 const here = dirname(fileURLToPath(import.meta.url))
+const appIconPath = join(here, '../../resources', getAppIconFilename(process.platform))
 let window: BrowserWindow | null = null
 let rendererReady = false
 let pendingId: string | null = null
@@ -17,16 +20,16 @@ let choosingImport = false
 // 显示名与存储身份分离，沿用旧包名对应的目录，不搬动或重写已有档案。
 const dataOverride = !app.isPackaged && (process.env.STAITHE_DATA_DIR || process.env.EMBER_DATA_DIR)
 app.setPath('userData', dataOverride || join(app.getPath('appData'), '@newmax-ai/ember'))
-app.setName('Staithe')
+app.setName('Pinekin')
+const backgroundTesting = getBackgroundTestMode(app.isPackaged, process.env.STAITHE_TEST_BACKGROUND)
+if (backgroundTesting && process.platform === 'darwin') app.setActivationPolicy('accessory')
 
 function deliverLink(value: string) {
   const id = parseDeepLink(value)
   if (!id) return
   if (window && rendererReady) window.webContents.send('staithe:open-session', id)
   else pendingId = id
-  if (window?.isMinimized()) window.restore()
-  window?.show()
-  window?.focus()
+  presentWindow(window, backgroundTesting)
 }
 function assertSender(event: IpcMainInvokeEvent) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
@@ -37,8 +40,11 @@ function createWindow() {
   rendererReady = false
   window = new BrowserWindow({
     width: 1380, height: 900, minWidth: 1000, minHeight: 680,
-    title: 'Staithe', backgroundColor: '#f5f2eb',
-    webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    ...getWindowChrome(process.platform),
+    ...getTestWindowOptions(backgroundTesting),
+    title: 'Pinekin', icon: appIconPath, backgroundColor: '#f5f2eb',
+    webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
+      ...(backgroundTesting ? { backgroundThrottling: false, focusOnNavigation: false } : {}) },
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
@@ -54,10 +60,11 @@ else {
   app.on('open-url', (event, url) => { event.preventDefault(); deliverLink(url) })
   app.on('second-instance', (_event, argv) => {
     argv.forEach(deliverLink)
-    window?.show(); window?.focus()
+    presentWindow(window, backgroundTesting)
   })
   process.argv.forEach(deliverLink)
   void app.whenReady().then(() => {
+    setDevelopmentDockIcon(app.dock, appIconPath, { platform: process.platform, isPackaged: app.isPackaged, backgroundTesting })
     const library = new Library(app.getPath('userData'))
     const imports = new ImportCoordinator(library)
     importer = imports
@@ -77,7 +84,7 @@ else {
       try {
         const result = await dialog.showOpenDialog(window!, {
           title: '选择会话文件，只读预览后确认导入', properties: ['openFile'],
-          filters: [{ name: 'Staithe / Ember / Cindy / Codex 会话文件', extensions: ['json', 'jsonl', 'zst', 'cshare', 'xdtshare'] }],
+          filters: [{ name: 'Pinekin / Staithe / Ember / Cindy / Codex / DeepSeek Harness 会话文件', extensions: ['json', 'jsonl', 'zst', 'zstd', 'cshare', 'xdtshare'] }],
         })
         assertSender(event)
         if (result.canceled || !result.filePaths[0]) return null
@@ -103,8 +110,8 @@ else {
       const content = isBundle ? JSON.stringify(makeBundle(session), null, 2) : makeHandoff(session, target)
       if (isBundle && Buffer.byteLength(content) > MAX_BYTES) throw new Error('文本包超过 5 MB，无法保证重新导入；请改用 Markdown')
       const result = await dialog.showSaveDialog(window!, {
-        title: '导出前请检查是否包含敏感内容', defaultPath: `staithe-${id}.${isBundle ? 'staithe.json' : 'md'}`,
-        filters: [{ name: isBundle ? 'Staithe 会话包' : 'Markdown', extensions: [isBundle ? 'json' : 'md'] }],
+        title: '导出前请检查是否包含敏感内容', defaultPath: `pinekin-${id}.${isBundle ? 'staithe.json' : 'md'}`,
+        filters: [{ name: isBundle ? 'Pinekin 会话包' : 'Markdown', extensions: [isBundle ? 'json' : 'md'] }],
       })
       if (result.canceled || !result.filePath) return false
       const file = await open(result.filePath, 'w', 0o600)

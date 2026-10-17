@@ -1,51 +1,993 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { test as base, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises'
 import { cindyFixture } from '../fixtures/cindy'
 import { codexFixture, codexThreadId, codexPaginatedFixture } from '../fixtures/codex'
 import { zstdCompressSync } from 'node:zlib'
+import { deepseekFixture } from '../fixtures/deepseek'
+import { cindyLocalFixture } from '../fixtures/cindy-local'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { makeBundle } from '../../src/core/session'
-import { demoSessions } from '../../src/core/demo'
+import { fixtureSessions as demoSessions } from '../fixtures/sessions'
+
+const test = base.extend<{ seedLibrary: boolean }>({
+  seedLibrary: [true, { option: true }],
+})
 
 let app: ElectronApplication
 let page: Page
 let directory: string
 function isolatedEnv(): Record<string, string> {
-  return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
-    entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR'].includes(entry[0])))
+  return { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
+    entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR', 'STAITHE_TEST_BACKGROUND'].includes(entry[0]))),
+    STAITHE_TEST_BACKGROUND: '1' }
 }
-async function launch(legacyEnv = false, link?: string) {
+async function assertBackground() {
+  const state = await app.evaluate(({ app, BrowserWindow }) => ({
+    active: process.platform === 'darwin' ? app.isActive() : false,
+    windows: BrowserWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused(), focusable: window.isFocusable() })),
+    events: (globalThis as unknown as { staitheTestWindowEvents: string[] }).staitheTestWindowEvents,
+  }))
+  expect(state.active).toBe(false)
+  expect(state.windows.length).toBeGreaterThan(0)
+  expect(state.windows.every(window => !window.visible && !window.focused && !window.focusable)).toBe(true)
+  expect(state.events).toEqual([])
+}
+async function launch(legacyEnv = false, link?: string, legacyAppData = false) {
   const env = isolatedEnv()
-  app = await electron.launch({ args: [resolve('out/main/index.js'), ...(link ? [link] : [])],
-    env: { ...env, [legacyEnv ? 'EMBER_DATA_DIR' : 'STAITHE_DATA_DIR']: directory } })
+  // 在加载应用前监听原生 show / focus，捕获短暂弹出，而不只检查测试结束时是否隐藏。
+  const bootstrap = join(directory, 'background-start.cjs')
+  await writeFile(bootstrap, `const { app } = require('electron');
+    globalThis.staitheTestWindowEvents = [];
+    app.on('browser-window-created', (_event, window) => {
+      window.on('show', () => globalThis.staitheTestWindowEvents.push('show'));
+      window.on('focus', () => globalThis.staitheTestWindowEvents.push('focus'));
+    });
+    ${legacyAppData ? `app.setPath('appData', ${JSON.stringify(directory)});` : ''}
+    import(${JSON.stringify(pathToFileURL(resolve('out/main/index.js')).href)});`)
+  app = await electron.launch({ args: [bootstrap, ...(link ? [link] : [])],
+    env: legacyAppData ? env : { ...env, [legacyEnv ? 'EMBER_DATA_DIR' : 'STAITHE_DATA_DIR']: directory } })
   page = await app.firstWindow()
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.brand > span:last-child')).toHaveText('staithe.')
-  await expect(page).toHaveTitle('Staithe · 换个地方，继续思考')
-  expect(await app.evaluate(({ app }) => app.getName())).toBe('Staithe')
-  expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(directory)
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
+  await expect(page.locator('.sidebar .brand-logo')).toHaveText('pinekin.')
+  await expect(page).toHaveTitle('Pinekin · 换个地方，继续思考')
+  expect(await app.evaluate(({ app }) => app.getName())).toBe('Pinekin')
+  expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(legacyAppData ? join(directory, '@newmax-ai/ember') : directory)
+  await assertBackground()
 }
-test.beforeEach(async () => {
+test.beforeEach(async ({ seedLibrary }) => {
   directory = await mkdtemp(join(tmpdir(), 'staithe-e2e-'))
+  // 仅在首次启动前种入隔离测试档案；重启必须读取测试实际保存的内容。
+  if (seedLibrary) await writeFile(join(directory, 'library.json'), JSON.stringify(demoSessions))
   await launch()
 })
-test.afterEach(async () => { await app?.close(); await rm(directory, { recursive: true, force: true }) })
+test.afterEach(async () => {
+  try { if (app && app.process().exitCode === null) await assertBackground() }
+  finally { await app?.close(); await rm(directory, { recursive: true, force: true }) }
+})
+
+test('NewMax Tooltip 统一图标按钮，支持深浅主题、键盘与原生 modal 顶层', async () => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    const importButton = page.getByRole('button', { name: '导入会话文件' })
+    await importButton.hover()
+    const tooltip = page.getByRole('tooltip')
+    await expect(tooltip).toHaveText('导入会话文件')
+    await expect(importButton).not.toHaveAttribute('title')
+    await expect(tooltip).toHaveCSS('padding', '8px 12px')
+    await expect(tooltip).toHaveCSS('pointer-events', 'none')
+    await expect(tooltip).toHaveCSS('background-color', colorScheme === 'dark' ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)')
+    expect(await tooltip.evaluate(element => element.matches(':popover-open'))).toBe(true)
+    const bounds = (await tooltip.boundingBox())!
+    const trigger = (await importButton.boundingBox())!
+    expect(bounds.y).toBeCloseTo(trigger.y + trigger.height + 4)
+    expect(bounds.x).toBeGreaterThanOrEqual(8)
+    await page.keyboard.press('Escape')
+    await expect(tooltip).toHaveCount(0)
+    await page.mouse.move(700, 400)
+    const sidebar = page.getByRole('button', { name: '收起侧栏' })
+    await sidebar.focus()
+    await expect(tooltip).toHaveText('收起侧栏')
+    await page.keyboard.press('Enter')
+    await expect(tooltip).toHaveCount(0)
+    const expand = page.getByRole('button', { name: '展开侧栏' })
+    await expand.hover()
+    await expect(tooltip).toHaveText('展开侧栏')
+    await expand.click()
+    await page.mouse.move(700, 400)
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    const close = page.getByRole('button', { name: '关闭搜索' })
+    await close.hover()
+    await expect(tooltip).toHaveText('关闭搜索')
+    expect(await tooltip.evaluate(element => element.matches(':popover-open'))).toBe(true)
+    await close.focus()
+    await expect(close).toHaveAttribute('aria-describedby', await tooltip.getAttribute('id') as string)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(close).toHaveCount(0)
+    await page.mouse.move(700, 400)
+    await importButton.hover()
+    await expect(tooltip).toHaveText('导入会话文件')
+    await assertBackground()
+  }
+})
+
+test.describe('全新空库', () => {
+  test.use({ seedLibrary: false })
+
+  test('首次启动与重启不生成演示档案，无档案类型筛选且可选择会话文件', async () => {
+    const assertEmptyLibrary = async () => {
+      await expect(page.getByRole('heading', { name: '还没有会话档案', exact: true })).toBeVisible()
+      await expect(page.getByRole('button', { name: '选择会话文件', exact: true })).toBeVisible()
+      await expect(page.locator('.session-card')).toHaveCount(0)
+      await expect(page.locator('.scope-filter')).toHaveCount(0)
+      await expect(page.getByRole('group', { name: '档案类型' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: /^(全部|已导入|演示)$/ })).toHaveCount(0)
+      await expect(page.locator('body')).not.toContainText('演示')
+      for (const session of demoSessions) await expect(page.getByText(session.title, { exact: true })).toHaveCount(0)
+      expect(await page.evaluate(() => window.staithe.list())).toEqual([])
+      expect(await readdir(directory)).not.toContain('library.json')
+      expect(await readdir(directory)).not.toContain('imports')
+    }
+    await assertEmptyLibrary()
+    await page.screenshot({ scale: 'css', path: 'test-results/pinekin-empty-library-no-demo.png' })
+    await app.evaluate(({ dialog }) => {
+      ;(globalThis as unknown as { testOpenDialogCalls: number }).testOpenDialogCalls = 0
+      dialog.showOpenDialog = async () => {
+        ;(globalThis as unknown as { testOpenDialogCalls: number }).testOpenDialogCalls++
+        return { canceled: true, filePaths: [] }
+      }
+    })
+    const chooseFile = page.getByRole('button', { name: '选择会话文件', exact: true })
+    await chooseFile.click()
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { testOpenDialogCalls: number }).testOpenDialogCalls)).toBe(1)
+    await expect(chooseFile).toBeEnabled()
+    await expect(chooseFile).toBeFocused()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await assertEmptyLibrary()
+    await assertBackground()
+    await app.close()
+    await launch()
+    await assertEmptyLibrary()
+  })
+})
+
+test('应用图标可由 Electron 解码，像素与用户定稿一致且保留透明边角', async () => {
+  const result = await app.evaluate(({ nativeImage }, paths) => {
+    const image = nativeImage.createFromPath(paths.icon)
+    const approved = nativeImage.createFromPath(paths.approved)
+    const size = image.getSize()
+    const bitmap = image.toBitmap()
+    const alpha = (x: number, y: number) => bitmap[(y * size.width + x) * 4 + 3]
+    return { empty: image.isEmpty(), sourceEmpty: approved.isEmpty(), size,
+      matchesApproved: bitmap.equals(approved.toBitmap()), centerAlpha: alpha(512, 512),
+      corners: [alpha(0, 0), alpha(1023, 0), alpha(0, 1023), alpha(1023, 1023)] }
+  }, { icon: resolve('resources/pinekin.png'), approved: resolve('design/brand/pinekin-icon-approved.png') })
+  expect(result.empty).toBe(false)
+  expect(result.sourceEmpty).toBe(false)
+  expect(result.size).toEqual({ width: 1024, height: 1024 })
+  expect(result.matchesApproved).toBe(true)
+  expect(result.corners).toEqual([0, 0, 0, 0])
+  expect(result.centerAlpha).toBe(255)
+})
+
+test('macOS 图标底板收进安全留白，低透明度阴影向下且不裁边', async () => {
+  const result = await app.evaluate(({ nativeImage }, iconPath) => {
+    const image = nativeImage.createFromPath(iconPath)
+    const bitmap = image.toBitmap()
+    const alpha = (x: number, y: number) => bitmap[(y * 1024 + x) * 4 + 3]
+    function bounds(pixels: Buffer, size: number) {
+      let left = size, top = size, right = -1, bottom = -1
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+        if (pixels[(y * size + x) * 4 + 3] < 250) continue
+        left = Math.min(left, x); top = Math.min(top, y)
+        right = Math.max(right, x); bottom = Math.max(bottom, y)
+      }
+      return { left, top, width: right - left + 1, height: bottom - top + 1 }
+    }
+    const small = image.resize({ width: 96, height: 96, quality: 'best' })
+    return { empty: image.isEmpty(), size: image.getSize(), bounds: bounds(bitmap, 1024), smallBounds: bounds(small.toBitmap(), 96),
+      upperShadow: alpha(512, 84), lowerShadow: alpha(512, 940),
+      edges: [alpha(512, 0), alpha(512, 1023), alpha(0, 512), alpha(1023, 512)] }
+  }, resolve('resources/pinekin-macos.png'))
+  expect(result.empty).toBe(false)
+  expect(result.size).toEqual({ width: 1024, height: 1024 })
+  expect(result.bounds).toEqual({ left: 100, top: 100, width: 824, height: 824 })
+  expect(result.edges).toEqual([0, 0, 0, 0])
+  expect(result.lowerShadow).toBeGreaterThan(0)
+  expect(result.lowerShadow).toBeLessThan(64)
+  expect(result.lowerShadow).toBeGreaterThan(result.upperShadow)
+  expect(result.smallBounds.width).toBeGreaterThanOrEqual(76)
+  expect(result.smallBounds.width).toBeLessThanOrEqual(78)
+  expect(result.smallBounds.height).toBeGreaterThanOrEqual(76)
+  expect(result.smallBounds.height).toBeLessThanOrEqual(78)
+})
+
+test('原生红绿灯整合进 macOS 页头，拖动区不覆盖操作按钮', async () => {
+  const chrome = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    return { platform: process.platform, buttons: process.platform === 'darwin' ? window.getWindowButtonPosition() : null,
+      bounds: window.getBounds(), content: window.getContentBounds() }
+  })
+  await expect(page.locator('.shell')).toHaveAttribute('data-platform', chrome.platform)
+  expect(await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
+  if (chrome.platform === 'darwin') {
+    expect(chrome.buttons).toEqual({ x: 12, y: 12 })
+    expect(chrome.content.height).toBe(chrome.bounds.height)
+    await expect(page.locator('.window-toolbar')).toHaveCSS('-webkit-app-region', 'drag')
+    await expect(page.locator('.window-controls-space')).toHaveCSS('-webkit-app-region', 'drag')
+    await expect(page.locator('.brand')).toHaveCSS('-webkit-app-region', 'drag')
+    await expect(page.locator('.topbar')).toHaveCSS('-webkit-app-region', 'drag')
+    await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('-webkit-app-region', 'no-drag')
+    const toolbar = (await page.locator('.window-toolbar').boundingBox())!
+    const controls = (await page.locator('.window-controls-space').boundingBox())!
+    expect(toolbar.height).toBe(38)
+    const header = (await page.locator('.topbar').boundingBox())!
+    const logo = (await page.locator('.brand > span').boundingBox())!
+    const navLabel = (await page.locator('.sidebar-section .nav-label').first().boundingBox())!
+    expect(controls.y).toBe(0)
+    expect(controls.height).toBe(toolbar.height)
+    expect(header.y).toBe(controls.y + controls.height)
+    expect(header.height).toBe(36)
+    const buttons = page.getByRole('navigation', { name: '浏览导航' }).getByRole('button')
+    await expect(buttons).toHaveCount(3)
+    let previousRight: number | undefined
+    for (const button of await buttons.all()) {
+      await expect(button).toHaveCSS('-webkit-app-region', 'no-drag')
+      const box = (await button.boundingBox())!
+      expect(box.x).toBe(previousRight === undefined ? controls.x + controls.width : previousRight + 1)
+      expect(box.y + box.height / 2).toBe(19)
+      previousRight = box.x + box.width
+    }
+    const searchButton = page.getByRole('button', { name: '搜索', exact: true })
+    const search = (await searchButton.boundingBox())!
+    const brandSidebar = (await page.locator('.sidebar').boundingBox())!
+    expect(search.x).toBeGreaterThan(logo.x + logo.width)
+    expect(search.x + search.width).toBeLessThanOrEqual(brandSidebar.x + brandSidebar.width)
+    expect(Math.abs(search.y + search.height / 2 - (logo.y + logo.height / 2))).toBeLessThanOrEqual(1)
+    await expect(searchButton).toHaveCSS('-webkit-app-region', 'no-drag')
+    await expect(page.locator('.sidebar .brand')).toHaveCount(1)
+    await expect(page.locator('.topbar .brand, .topbar input')).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: '搜索会话' })).toHaveCount(0)
+    expect(logo.x).toBe(24)
+    expect(logo.x).toBe(navLabel.x)
+    expect(logo.y).toBeGreaterThanOrEqual(controls.y + controls.height)
+    expect(logo.y).toBeLessThanOrEqual(toolbar.height + 10)
+    await expect(page.locator('.brand')).toHaveCSS('height', '36px')
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
+    const narrowLogo = (await page.locator('.brand > span').boundingBox())!
+    const sidebar = (await page.locator('.sidebar').boundingBox())!
+    expect(narrowLogo.x).toBe(24)
+    expect(narrowLogo.y).toBeGreaterThanOrEqual(toolbar.height)
+    expect(narrowLogo.y).toBeLessThanOrEqual(toolbar.height + 10)
+    expect(narrowLogo.x + narrowLogo.width).toBeLessThanOrEqual(sidebar.x + sidebar.width - 8)
+    // 悬浮和收起状态都显示按钮底板，必须与顶行上下边缘各保持 5px。
+    for (const collapsed of [false, true]) {
+      if (collapsed) await page.getByRole('button', { name: '收起侧栏' }).click()
+      await page.getByRole('button', { name: collapsed ? '展开侧栏' : '收起侧栏' }).hover()
+      const row = (await page.locator('.window-toolbar').boundingBox())!
+      for (const button of await buttons.all()) {
+        const box = (await button.boundingBox())!
+        expect(box.y - row.y).toBe(5)
+        expect(row.y + row.height - box.y - box.height).toBe(5)
+      }
+      const card = (await page.locator('.workspace-card').boundingBox())!
+      expect(card.y).toBe(row.y + row.height)
+    }
+    await page.screenshot({ scale: 'css', clip: { x: 0, y: 0, width: 560, height: 110 }, path: 'test-results/pinekin-toolbar-balanced-insets.png' })
+    await page.getByRole('button', { name: '展开侧栏' }).click()
+  }
+  await page.getByRole('button', { name: '带走这段对话' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toBeFocused()
+})
+
+test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白', async () => {
+  // 仅在隔离测试窗口模拟 win32 的 renderer 分支，不声称 Windows 原生控件实机验收。
+  const preload = join(directory, 'windows-layout-preload.cjs')
+  await writeFile(preload, `const { contextBridge } = require('electron');
+    contextBridge.exposeInMainWorld('staithe', {
+      platform: 'win32', list: async () => ${JSON.stringify(demoSessions)},
+      previewImport: async () => null, confirmImport: async () => { throw new Error('此布局夹具不执行导入') },
+      cancelImport: async () => {}, exportSession: async () => false, copy: async () => {},
+      onOpenSession: () => () => {}
+    });`)
+  const created = app.waitForEvent('window')
+  await app.evaluate(({ BrowserWindow }, paths) => {
+    const preview = new BrowserWindow({ width: 1000, height: 700, show: false, focusable: false, skipTaskbar: true, paintWhenInitiallyHidden: true,
+      webPreferences: { preload: paths.preload, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, focusOnNavigation: false } })
+    void preview.loadFile(paths.html)
+  }, { preload, html: resolve('out/renderer/index.html') })
+  const preview = await created
+  await preview.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
+  await expect(preview.getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeVisible()
+  await expect(preview.locator('.shell')).toHaveAttribute('data-platform', 'win32')
+  await expect(preview.locator('.window-controls-space')).toHaveCount(0)
+  await expect(preview.locator('.window-toolbar')).toHaveCount(1)
+  await expect(preview.locator('.window-toolbar')).toHaveCSS('height', '32px')
+  await expect(preview.locator('.window-toolbar')).not.toHaveCSS('-webkit-app-region', 'drag')
+  await expect(preview.locator('.topbar .header-navigation')).toHaveCount(0)
+  await expect(preview.getByRole('navigation', { name: '浏览导航' })).toBeVisible()
+  await expect(preview.locator('.brand')).toHaveCSS('height', '36px')
+  await expect(preview.locator('.topbar')).toHaveCSS('height', '36px')
+  await expect(preview.locator('.topbar')).not.toHaveCSS('-webkit-app-region', 'drag')
+  const toolbar = (await preview.locator('.window-toolbar').boundingBox())!
+  const navigation = (await preview.getByRole('navigation', { name: '浏览导航' }).boundingBox())!
+  const buttons = preview.getByRole('navigation', { name: '浏览导航' }).getByRole('button')
+  await expect(buttons).toHaveCount(3)
+  let previousRight: number | undefined
+  for (const button of await buttons.all()) {
+    const box = (await button.boundingBox())!
+    expect(box.x).toBe(previousRight === undefined ? navigation.x : previousRight + 1)
+    previousRight = box.x + box.width
+    expect(box.y + box.height / 2).toBe(toolbar.y + toolbar.height / 2)
+    expect(box.y - toolbar.y).toBe(2)
+    expect(toolbar.y + toolbar.height - box.y - box.height).toBe(2)
+  }
+  expect(toolbar.y).toBe(0)
+  expect(navigation.x).toBe(12)
+  const brand = (await preview.locator('.brand').boundingBox())!
+  const logo = (await preview.locator('.brand > span').boundingBox())!
+  const header = (await preview.locator('.topbar').boundingBox())!
+  const importButton = (await preview.getByRole('button', { name: '导入会话文件' }).boundingBox())!
+  expect(brand.y).toBe(toolbar.y + toolbar.height)
+  expect(header.y).toBe(toolbar.y + toolbar.height)
+  await expect(preview.locator('.sidebar')).toHaveCSS('border-right-width', '0px')
+  const resizeHandle = preview.getByRole('separator', { name: '调整侧栏宽度' })
+  await expect(resizeHandle).toHaveAttribute('aria-orientation', 'vertical')
+  await expect(resizeHandle).toHaveCSS('-webkit-app-region', 'no-drag')
+  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '180px')
+  const maximumWidth = await preview.evaluate(() => Math.max(180, Math.min(360, innerWidth - (innerWidth <= 1150 ? 280 : 310) - 408)))
+  await resizeHandle.focus()
+  for (const [key, width] of [
+    ['ArrowRight', 190], ['ArrowLeft', 180], ['ArrowLeft', 180],
+    ['End', maximumWidth], ['ArrowRight', maximumWidth], ['ArrowLeft', maximumWidth - 10], ['Home', 180],
+  ] as const) {
+    await preview.keyboard.press(key)
+    await expect(preview.locator('aside.sidebar')).toHaveCSS('width', `${width}px`)
+    await expect(resizeHandle).toBeFocused()
+    await expect.poll(() => preview.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))).toBe(String(width))
+  }
+  await resizeHandle.dblclick()
+  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '180px')
+  await expect.poll(() => preview.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))).toBeNull()
+  await expect(preview.locator('.workspace-card')).toHaveCSS('overflow', 'hidden')
+  expect(await preview.locator('.workspace-card').evaluate(el => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeCloseTo(18 * 1.348, 3)
+  expect(logo.y + logo.height / 2).toBeCloseTo(header.y + header.height / 2, 0)
+  await expect(preview.locator('.sidebar .brand')).toHaveCount(1)
+  await expect(preview.locator('.topbar .brand, .topbar input')).toHaveCount(0)
+  const searchButton = preview.getByRole('button', { name: '搜索', exact: true })
+  const search = (await searchButton.boundingBox())!
+  expect(search.x).toBeGreaterThan(logo.x + logo.width)
+  expect(search.x + search.width).toBeLessThanOrEqual(brand.x + brand.width)
+  expect(search.y + search.height / 2).toBeCloseTo(logo.y + logo.height / 2, 0)
+  await expect(preview.getByRole('textbox', { name: '搜索会话' })).toHaveCount(0)
+  await searchButton.click()
+  await expect(preview.getByRole('dialog', { name: '搜索会话' })).toBeVisible()
+  await expect(preview.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await preview.keyboard.press('Escape')
+  await expect(searchButton).toBeFocused()
+  await preview.getByRole('button', { name: '收起侧栏' }).click()
+  await expect(preview.getByRole('complementary', { name: '档案导航' })).not.toBeVisible()
+  await expect(preview.locator('.brand')).toBeHidden()
+  await preview.keyboard.press('Control+k')
+  await expect(preview.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await preview.keyboard.press('Escape')
+  await preview.getByRole('button', { name: '展开侧栏' }).click()
+  expect(importButton.height).toBe(28)
+  expect(Math.abs(importButton.y + importButton.height / 2 - (header.y + header.height / 2))).toBeLessThanOrEqual(1)
+  expect(await preview.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await preview.getByRole('button', { name: '带走这段对话' }).click()
+  await expect(preview.getByRole('dialog')).toBeVisible()
+  await preview.keyboard.press('Escape')
+  await expect(preview.getByRole('button', { name: '带走这段对话' })).toBeFocused()
+  await preview.screenshot({ scale: 'css', path: 'test-results/staithe-windows-two-row-header.png' })
+  await preview.close()
+})
+
+test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文字按溢出渐隐', async () => {
+  // 复用已有合成 DeepSeek 档案，只向本测试的隔离目录读写并替换文件选择框。
+  const file = join(directory, 'sidebar-synthetic.jsonl.zstd')
+  await writeFile(file, zstdCompressSync(deepseekFixture()))
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] })
+  }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'DeepSeek 合成会话' })).toBeVisible()
+
+  const sidebar = page.locator('aside.sidebar')
+  const handle = page.getByRole('separator', { name: '调整侧栏宽度' })
+  const deepseek = sidebar.getByRole('button', { name: /^DeepSeek Harness/ })
+  const label = deepseek.locator('span.ds-fade-text')
+  const preference = () => page.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))
+  const expectWidth = async (width: number) => {
+    await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(width)
+    const side = (await sidebar.boundingBox())!
+    const card = (await page.locator('main.workspace-card').boundingBox())!
+    expect(side.x).toBe(0)
+    expect(card.x).toBe(side.x + side.width)
+    expect(card.y).toBe(side.y)
+  }
+  const resizeWindow = async (width: number) => {
+    // 用内容尺寸保证跨平台 innerWidth 一致，不让原生窗口边框影响 1000px 的上限断言。
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setContentSize(width, 800), width)
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width)
+  }
+  const dragTo = async (requestedWidth: number, expectedWidth: number, previousPreference: string | null) => {
+    const side = (await sidebar.boundingBox())!
+    const grip = (await handle.boundingBox())!
+    expect(grip.width).toBe(6)
+    expect(grip.x).toBeGreaterThanOrEqual(side.x + side.width - 6)
+    expect(grip.x).toBeLessThanOrEqual(side.x + side.width)
+    expect(grip.x + grip.width).toBeGreaterThanOrEqual(side.x + side.width)
+    expect(grip.x + grip.width).toBeLessThanOrEqual(side.x + side.width + 3)
+    const startX = grip.x + grip.width / 2, y = grip.y + grip.height / 2
+    // Playwright 的鼠标输入走真实 pointerdown/move/up，验证命中区和 pointer capture。
+    await page.mouse.move(startX, y)
+    await page.mouse.down()
+    try {
+      await page.mouse.move(startX + requestedWidth - side.width, y, { steps: 8 })
+      await expectWidth(expectedWidth)
+      expect(await preference()).toBe(previousPreference)
+    } finally {
+      await page.mouse.up()
+    }
+    await expect.poll(preference).toBe(String(expectedWidth))
+  }
+  const expectFade = async (overflow: boolean) => {
+    await expect(label).toHaveText('DeepSeek Harness')
+    await expect(label).toHaveAttribute('title', 'DeepSeek Harness')
+    await expect(label).toHaveAttribute('data-overflow', String(overflow))
+    await expect(label).toHaveCSS('white-space', 'nowrap')
+    await expect(label).toHaveCSS('text-overflow', 'clip')
+    expect(await label.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(overflow)
+    if (overflow) {
+      await expect(label).toHaveCSS('mask-image', /linear-gradient\(.*16px/)
+    } else {
+      await expect(label).toHaveCSS('mask-image', 'none')
+    }
+    const lines = await label.evaluate(element => {
+      const range = document.createRange()
+      range.selectNodeContents(element)
+      return range.getClientRects().length
+    })
+    expect(lines).toBe(1)
+    await expect(deepseek).toHaveCSS('height', '36px')
+  }
+
+  await resizeWindow(1440)
+  await expectWidth(200)
+  expect(await preference()).toBeNull()
+  await expect(handle).toHaveAttribute('aria-orientation', 'vertical')
+  await expect(handle).toHaveCSS('-webkit-app-region', 'no-drag')
+  await dragTo(300, 300, null)
+  await expectFade(false)
+  await dragTo(900, 360, '300')
+  await expectFade(false)
+  await resizeWindow(1000)
+  await expectWidth(312)
+  expect(await preference()).toBe('360')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth)).toBe(true)
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toBeInViewport()
+  // 窄窗口刷新仍只临时 clamp；恢复大窗口后必须找回 360，而不是保存后的 312。
+  await page.reload()
+  await expectWidth(312)
+  expect(await preference()).toBe('360')
+  await resizeWindow(1440)
+  await expectWidth(360)
+  await page.reload()
+  await expectWidth(360)
+  expect(await preference()).toBe('360')
+  await expectFade(false)
+  await page.getByRole('button', { name: '收起侧栏' }).click()
+  await expect(sidebar).toBeHidden()
+  await expect(handle).not.toBeVisible()
+  expect(await preference()).toBe('360')
+  await page.getByRole('button', { name: '展开侧栏' }).click()
+  await expectWidth(360)
+  await expect(handle).toBeVisible()
+  await handle.dblclick()
+  await expectWidth(200)
+  await expect.poll(preference).toBeNull()
+  await resizeWindow(1000)
+  await expectWidth(180)
+  expect(await preference()).toBeNull()
+  await resizeWindow(1440)
+  await expectWidth(200)
+  await dragTo(80, 180, null)
+  await expectFade(true)
+
+  const icon = deepseek.locator('.source-icon')
+  const count = deepseek.locator('.count')
+  await expect(icon).toBeVisible()
+  await expect(icon.locator('img')).toBeVisible()
+  await expect.poll(() => icon.locator('img').evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true)
+  await expect(count).toHaveText('1')
+  await expect(count).toBeVisible()
+  const row = (await deepseek.boundingBox())!
+  const text = (await label.boundingBox())!
+  const iconBox = (await icon.boundingBox())!, countBox = (await count.boundingBox())!
+  expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(text.x)
+  expect(text.x + text.width).toBeLessThanOrEqual(countBox.x)
+  for (const item of [icon, count]) {
+    const box = (await item.boundingBox())!
+    expect(box.width).toBeGreaterThan(0)
+    expect(box.x).toBeGreaterThanOrEqual(row.x)
+    expect(box.x + box.width).toBeLessThanOrEqual(row.x + row.width)
+    expect(box.y).toBeGreaterThanOrEqual(row.y)
+    expect(box.y + box.height).toBeLessThanOrEqual(row.y + row.height)
+    // mask 不得放在文字与图标共用的祖先上；仅检查子节点本身会漏掉这种回归。
+    expect(await item.evaluate(element => {
+      const row = element.closest('.nav-item')!
+      for (let current: Element | null = element; current && current !== row.parentElement; current = current.parentElement) {
+        if (getComputedStyle(current).maskImage !== 'none') return false
+      }
+      return true
+    })).toBe(true)
+  }
+  // 分别点击图标、文字渐隐尾端和计数，确认整行没有被 mask 或拖拽命中区截断。
+  for (const x of [iconBox.x + iconBox.width / 2, text.x + text.width - 2, countBox.x + countBox.width / 2]) {
+    await sidebar.getByRole('button', { name: /^所有会话/ }).click()
+    await expect(deepseek).toHaveAttribute('aria-pressed', 'false')
+    await deepseek.click({ position: { x: x - row.x, y: row.height / 2 } })
+    await expect(deepseek).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.session-card')).toHaveCount(1)
+    await expect(page.getByRole('heading', { level: 2, name: 'DeepSeek 合成会话' })).toBeVisible()
+  }
+  await expectFade(true)
+  await assertBackground()
+  await page.screenshot({ scale: 'css', path: 'test-results/pinekin-resizable-sidebar.png' })
+})
+
+test('会话栏内容对齐，12px 列表圆角与双侧 1px 行间距保持紧凑', async () => {
+  for (const { width, height, colorScheme } of [
+    { width: 1440, height: 900, colorScheme: 'light' },
+    { width: 1000, height: 680, colorScheme: 'dark' },
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    await page.emulateMedia({ colorScheme })
+    // 窗口 resize 后，等待 React 提交响应式侧栏宽度，再读取同一帧的对齐基线。
+    await expect(page.locator('.sidebar')).toHaveCSS('width', width <= 1150 ? '180px' : '200px')
+    const pane = page.locator('.session-pane')
+    const left = (await pane.boundingBox())!.x + 20
+    for (const selector of ['.topbar h1', '.list-heading h2', '.session-card h3', '.session-card p', '.session-card .card-meta']) {
+      const boxes = await pane.locator(selector).evaluateAll(elements => elements.map(element => element.getBoundingClientRect().left))
+      expect(boxes.length).toBeGreaterThan(0)
+      for (const x of boxes) expect(x).toBeCloseTo(left, 1)
+    }
+    const cards = page.locator('.session-card')
+    expect(await cards.first().evaluate(element => parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeCloseTo(12 * 1.348, 3)
+    await expect(cards.first()).toHaveCSS('padding', '12px')
+    const cardBoxes = await cards.evaluateAll(elements => elements.map(element => {
+      const { top, bottom } = element.getBoundingClientRect(); return { top, bottom }
+    }))
+    for (let index = 1; index < cardBoxes.length; index++) expect(cardBoxes[index].top - cardBoxes[index - 1].bottom).toBe(1)
+    const navItems = page.locator('.nav-item')
+    for (const item of await navItems.all()) await expect(item).toHaveCSS('margin-bottom', '1px')
+    // 第一项后有来源分组标题；仅比较同组的连续来源项，保留分组间距。
+    const navBoxes = await navItems.evaluateAll(elements => elements.slice(1).map(element => {
+      const { top, bottom } = element.getBoundingClientRect(); return { top, bottom }
+    }))
+    for (let index = 1; index < navBoxes.length; index++) expect(navBoxes[index].top - navBoxes[index - 1].bottom).toBe(1)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ scale: 'css', path: `test-results/pinekin-list-alignment-${colorScheme}-v1.png` })
+  }
+})
+
+test('连续圆角应用到容器，胶囊和正圆例外不改变布局或向子节点扩散', async () => {
+  expect(await page.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)'))).toBe(true)
+  const rounded = async (selector: string, logicalRadius: number) => {
+    const item = page.locator(selector).first()
+    await expect(item).toHaveCSS('corner-shape', 'superellipse(1.5)')
+    expect(await item.evaluate(el => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeCloseTo(logicalRadius * 1.348, 3)
+  }
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await rounded('.workspace-card', 18)
+    await rounded('.nav-item', 12)
+    await rounded('.session-card', 12)
+    await rounded('.message-bubble', 18)
+    await expect(page.locator('.nav-item').first()).toHaveCSS('height', '36px')
+    await expect(page.locator('.message-bubble').first()).toHaveCSS('padding', '8px 16px')
+    await expect(page.locator('.ds-button').first()).toHaveCSS('corner-shape', /^(?:round|superellipse\(1\))$/)
+    await expect(page.locator('.ds-button').first()).toHaveCSS('border-radius', '9999px')
+    await expect(page.locator('.local-state')).toHaveCount(0)
+    const trigger = page.getByRole('button', { name: '搜索', exact: true })
+    await trigger.click()
+    await rounded('.ds-dialog', 18)
+    await rounded('.search', 12)
+    await rounded('.search-result', 8)
+    await expect(page.locator('.search')).toHaveCSS('height', '40px')
+    await expect(page.locator('.search')).not.toHaveCSS('box-shadow', 'none')
+    await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+    const inherited = await page.locator('.search .ds-button').first().evaluate(button => {
+      const child = document.createElement('span')
+      child.style.borderRadius = 'var(--ds-radius-sm)'
+      button.append(child)
+      const result = { pseudo: getComputedStyle(button, '::before').getPropertyValue('corner-shape'),
+        child: getComputedStyle(child).getPropertyValue('corner-shape') }
+      child.remove()
+      return result
+    })
+    // Chromium 将 round 的计算值规范化为等价的 superellipse(1)。
+    expect(inherited.pseudo).toMatch(/^(?:round|superellipse\(1\))$/)
+    expect(inherited.child).toBe('superellipse(1.5)')
+    await page.getByRole('dialog').screenshot({ scale: 'css', path: `test-results/pinekin-continuous-corners-${colorScheme}.png` })
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
+  }
+})
+
+test('禁用连续圆角能力规则后回退原始半径，胶囊和焦点行为保留', async () => {
+  const removed = await page.evaluate(() => {
+    let count = 0
+    const visit = (sheet: CSSStyleSheet | CSSGroupingRule) => {
+      for (let index = sheet.cssRules.length - 1; index >= 0; index--) {
+        const rule = sheet.cssRules[index]
+        if (rule instanceof CSSSupportsRule && rule.conditionText.includes('corner-shape')) {
+          sheet.deleteRule(index); count++
+        } else if (rule instanceof CSSGroupingRule) visit(rule)
+      }
+    }
+    for (const sheet of document.styleSheets) visit(sheet)
+    return count
+  })
+  expect(removed).toBeGreaterThan(0)
+  await expect(page.locator('.workspace-card')).toHaveCSS('border-radius', '18px')
+  await expect(page.locator('.message-bubble').first()).toHaveCSS('border-radius', '18px')
+  await expect(page.locator('.message-bubble').first()).toHaveCSS('corner-shape', /^(?:round|superellipse\(1\))$/)
+  await expect(page.locator('.session-card').first()).toHaveCSS('border-radius', '12px')
+  await expect(page.locator('.nav-item').first()).toHaveCSS('border-radius', '12px')
+  await expect(page.locator('.ds-button').first()).toHaveCSS('border-radius', '9999px')
+  const trigger = page.getByRole('button', { name: '搜索', exact: true })
+  await trigger.click()
+  await expect(page.locator('.ds-dialog')).toHaveCSS('border-radius', '18px')
+  await expect(page.locator('.search')).toHaveCSS('border-radius', '12px')
+  await expect(page.locator('.search')).not.toHaveCSS('box-shadow', 'none')
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+})
+
+test('small relaxed 图标按钮统一尺寸、悬浮与禁用反馈，正文操作保持原尺寸', async () => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await page.mouse.move(700, 300)
+    for (const button of await page.locator('.ds-button-icon').all()) {
+      await expect(button).toHaveClass(/ds-button-small/)
+      await expect(button).toHaveClass(/ds-button-icon-relaxed/)
+      await expect(button).toHaveCSS('height', '28px')
+      await expect(button).toHaveCSS('width', '35px')
+      await expect(button).toHaveCSS('padding-left', '10px')
+      await expect(button).toHaveCSS('padding-right', '10px')
+      await expect(button.locator('svg')).toHaveCSS('width', '15px')
+      await expect(button.locator('svg')).toHaveCSS('height', '15px')
+      await expect(button).toHaveAttribute('data-ds-pill-control', 'true')
+    }
+    const back = page.getByRole('button', { name: '返回', exact: true })
+    await expect(back).toBeDisabled()
+    await back.hover()
+    await expect(back).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const search = page.getByRole('button', { name: '搜索', exact: true })
+    await search.hover()
+    await expect(search).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await page.screenshot({ scale: 'css', path: `test-results/pinekin-small-relaxed-buttons-${colorScheme}-v1.png` })
+    await search.click()
+    const close = page.getByRole('button', { name: '关闭搜索' })
+    await expect(close).toHaveCSS('height', '28px')
+    await expect(close).toHaveCSS('width', '35px')
+    await expect(close.locator('svg')).toHaveCSS('width', '15px')
+    await page.keyboard.press('Escape')
+    await expect(search).toBeFocused()
+    const handoff = page.getByRole('button', { name: '带走这段对话' })
+    await expect(handoff).toHaveCSS('height', '32px')
+    await handoff.click()
+    await expect(page.getByRole('button', { name: '关闭交接面板' })).toHaveCSS('height', '28px')
+    await expect(page.getByRole('button', { name: '复制交接文本' })).toHaveCSS('height', '36px')
+    await page.keyboard.press('Escape')
+  }
+})
+
+test('搜索弹窗不显示标题，浅深色聚焦阴影不被裁切', async () => {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
+  const trigger = page.getByRole('button', { name: '搜索', exact: true })
+  const dialog = page.getByRole('dialog', { name: '搜索会话' })
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await trigger.click()
+    await expect(dialog.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+    await expect(dialog.locator('.search')).not.toHaveCSS('box-shadow', 'none')
+    const clipped = await dialog.locator('.search').evaluate(field => {
+      const box = field.getBoundingClientRect()
+      const issues: string[] = []
+      // 两个主题的最大聚焦环为 4px；额外保留 2px 安全距离，逐个检查真实裁切祖先。
+      const gutter = 6
+      for (let parent = field.parentElement; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent)
+        const clipX = /auto|hidden|scroll|clip/.test(style.overflowX)
+        const clipY = /auto|hidden|scroll|clip/.test(style.overflowY)
+        const rect = parent.getBoundingClientRect()
+        const left = rect.left + parent.clientLeft, top = rect.top + parent.clientTop
+        if (clipX && (box.left - left < gutter || left + parent.clientWidth - box.right < gutter)) issues.push(`${parent.className}: horizontal`)
+        if (clipY && (box.top - top < gutter || top + parent.clientHeight - box.bottom < gutter)) issues.push(`${parent.className}: vertical`)
+      }
+      return issues
+    })
+    expect(clipped).toEqual([])
+    await expect(dialog.locator('#search-title')).toHaveCSS('clip-path', 'inset(50%)')
+    await expect(dialog.locator('.dialog-header')).toHaveCount(0)
+    await expect(dialog.locator('.search-content input')).toHaveCount(0)
+    const input = (await dialog.locator('.search').boundingBox())!
+    const closeButton = dialog.getByRole('button', { name: '关闭搜索' })
+    const close = (await closeButton.boundingBox())!
+    const textbox = (await dialog.getByRole('textbox', { name: '搜索会话' }).boundingBox())!
+    expect(close.x).toBeGreaterThan(input.x)
+    expect(close.x + close.width).toBeLessThan(input.x + input.width)
+    expect(textbox.x + textbox.width).toBeLessThanOrEqual(close.x)
+    expect(Math.abs(input.y + input.height / 2 - (close.y + close.height / 2))).toBeLessThanOrEqual(1)
+    await expect(dialog.locator('.search').getByRole('button', { name: '关闭搜索' })).toHaveCount(1)
+    await dialog.screenshot({ scale: 'css', path: `test-results/staithe-search-inline-close-${colorScheme}.png` })
+    await closeButton.click()
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+  }
+})
+
+test('搜索点击遮罩关闭，内部点击或拖出不误关且保留查询与焦点', async () => {
+  const trigger = page.getByRole('button', { name: '搜索', exact: true })
+  const dialog = page.getByRole('dialog', { name: '搜索会话' })
+  const input = dialog.getByRole('textbox', { name: '搜索会话' })
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await trigger.click()
+    await input.fill('安全边界')
+    await input.click()
+    const box = (await dialog.boundingBox())!
+    const outside = { x: box.x - 12, y: box.y + box.height / 2 }
+    await page.mouse.click(box.x + 8, box.y + 8)
+    await expect(dialog).toBeVisible()
+    await input.hover()
+    await page.mouse.down()
+    await page.mouse.move(outside.x, outside.y)
+    await page.mouse.up()
+    await expect(dialog).toBeVisible()
+    await page.mouse.click(outside.x, outside.y)
+    await expect(dialog).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await expect(input).toHaveValue('安全边界')
+    await page.keyboard.press('Escape')
+  }
+})
+
+test('页头搜索、浏览历史与侧栏展开收起保持布局和键盘可用', async () => {
+  const back = page.getByRole('button', { name: '返回', exact: true })
+  const forward = page.getByRole('button', { name: '前进', exact: true })
+  await expect(back).toBeDisabled()
+  await expect(forward).toBeDisabled()
+  await expect(page.locator('.session-pane input')).toHaveCount(0)
+  await page.getByRole('button', { name: new RegExp(demoSessions[1].title) }).click()
+  await page.getByRole('complementary').getByRole('button', { name: /^Codex/ }).click()
+  await back.click()
+  await expect(page.getByRole('heading', { level: 2, name: demoSessions[1].title })).toBeVisible()
+  await forward.click()
+  await expect(page.getByRole('heading', { level: 2, name: demoSessions[2].title })).toBeVisible()
+  await page.getByRole('button', { name: '收起侧栏' }).click()
+  await expect(page.locator('.sidebar')).toBeHidden()
+  const list = (await page.locator('.session-pane').boundingBox())!
+  expect(list.x).toBe(8)
+  await expect(page.locator('.brand')).toBeHidden()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '展开侧栏' })).toBeFocused()
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeInViewport()
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-sidebar-collapsed.png' })
+  await page.getByRole('button', { name: '展开侧栏' }).click()
+  await expect(page.getByRole('complementary').getByRole('button', { name: /^Codex/ })).toHaveAttribute('aria-pressed', 'true')
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeInViewport()
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeInViewport()
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-navigation-dark.png' })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.getByRole('button', { name: '所有会话 3' }).click()
+  await page.getByRole('button', { name: new RegExp(demoSessions[0].title) }).click()
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-navigation-light.png' })
+})
+
+test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边距', async () => {
+  for (const { width, height, colorScheme } of [
+    { width: 1440, height: 900, colorScheme: 'light' },
+    { width: 1000, height: 680, colorScheme: 'dark' },
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    await page.emulateMedia({ colorScheme })
+    const card = page.locator('main.workspace-card')
+    await expect(card.locator(':scope > .topbar')).toHaveCount(0)
+    await expect(card.locator('.session-pane > .topbar')).toHaveCount(1)
+    await expect(card.locator(':scope > .workspace > .session-pane')).toHaveCount(1)
+    await expect(card.locator(':scope > .workspace > .detail')).toHaveCount(1)
+    await expect(page.locator('.sidebar')).toHaveCSS('border-right-width', '0px')
+    await expect(card).toHaveCSS('overflow', 'hidden')
+    await expect(card).toHaveCSS('box-shadow', colorScheme === 'light'
+      ? 'rgba(0, 0, 0, 0.06) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.1) 0px 0.5px 1px 0px'
+      : 'rgba(255, 255, 255, 0.08) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.28) 0px 0.5px 1px 0px')
+    const note = page.getByRole('region', { name: '本地存储与隐私' })
+    await expect(note).toBeInViewport()
+    await expect(note).toContainText('仅导入你选择的文件')
+    await expect(note.locator('.design-icon')).toHaveCount(0)
+    const illustration = note.locator('svg.storage-illustration')
+    await expect(illustration).toBeVisible()
+    await expect(illustration).toHaveAttribute('aria-hidden', 'true')
+    await expect(illustration).toHaveCSS('pointer-events', 'none')
+    const copyBox = (await note.locator('.storage-copy').boundingBox())!
+    const illustrationBox = (await illustration.boundingBox())!
+    expect(illustrationBox.x - copyBox.x - copyBox.width).toBeGreaterThanOrEqual(8)
+    expect(Math.abs(illustrationBox.y + illustrationBox.height / 2 - copyBox.y - copyBox.height / 2)).toBeLessThanOrEqual(1)
+    const textFits = await note.evaluate(el => Array.from(el.querySelectorAll('p, .local-info, .storage-boundaries')).every(child => child.scrollWidth <= child.clientWidth))
+    expect(textFits).toBe(true)
+    const sidebar = (await page.locator('.sidebar').boundingBox())!
+    const box = (await card.boundingBox())!
+    expect(box.x).toBe(sidebar.x + sidebar.width)
+    expect(box.y).toBe(sidebar.y)
+    expect(width - box.x - box.width).toBe(8)
+    expect(height - box.y - box.height).toBe(8)
+    await expect(page.locator('.topbar')).toHaveCSS('background-color', await card.evaluate(el => getComputedStyle(el).backgroundColor))
+    await expect(page.getByRole('button', { name: '带走这段对话' })).toBeInViewport()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true)
+    const noteBox = (await note.boundingBox())!
+    expect(noteBox.x - sidebar.x).toBe(12)
+    expect(sidebar.x + sidebar.width - noteBox.x - noteBox.width).toBe(12)
+    expect(noteBox.height).toBeLessThanOrEqual(100)
+    expect(illustrationBox.x + illustrationBox.width).toBeLessThanOrEqual(noteBox.x + noteBox.width - 12)
+    await page.screenshot({ scale: 'css', path: `test-results/pinekin-workspace-shadow-spread-${colorScheme}-v2.png` })
+    await note.screenshot({ scale: 'css', path: `test-results/pinekin-privacy-note-${colorScheme}-v2.png` })
+    await page.getByRole('button', { name: '收起侧栏' }).click()
+    expect((await card.boundingBox())!.x).toBe(8)
+    await expect(page.locator('.session-pane')).toBeInViewport()
+    await page.keyboard.press('Control+k')
+    await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: '展开侧栏' })).toBeFocused()
+    await page.getByRole('button', { name: '展开侧栏' }).click()
+  }
+})
+
+test('紧凑阅读页头不堆叠空白，正文上下留白统一且导入按钮不贴边', async () => {
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] })
+  })
+  for (const { width, height, colorScheme } of [
+    { width: 1440, height: 900, colorScheme: 'light' },
+    { width: 1000, height: 680, colorScheme: 'dark' },
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    await page.emulateMedia({ colorScheme })
+    await expect(page.locator('.local-state, .reader-toolbar, .detail-kicker')).toHaveCount(0)
+    const detail = (await page.locator('.detail').boundingBox())!
+    const header = (await page.locator('.detail-header').boundingBox())!
+    const messages = page.getByRole('region', { name: '会话消息' })
+    const first = (await messages.getByRole('article').first().boundingBox())!
+    expect(header.y).toBe(detail.y)
+    expect(header.height).toBeLessThanOrEqual(104)
+    expect(first.y - detail.y).toBeLessThanOrEqual(128)
+    await expect(messages).toHaveCSS('padding-top', '24px')
+    await expect(messages).toHaveCSS('padding-bottom', '24px')
+    await expect(page.locator('.detail-footer')).toHaveCSS('padding-top', '12px')
+    await expect(page.locator('.detail-footer')).toHaveCSS('padding-bottom', '12px')
+    await expect(page.locator('.detail-header .read-only')).toHaveText('只读')
+    await expect(page.locator('.detail-meta')).toContainText('仅文本 · 非原生会话')
+    const pane = page.getByRole('region', { name: '会话列表' })
+    await expect(pane.getByRole('heading', { level: 1, name: '会话库' })).toBeVisible()
+    await expect(page.locator('.workspace-card > .topbar')).toHaveCount(0)
+    const toolbar = pane.locator(':scope > .topbar')
+    const topbar = (await toolbar.boundingBox())!
+    const paneBox = (await pane.boundingBox())!
+    const card = (await page.locator('.workspace-card').boundingBox())!
+    expect(topbar.y).toBe(card.y)
+    expect(detail.y).toBe(card.y)
+    expect(topbar.x).toBe(paneBox.x)
+    expect(topbar.width).toBe(paneBox.width - 1)
+    const importButton = toolbar.getByRole('button', { name: '导入会话文件' })
+    await expect(importButton).toHaveText('')
+    await expect(importButton).not.toHaveAttribute('title')
+    await importButton.hover()
+    await expect(page.getByRole('tooltip')).toHaveText('导入会话文件')
+    await page.mouse.move(700, 400)
+    await expect(importButton.locator('svg.lucide-plus')).toHaveCount(1)
+    await expect(importButton).toHaveCSS('width', '35px')
+    await expect(importButton).toHaveCSS('height', '28px')
+    await expect(importButton).toHaveCSS('-webkit-app-region', 'no-drag')
+    const button = (await importButton.boundingBox())!
+    expect(button.x + button.width).toBeLessThanOrEqual(paneBox.x + paneBox.width - 12)
+    expect(button.y - topbar.y).toBeGreaterThanOrEqual(4)
+    expect(topbar.y + topbar.height - button.y - button.height).toBeGreaterThanOrEqual(4)
+    await importButton.focus()
+    await page.keyboard.press('Enter')
+    await expect(importButton).toBeEnabled()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(importButton).toBeFocused()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.screenshot({ scale: 'css', path: `test-results/pinekin-library-header-${colorScheme}-v2.png` })
+  }
+})
+
+test('长标题与长会话不会挤占阅读空间，首尾内边距完整且切换后回到顶部', async () => {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
+  const file = join(directory, 'long-reading.staithe.json')
+  const imported = { ...demoSessions[0], title: '用于检查窄窗口阅读排版的长标题'.repeat(5),
+    messages: Array.from({ length: 30 }, (_, index) => ({ role: index % 2 ? 'assistant' as const : 'user' as const,
+      content: `合成消息 ${index + 1}：用于检查滚动阅读的上下间距。`.repeat(4) })) }
+  await writeFile(file, JSON.stringify(makeBundle(imported)))
+  await app.evaluate(({ dialog }, filePath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] }) }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  const heading = page.getByRole('heading', { level: 2, name: imported.title })
+  await expect(heading).toBeVisible()
+  expect((await heading.boundingBox())!.height).toBeLessThanOrEqual(48)
+  expect((await page.locator('.detail-header').boundingBox())!.height).toBeLessThanOrEqual(128)
+  const messages = page.getByRole('region', { name: '会话消息' })
+  await expect(messages).toHaveCSS('padding-top', '24px')
+  await expect(messages).toHaveCSS('padding-bottom', '24px')
+  await expect(messages.getByRole('article').first()).toBeInViewport()
+  await messages.evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect(page.locator('.conversation-end')).toBeInViewport()
+  const viewport = (await messages.boundingBox())!, end = (await page.locator('.conversation-end').boundingBox())!
+  expect(viewport.y + viewport.height - end.y - end.height).toBeCloseTo(24, 0)
+  await page.getByRole('button', { name: new RegExp(demoSessions[1].title) }).click()
+  await page.getByRole('button', { name: imported.title }).click()
+  expect(await messages.evaluate(element => element.scrollTop)).toBe(0)
+  expect(await messages.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+})
 
 test('桌面启动、全文搜索、来源筛选与视觉检查', async () => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.getByLabel('搜索会话').fill('安全边界')
+  await expect(page.locator('.brand-logo svg, .brand-logo img, .brand-mark, .source-dot, .sidebar-version')).toHaveCount(0)
+  await expect(page.locator('.sidebar .brand .lucide-search')).toHaveCount(1)
+  await expect(page.locator('.design-icon:not(.lucide)')).toHaveCount(0)
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
+  await expect(page.locator('.detail')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toHaveCSS('background-color', 'rgb(23, 23, 23)')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toHaveCSS('color', 'rgb(255, 255, 255)')
+  const clientIcons = page.getByRole('complementary').locator('.source-icon img')
+  await expect(clientIcons).toHaveCount(5)
+  await expect.poll(() => clientIcons.evaluateAll(images => images.every(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0))).toBe(true)
+  const userBubble = page.locator('.message-bubble').first()
+  const assistant = page.locator('.chat-assistant-content').first()
+  const cornerScale = await page.evaluate(() => CSS.supports('corner-shape', 'superellipse(1.5)') ? 1.348 : 1)
+  expect(await userBubble.evaluate(el => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeCloseTo(18 * cornerScale, 3)
+  await expect(userBubble).toHaveCSS('padding', '8px 16px')
+  await expect(userBubble).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(assistant).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  const userBox = (await userBubble.boundingBox())!, assistantBox = (await assistant.boundingBox())!
+  expect(userBox.x).toBeGreaterThan(assistantBox.x)
+  expect(userBox.x + userBox.width).toBeCloseTo(assistantBox.x + assistantBox.width, 0)
+  expect(userBox.width).toBeLessThanOrEqual(assistantBox.width * 0.85 + 1)
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('安全边界')
+  const searchDialog = page.getByRole('dialog', { name: '搜索会话' })
+  await expect(searchDialog.getByRole('button', { name: /^打开档案：/ })).toHaveCount(1)
+  await searchDialog.getByRole('button', { name: '打开档案：迁移前，先画清安全边界' }).click()
+  await expect(searchDialog).toBeHidden()
   await expect(page.getByRole('heading', { level: 2, name: '迁移前，先画清安全边界' })).toBeVisible()
-  await page.getByLabel('搜索会话').fill('完全不存在')
-  await expect(page.getByText('没有找到匹配的会话')).toBeVisible()
-  await page.getByLabel('搜索会话').fill('')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('完全不存在')
+  await expect(searchDialog.getByText('没有匹配的档案')).toBeVisible()
+  await page.getByRole('textbox', { name: '搜索会话' }).fill('')
+  await page.keyboard.press('Escape')
   await page.getByRole('complementary').getByRole('button', { name: /Claude Code/ }).click()
   await expect(page.getByRole('heading', { level: 2, name: '一份不丢失来源的适配器契约' })).toBeVisible()
   await page.getByRole('button', { name: /所有会话/ }).click()
   await page.getByRole('button', { name: /让思考跨越工具/ }).click()
-  await page.screenshot({ path: 'test-results/staithe-desktop.png' })
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-desktop.png' })
   expect(errors).toEqual([])
   expect(await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require)).toBe('undefined')
 })
@@ -87,7 +1029,9 @@ test('Cindy 文件预览、取消、快照确认、去重与文本交接', async
   }, file)
   await page.getByRole('button', { name: '导入会话文件' }).click()
   await expect(page.getByRole('dialog')).toContainText('Cindy · 2 条消息')
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-import.png' })
   await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeFocused()
   await expect(page.getByRole('dialog')).not.toBeVisible()
   expect(await readdir(directory)).not.toContain('imports')
   await page.getByRole('button', { name: '导入会话文件' }).click()
@@ -143,7 +1087,7 @@ test('Codex JSONL 只读导入不重复事件副本，可导出带损失报告�
   await expect(page.locator('.archive-report')).toContainText('事件记录')
   await page.getByRole('button', { name: '带走这段对话' }).click()
   await expect(page.locator('.handoff-preview')).toContainText('工具')
-  await page.getByRole('button', { name: '导出 Staithe 包', exact: true }).click()
+  await page.getByRole('button', { name: '导出 Pinekin 包', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
   const exported = JSON.parse(await readFile(output, 'utf8'))
   expect(exported.version).toBe(2)
@@ -175,6 +1119,37 @@ test('Codex 压缩分页根日志经 Electron 有界解码与确认，原件不�
   expect((await readFile(join(directory, 'imports', folders[0], 'original.bin'))).equals(bytes)).toBe(true)
 })
 
+for (const fixture of [
+  { name: 'DeepSeek Harness', filename: 'session.v4.jsonl.zstd', title: 'DeepSeek 合成会话', bytes: () => zstdCompressSync(deepseekFixture()), adapter: 'deepseek-harness-v4' },
+  { name: 'Cindy 本地快照', filename: 'cindy.local.json', title: 'Cindy 本地合成会话', bytes: cindyLocalFixture, adapter: 'cindy-local-snapshot' },
+]) test(`${fixture.name} 合成文件经桌面预览、保存、去重与重启读取`, async () => {
+  const file = join(directory, fixture.filename), bytes = fixture.bytes()
+  await writeFile(file, bytes)
+  await app.evaluate(({ dialog }, filePath) => {
+    dialog.showOpenDialog = async (...args: [Electron.BaseWindow, Electron.OpenDialogOptions] | [Electron.OpenDialogOptions]) => {
+      const options = args.length === 2 ? args[1] : args[0]
+      if (!options.filters?.some(filter => filter.extensions.includes('zstd'))) throw new Error('选择框缺少 DeepSeek Zstandard 扩展名')
+      return { canceled: false, filePaths: [filePath] }
+    }
+  }, file)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('2 条消息')
+  expect(await readdir(directory)).not.toContain('imports')
+  await page.getByRole('button', { name: '确认保存到本地' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: fixture.title })).toBeVisible()
+  await expect(page.locator('.message')).toHaveCount(2)
+  const folders = await readdir(join(directory, 'imports'))
+  expect(folders).toHaveLength(1)
+  expect(await readFile(join(directory, 'imports', folders[0], 'original.bin'))).toEqual(bytes)
+  const record = JSON.parse(await readFile(join(directory, 'imports', folders[0], 'record.json'), 'utf8'))
+  expect(record.session.archive.adapterId).toBe(fixture.adapter)
+  await page.getByRole('button', { name: '导入会话文件' }).click()
+  await expect(page.getByRole('dialog')).toContainText('这个文件已导入')
+  await page.getByRole('button', { name: '打开已有档案' }).click()
+  await app.close(); await launch()
+  await expect(page.getByRole('heading', { level: 2, name: fixture.title })).toBeVisible()
+})
+
 test('取消文件选择与加密包拒绝不写入档案', async () => {
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }) })
   await page.getByRole('button', { name: '导入会话文件' }).click()
@@ -185,6 +1160,43 @@ test('取消文件选择与加密包拒绝不写入档案', async () => {
   await page.getByRole('button', { name: '导入会话文件' }).click()
   await expect(page.getByRole('status')).toContainText('暂不支持加密')
   expect(await readdir(directory)).not.toContain('imports')
+})
+
+test('紧凑工作台的键盘导航、焦点返回、主题与窄窗口布局', async () => {
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await page.getByRole('complementary', { name: '档案导航' }).getByRole('button', { name: /^Cindy/ }).click()
+  await expect(page.getByText('没有找到匹配的会话')).toBeVisible()
+  await page.getByRole('button', { name: '清空筛选' }).click()
+  await page.getByRole('button', { name: '带走这段对话' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('button', { name: '复制交接文本' }).focus()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: '关闭交接面板' })).toBeFocused()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('textbox', { name: '搜索会话' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '搜索会话' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toBeFocused()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 700))
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect(page.locator('.shell')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+  await expect(page.locator('.workspace-card')).toHaveCSS('background-color', 'rgb(29, 29, 29)')
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toHaveCSS('background-color', 'rgb(255, 255, 255)')
+  await expect(page.getByRole('button', { name: '带走这段对话' })).toHaveCSS('color', 'rgb(23, 23, 23)')
+  await expect(page.getByRole('complementary').locator('[data-source="newmax"] img')).toHaveCSS('filter', 'invert(1)')
+  await expect(page.getByRole('complementary').locator('[data-source="codex"] img')).toHaveCSS('filter', 'invert(1)')
+  const narrowMessages = await page.locator('.message-column').evaluate(el => ({ width: el.clientWidth, scrollWidth: el.scrollWidth }))
+  expect(narrowMessages.scrollWidth).toBeLessThanOrEqual(narrowMessages.width)
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-desktop-dark.png' })
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('.shell')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
+  await expect(page.locator('.workspace-card')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
 })
 
 test('交接包与 Markdown 真实导出，复制不改动系统剪贴板', async () => {
@@ -199,19 +1211,19 @@ test('交接包与 Markdown 真实导出，复制不改动系统剪贴板', asyn
   }, output)
   await page.getByRole('button', { name: '带走这段对话' }).click()
   await page.getByLabel('接续目标').selectOption('NewMax')
-  await page.getByRole('button', { name: '导出 Staithe 包', exact: true }).click()
+  await page.getByRole('button', { name: '导出 Pinekin 包', exact: true }).click()
   await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
   expect(JSON.parse(await readFile(output, 'utf8')).format).toBe('staithe.session')
-  expect(await app.evaluate(() => (globalThis as unknown as { testDefaultPath: string }).testDefaultPath)).toBe(`staithe-${demoSessions[0].id}.staithe.json`)
+  expect(await app.evaluate(() => (globalThis as unknown as { testDefaultPath: string }).testDefaultPath)).toBe(`pinekin-${demoSessions[0].id}.staithe.json`)
   await page.getByRole('button', { name: '导出 Markdown' }).click()
   await expect(page.getByRole('status')).toHaveText('已导出到你选择的位置')
   const markdown = await readFile(output, 'utf8')
   expect(markdown).toContain('目标：NewMax')
-  expect(markdown).toContain('# Staithe 上下文交接')
+  expect(markdown).toContain('# Pinekin 上下文交接')
   await page.getByRole('button', { name: '复制交接文本' }).click()
   await expect(page.getByRole('status')).toContainText('已复制交接文本')
   expect(await app.evaluate(() => (globalThis as unknown as { testClipboard: string }).testClipboard)).toContain('不是原生会话恢复')
-  await page.screenshot({ path: 'test-results/staithe-handoff.png' })
+  await page.screenshot({ scale: 'css', path: 'test-results/staithe-handoff.png' })
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).not.toBeVisible()
 })
@@ -223,13 +1235,10 @@ test('更名后沿用旧默认档案目录，不重写会话和 ID', async () =>
   const previous = { ...demoSessions[0], id: 'before-rename', title: 'Ember 中保存的真实格式夹具', demo: false }
   const original = JSON.stringify([previous])
   await writeFile(join(legacyDirectory, 'library.json'), original)
-  // 先重定向 appData，再加载主进程；绝不读取用户的真实目录。
-  const bootstrap = join(directory, 'isolated-start.cjs')
-  await writeFile(bootstrap, `const { app } = require('electron'); app.setPath('appData', ${JSON.stringify(directory)}); import(${JSON.stringify(pathToFileURL(resolve('out/main/index.js')).href)});`)
-  app = await electron.launch({ args: [bootstrap], env: isolatedEnv() })
-  page = await app.firstWindow()
+  // 先重定向 appData，再加载主进程；复用隐藏启动与原生事件监控，不读取真实目录。
+  await launch(false, undefined, true)
   await expect(page.getByRole('heading', { level: 2, name: previous.title })).toBeVisible()
-  expect(await app.evaluate(({ app }) => app.getName())).toBe('Staithe')
+  expect(await app.evaluate(({ app }) => app.getName())).toBe('Pinekin')
   expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(legacyDirectory)
   expect(await readFile(join(legacyDirectory, 'library.json'), 'utf8')).toBe(original)
 })

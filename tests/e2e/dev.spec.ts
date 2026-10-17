@@ -1,14 +1,16 @@
 import { test, expect, chromium } from '@playwright/test'
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fixtureSessions as demoSessions } from '../fixtures/sessions'
 
-test('开发入口隔离宿主环境并真正渲染 React', async () => {
+test('开发入口隔离宿主环境并在后台真正渲染 React', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'staithe-dev-test-'))
+  await writeFile(join(directory, 'library.json'), JSON.stringify(demoSessions))
   const child = spawn(process.execPath, ['scripts/desktop.mjs', 'dev'], {
     detached: process.platform !== 'win32',
-    env: { ...process.env, STAITHE_DATA_DIR: directory, EMBER_DATA_DIR: join(directory, 'unused-legacy'), REMOTE_DEBUGGING_PORT: '0',
+    env: { ...process.env, STAITHE_DATA_DIR: directory, EMBER_DATA_DIR: join(directory, 'unused-legacy'), STAITHE_TEST_BACKGROUND: '1', REMOTE_DEBUGGING_PORT: '0',
       ELECTRON_EXEC_PATH: 'invalid-parent-electron', ELECTRON_RENDERER_URL: 'http://localhost:1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

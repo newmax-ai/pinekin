@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { StaitheAPI } from '../core/types'
 
 const api: StaitheAPI = {
+  platform: process.platform,
   list: () => ipcRenderer.invoke('staithe:list'),
   previewImport: () => ipcRenderer.invoke('staithe:import-preview'),
   confirmImport: token => ipcRenderer.invoke('staithe:import-confirm', token),

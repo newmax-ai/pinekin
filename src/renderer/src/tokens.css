@@ -1,0 +1,89 @@
+/* 沿用 NewMax DS 的语义命名与控件尺度，配色为 Staithe 独立的中性灰 + 蓝色品牌主题。
+   来源与适配边界见 docs/ui-design.md；不依赖宿主 CSS、store、字体或运行时。 */
+:root {
+  color-scheme: light dark;
+  --ds-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --ds-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --ds-text-primary: #202020;
+  --ds-text-secondary: #595959;
+  --ds-text-tertiary: #6b6b6b;
+  --ds-brand-primary: #315fca;
+  --ds-brand-primary-text: #ffffff;
+  --ds-action-primary: #171717;
+  --ds-action-primary-text: #ffffff;
+  --ds-action-subtle-surface: var(--ds-on-surface);
+  --ds-action-subtle-text: var(--ds-text-primary);
+  --ds-selection-bg: var(--ds-brand-primary);
+  --ds-accent: var(--ds-brand-primary);
+  --ds-icon: #737373;
+  --ds-danger: #b64a34;
+  --ds-success: #287d46;
+  --ds-warning: #916300;
+  --ds-surface-100: #ffffff;
+  --ds-surface-200: #fafafa;
+  --ds-surface-300: #f4f4f4;
+  --ds-surface-400: #ededed;
+  --ds-on-surface: rgba(32, 32, 32, 0.06);
+  --ds-on-surface-active: rgba(32, 32, 32, 0.08);
+  --ds-surface-input: var(--ds-surface-100);
+  --ds-divider: color-mix(in srgb, var(--ds-text-primary) 6%, transparent);
+  --ds-overlay: rgba(0, 0, 0, 0.3);
+  --ds-corner-shape: round;
+  --ds-corner-radius-scale: 1;
+  --ds-radius-sm: calc(8px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-md: calc(12px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-lg: calc(18px * var(--ds-corner-radius-scale, 1));
+  --ds-radius-pill: 9999px;
+  --ds-radius-tooltip: calc(10px * var(--ds-corner-radius-scale, 1));
+  --ds-workspace-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 0.5px 1px rgba(0, 0, 0, 0.1);
+  --ds-elevation-100: inset 0.5px 0.5px 0.5px #ffffff, 0 0 0.5px 0.5px rgba(0, 0, 0, 0.04), 0.5px 0.5px 1px rgba(0, 0, 0, 0.08);
+  --ds-elevation-200: 0 0 0 0.5px rgba(32, 32, 32, 0.12), 0 9px 4px rgba(0, 0, 0, 0.01), 0 5px 3px rgba(0, 0, 0, 0.02), 0 2px 2px rgba(0, 0, 0, 0.03), 0 1px 1px rgba(0, 0, 0, 0.04), inset 0.5px 0.5px 0.5px rgba(255, 255, 255, 0.85);
+  --ds-elevation-300: inset 0 0 0.5px 0.5px rgba(255, 255, 255, 0.8), 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 6px rgba(0, 0, 0, 0.04), 0 11px 11px rgba(0, 0, 0, 0.03), 0 24px 15px rgba(0, 0, 0, 0.02), 0 43px 17px rgba(0, 0, 0, 0.01);
+  --ds-input-shadow: 0 0 0.5px 0.5px rgba(0, 0, 0, 0.1), 0.5px 0.5px 1px rgba(0, 0, 0, 0.18);
+  --ds-input-shadow-focus: 0 0 0.5px 0.5px rgba(0, 0, 0, 0.04), 0 0 0 3px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent), 0.5px 0.5px 1px rgba(0, 0, 0, 0.08);
+  --ds-ease-swift: cubic-bezier(0.33, 1, 0.68, 1);
+  --ds-ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ds-duration-fast: 180ms;
+  --ds-duration-base: 240ms;
+  --ds-motion-swift: var(--ds-duration-fast) var(--ds-ease-swift);
+  --ds-motion-soft: var(--ds-duration-base) var(--ds-ease-soft);
+  --ds-motion-spring: var(--ds-duration-base) cubic-bezier(0.34, 1.3, 0.64, 1);
+  --ds-text-xs: 11px;
+  --ds-text-sm: 12px;
+  --ds-text-base: 13px;
+  --ds-text-dense: 14px;
+  --ds-text-title: 20px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ds-text-primary: #ededed;
+    --ds-text-secondary: #b3b3b3;
+    --ds-text-tertiary: #969696;
+    --ds-brand-primary: #86a8f8;
+    --ds-brand-primary-text: #111b32;
+    --ds-action-primary: #ffffff;
+    --ds-action-primary-text: #171717;
+    --ds-selection-bg: var(--ds-brand-primary);
+    --ds-accent: var(--ds-brand-primary);
+    --ds-icon: #a3a3a3;
+    --ds-danger: #e56555;
+    --ds-success: #4ade80;
+    --ds-warning: #e0a830;
+    --ds-surface-100: #171717;
+    --ds-surface-200: #1d1d1d;
+    --ds-surface-300: #262626;
+    --ds-surface-400: #303030;
+    --ds-surface-input: var(--ds-surface-300);
+    --ds-on-surface: rgba(255, 255, 255, 0.06);
+    --ds-on-surface-active: rgba(255, 255, 255, 0.10);
+    --ds-divider: color-mix(in srgb, var(--ds-text-primary) 12%, transparent);
+    --ds-overlay: rgba(0, 0, 0, 0.6);
+    --ds-workspace-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0.5px 1px rgba(0, 0, 0, 0.28);
+    --ds-elevation-100: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+    --ds-elevation-200: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 0 9px -4px rgba(0, 0, 0, 0.40), 0 0 32px -8px rgba(0, 0, 0, 0.16);
+    --ds-elevation-300: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 2px 12px -6px rgba(0, 0, 0, 0.44), 0 5px 36px -12px rgba(0, 0, 0, 0.20);
+    --ds-input-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+    --ds-input-shadow-focus: 0 0 1px 0.5px color-mix(in srgb, var(--ds-brand-primary) 56%, transparent), 0 0 0 4px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent);
+  }
+}

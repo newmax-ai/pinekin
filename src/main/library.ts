@@ -2,7 +2,6 @@ import { readFile, writeFile, rename, mkdir, readdir, rm } from 'node:fs/promise
 import { join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { z } from 'zod'
-import { demoSessions } from '../core/demo'
 import { parseBundle, sessionSchema } from '../core/session'
 import type { ImportResult, ParsedArchive, Session } from '../core/types'
 
@@ -43,7 +42,8 @@ export class Library {
     }
   }
   async list(): Promise<Session[]> {
-    return [...await this.readImports(), ...await this.read(), ...demoSessions]
+    // 兼容旧记录的 demo 字段，但不展示演示档案，也不改写用户原库。
+    return [...await this.readImports(), ...await this.read()].filter(session => !session.demo)
   }
   async findImport(sha256: string): Promise<Session | undefined> {
     digestSchema.parse(sha256)

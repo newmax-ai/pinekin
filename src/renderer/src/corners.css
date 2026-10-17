@@ -1,0 +1,33 @@
+/* 适配 NewMax 90e321810 的连续圆角规则；不引用外部仓库运行时。
+   仅改变宿主 CSS 轮廓，不重画品牌 SVG、应用图标或系统窗口边框。 */
+@supports (corner-shape: superellipse(1.5)) {
+  :root {
+    --ds-corner-shape: superellipse(1.5);
+    --ds-corner-radius-scale: 1.348;
+  }
+
+  * {
+    corner-shape: var(--ds-corner-shape);
+  }
+  ::before, ::after {
+    corner-shape: inherit;
+  }
+  ::-webkit-scrollbar-thumb, ::-webkit-scrollbar-track {
+    corner-shape: var(--ds-corner-shape);
+  }
+
+  /* 例外只作用于视觉面本体，不覆写后代的曲线变量。 */
+  [data-ds-pill-control],
+  [data-ds-round-control],
+  .ds-button {
+    corner-shape: round;
+  }
+  [data-ds-round-control] > [data-ds-corner-inherit] {
+    corner-shape: inherit;
+  }
+
+  /* 语义是导航/档案列表，不因底层使用 button 而变成胶囊。 */
+  .nav-item, .session-card, .search-result {
+    corner-shape: var(--ds-corner-shape);
+  }
+}
