@@ -210,7 +210,7 @@ export function App() {
               </div>
             </article>) : <div className="empty"><p>这段会话暂时没有消息</p></div>}<div className="conversation-end"><span />档案到这里，思考可以继续<span /></div></div></div>
             <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton>
-              <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>带走这段对话<DesignIcon name="arrow" /></DsButton></footer>
+              <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
           </> : <div className="empty detail-empty"><div className="empty-mark"><DesignIcon name="dock" size={32} /></div><h2>{loaded && !sessions.length ? '让第一段思考，在这里停靠' : '换个地方，继续思考。'}</h2><p>{loaded && !sessions.length ? '选择一份会话文件，预览后保存到本机。' : '收好散落的对话，把上下文留给下一步。'}</p>{loaded && !sessions.length && <DsButton variant="primary" disabled={busy} onClick={previewImport}><DesignIcon name="plus" />选择会话文件</DsButton>}<span className="empty-footnote">本地归档 · 只读浏览 · 文本交接</span></div>}
         </section>
       </div>

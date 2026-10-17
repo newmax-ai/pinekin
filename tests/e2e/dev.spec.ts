@@ -33,7 +33,7 @@ test('开发入口隔离宿主环境并在后台真正渲染 React', async () =>
       const context = browser.contexts()[0]
       const page = context.pages()[0] ?? await context.waitForEvent('page')
       await expect(page.getByRole('heading', { level: 2, name: '让思考跨越工具，继续生长' })).toBeVisible()
-      await expect(page.getByRole('button', { name: '带走这段对话' })).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toBeVisible()
     } finally { await browser.close() }
   } finally {
     clearTimeout(timer)
