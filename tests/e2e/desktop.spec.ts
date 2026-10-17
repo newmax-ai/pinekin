@@ -801,6 +801,72 @@ test('页头搜索、浏览历史与侧栏展开收起保持布局和键盘可�
   await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-navigation-light.png' })
 })
 
+test('本地收纳插画有独立展示宽度，放大后在深浅主题及最窄侧栏仍不挤压文案', async () => {
+  const note = page.getByRole('region', { name: '本地存储与隐私' })
+  const illustration = note.locator('img.storage-illustration')
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await expect(note).toHaveCSS('padding-top', '6px')
+    await expect(note).toHaveCSS('padding-bottom', '6px')
+    await expect(note).toHaveCSS('padding-left', '12px')
+    await expect(note).toHaveCSS('padding-right', '0px')
+    await expect(note.locator('.local-info')).toHaveCSS('font-size', '13px')
+    await expect(note.locator('.local-info')).toHaveCSS('font-weight', '600')
+    await expect(note.locator('.storage-description')).toHaveCSS('font-size', '11px')
+    await expect(note.locator('.storage-description')).toHaveCSS('font-weight', '400')
+    const contrasts = await note.evaluate(element => {
+      const context = document.createElement('canvas').getContext('2d')!
+      context.fillStyle = getComputedStyle(element.closest('.sidebar')!).backgroundColor
+      context.fillRect(0, 0, 1, 1)
+      context.fillStyle = getComputedStyle(element).backgroundColor
+      context.fillRect(0, 0, 1, 1)
+      const luminance = (channels: Uint8ClampedArray) => Array.from(channels).slice(0, 3)
+        .map(channel => channel / 255)
+        .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+        .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0)
+      const background = luminance(context.getImageData(0, 0, 1, 1).data)
+      return ['.local-info', '.storage-description', '.storage-boundaries'].map(selector => {
+        context.fillStyle = getComputedStyle(element.querySelector(selector)!).color
+        context.fillRect(0, 0, 1, 1)
+        const foreground = luminance(context.getImageData(0, 0, 1, 1).data)
+        return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05)
+      })
+    })
+    expect(contrasts[0]).toBeGreaterThan(contrasts[1])
+    expect(contrasts[1]).toBeGreaterThan(contrasts[2])
+    for (const contrast of contrasts) expect(contrast).toBeGreaterThanOrEqual(4.5)
+    for (const [sidebarWidth, illustrationSize] of [[240, 100], [200, 68], [180, 56]] as const) {
+      const resizeHandle = page.getByRole('separator', { name: '调整侧栏宽度' })
+      await resizeHandle.press('Home')
+      for (let width = 180; width < sidebarWidth; width += 10) await resizeHandle.press('ArrowRight')
+      await expect(page.locator('.sidebar')).toHaveCSS('width', `${sidebarWidth}px`)
+      await expect(illustration).toHaveCSS('width', `${illustrationSize}px`)
+      await expect(illustration).toHaveCSS('height', `${illustrationSize}px`)
+      await expect(note).toBeInViewport()
+      const copy = (await note.locator('.storage-copy').boundingBox())!
+      const image = (await illustration.boundingBox())!
+      const card = (await note.boundingBox())!
+      expect(image.x - copy.x - copy.width).toBeGreaterThanOrEqual(4)
+      expect(card.x + card.width - image.x - image.width).toBeCloseTo(0)
+      expect(image.y).toBeGreaterThanOrEqual(card.y + 6)
+      expect(image.y + image.height).toBeLessThanOrEqual(card.y + card.height - 6)
+      expect(card.height).toBeLessThanOrEqual(116)
+      expect(await note.evaluate(element => Array.from(element.querySelectorAll('p, .local-info, .storage-boundaries'))
+        .every(child => child.scrollWidth <= child.clientWidth))).toBe(true)
+      if (sidebarWidth === 240) {
+        await expect(note.locator('.local-info')).toHaveCSS('height', '20px')
+        await expect(note.locator('.storage-description')).toHaveCSS('height', '18px')
+        await expect(note.locator('.storage-boundaries')).toHaveCSS('height', '18px')
+      }
+      await expect(note).toContainText('仅保存在本机')
+      await expect(note).toContainText('仅导入你选择的文件')
+      await expect(note).toContainText('不自动扫描')
+      await expect(note).toContainText('不上传')
+      await note.screenshot({ scale: 'css', path: `test-results/pinekin-privacy-note-hierarchy-${colorScheme}-${sidebarWidth}.png` })
+    }
+  }
+})
+
 test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边距', async () => {
   for (const { width, height, colorScheme } of [
     { width: 1440, height: 900, colorScheme: 'light' },
@@ -822,13 +888,34 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
     await expect(note).toBeInViewport()
     await expect(note).toContainText('仅导入你选择的文件')
     await expect(note.locator('.design-icon')).toHaveCount(0)
-    const illustration = note.locator('svg.storage-illustration')
+    const illustration = note.locator('img.storage-illustration')
     await expect(illustration).toBeVisible()
+    await expect(illustration).toHaveAttribute('src', /(?:\.svg$|^data:image\/svg\+xml)/)
+    expect(await illustration.evaluate(async (element, scheme) => {
+      const image = element as HTMLImageElement
+      await image.decode()
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 128
+      const context = canvas.getContext('2d')!
+      context.drawImage(image, 0, 0, 128, 128)
+      const corner = context.getImageData(0, 0, 1, 1).data
+      const box = Array.from(context.getImageData(42, 86, 1, 1).data)
+      const expected = scheme === 'dark' ? [117, 96, 71, 255] : [238, 215, 179, 255]
+      return image.complete && image.naturalWidth === 1024 && image.naturalHeight === 1024
+        && corner[3] === 0 && box.every((channel, index) => channel === expected[index])
+    }, colorScheme)).toBe(true)
+    await expect(illustration).toHaveAttribute('alt', '')
     await expect(illustration).toHaveAttribute('aria-hidden', 'true')
+    await expect(illustration).toHaveAttribute('draggable', 'false')
     await expect(illustration).toHaveCSS('pointer-events', 'none')
+    await expect(illustration).toHaveCSS('object-fit', 'contain')
+    await expect(illustration).toHaveCSS('mix-blend-mode', 'normal')
+    await expect(illustration).toHaveCSS('filter', 'none')
+    await expect(note).toHaveCSS('isolation', 'isolate')
+    await expect(note.locator('svg, button, a, [tabindex]')).toHaveCount(0)
     const copyBox = (await note.locator('.storage-copy').boundingBox())!
     const illustrationBox = (await illustration.boundingBox())!
-    expect(illustrationBox.x - copyBox.x - copyBox.width).toBeGreaterThanOrEqual(8)
+    expect(illustrationBox.x - copyBox.x - copyBox.width).toBeGreaterThanOrEqual(4)
     expect(Math.abs(illustrationBox.y + illustrationBox.height / 2 - copyBox.y - copyBox.height / 2)).toBeLessThanOrEqual(1)
     const textFits = await note.evaluate(el => Array.from(el.querySelectorAll('p, .local-info, .storage-boundaries')).every(child => child.scrollWidth <= child.clientWidth))
     expect(textFits).toBe(true)
@@ -844,10 +931,20 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
     const noteBox = (await note.boundingBox())!
     expect(noteBox.x - sidebar.x).toBe(12)
     expect(sidebar.x + sidebar.width - noteBox.x - noteBox.width).toBe(12)
-    expect(noteBox.height).toBeLessThanOrEqual(100)
-    expect(illustrationBox.x + illustrationBox.width).toBeLessThanOrEqual(noteBox.x + noteBox.width - 12)
+    expect(noteBox.height).toBeLessThanOrEqual(128)
+    expect(illustrationBox.x + illustrationBox.width).toBeLessThanOrEqual(noteBox.x + noteBox.width)
     await page.screenshot({ scale: 'css', path: `test-results/pinekin-workspace-shadow-spread-${colorScheme}-v2.png` })
-    await note.screenshot({ scale: 'css', path: `test-results/pinekin-privacy-note-${colorScheme}-v2.png` })
+    await note.screenshot({ scale: 'css', path: `test-results/pinekin-privacy-note-${colorScheme}-svg.png` })
+    const vector = await illustration.evaluateHandle(element => {
+      const preview = element.cloneNode() as HTMLImageElement
+      preview.className = ''
+      preview.style.cssText = 'position:fixed;left:0;top:0;width:384px;height:384px;z-index:99999;pointer-events:none'
+      preview.style.backgroundColor = getComputedStyle(document.querySelector('.sidebar')!).backgroundColor
+      document.body.append(preview)
+      return preview
+    })
+    await vector.asElement()!.screenshot({ scale: 'css', path: `test-results/pinekin-local-storage-vector-${colorScheme}.png` })
+    await vector.evaluate(element => element.remove())
     await page.getByRole('button', { name: '收起侧栏' }).click()
     expect((await card.boundingBox())!.x).toBe(8)
     await expect(page.locator('.session-pane')).toBeInViewport()

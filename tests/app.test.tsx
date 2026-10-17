@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { App } from '../src/renderer/src/App'
 import { fixtureSessions as demoSessions } from './fixtures/sessions'
 
@@ -308,21 +310,45 @@ describe('档案界面', () => {
     expect(within(note).getByText('不上传')).toBeTruthy()
     expect(note.querySelector('button, a')).toBeNull()
   })
-  it('隐私卡片标题去掉图标，右侧抽象线条仅作装饰', async () => {
+  it('隐私卡片使用本地 SVG 松貂收纳插画，文案与无交互语义保持不变', async () => {
     await open()
     const note = screen.getByRole('region', { name: '本地存储与隐私' })
     const copy = note.querySelector('.storage-copy')!
     expect(copy).not.toBeNull()
     expect(within(copy as HTMLElement).getByText('仅保存在本机')).toBeTruthy()
     expect(within(copy as HTMLElement).getByText('仅导入你选择的文件')).toBeTruthy()
-    expect(note.querySelector('.local-info svg, .design-icon')).toBeNull()
-    const illustration = note.querySelector('svg.storage-illustration')!
+    expect(note.querySelector('.local-info svg, .design-icon, svg.storage-illustration')).toBeNull()
+    const illustration = note.querySelector('img.storage-illustration')!
     expect(illustration).not.toBeNull()
     expect(illustration.previousElementSibling).toBe(copy)
+    expect(illustration.getAttribute('src')).toMatch(/(?:pinekin-local-storage\.svg$|^data:image\/svg\+xml,)/)
+    expect(illustration.getAttribute('src')).not.toMatch(/^https?:/)
     expect(illustration.getAttribute('aria-hidden')).toBe('true')
-    expect(illustration.getAttribute('focusable')).toBe('false')
-    expect(illustration.querySelectorAll('path').length).toBeGreaterThan(1)
+    expect(illustration.getAttribute('alt')).toBe('')
+    expect(illustration.getAttribute('draggable')).toBe('false')
+    expect(within(note).queryByRole('img')).toBeNull()
     expect(note.querySelector('button, a, [tabindex], image, use, foreignObject')).toBeNull()
+  })
+  it('收纳插画由角色生图描摹为透明纯矢量，保留曲线、少量暖色和深浅主题', () => {
+    const source = readFileSync('src/renderer/src/assets/pinekin-local-storage.svg', 'utf8')
+    const svg = new DOMParser().parseFromString(source, 'image/svg+xml')
+    expect(svg.querySelector('parsererror')).toBeNull()
+    expect(svg.documentElement.getAttribute('viewBox')).toBe('0 0 1024 1024')
+    expect(svg.querySelector('desc')?.textContent).toContain('生图')
+    const raster = readFileSync('design/illustrations/pinekin-local-storage-character.png')
+    expect(svg.querySelector('metadata')?.textContent).toContain(createHash('sha256').update(raster).digest('hex'))
+    for (const tone of ['paper', 'apricot', 'ear', 'ink']) {
+      const paths = svg.querySelectorAll(`g[data-tone="${tone}"] path`)
+      expect(paths.length).toBeGreaterThan(0)
+      expect(Array.from(paths).some(path => /C/.test(path.getAttribute('d') ?? ''))).toBe(true)
+    }
+    expect(svg.querySelector('image, foreignObject, script, use, rect, filter, linearGradient, radialGradient')).toBeNull()
+    expect(source).not.toMatch(/data:image|https?:\/\/(?!www\.w3\.org\/2000\/svg)|url\s*\(/i)
+    expect(source).toContain('prefers-color-scheme: dark')
+    expect(source.length).toBeLessThan(80_000)
+    for (const element of svg.querySelectorAll('*')) {
+      expect(Array.from(element.attributes).some(attribute => /^on/i.test(attribute.name))).toBe(false)
+    }
   })
   it('来源文字单独使用 mask，图标数量保留，调宽入口随侧栏隐藏', async () => {
     await open()

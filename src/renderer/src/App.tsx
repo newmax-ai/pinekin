@@ -6,6 +6,7 @@ import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
 import { Sidebar } from './components/Sidebar'
 import { FadeText } from './components/FadeText'
+import localStorageIllustration from './assets/pinekin-local-storage.svg'
 
 const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
@@ -173,9 +174,12 @@ export function App() {
       </div>
       <div className="sidebar-bottom">
         <section className="storage-note" aria-label="本地存储与隐私">
-          <div className="local-info"><DesignIcon name="shield" size={16} /><span>仅保存在本机</span></div>
-          <p className="storage-description">仅导入你选择的文件</p>
-          <div className="storage-boundaries"><span>不自动扫描</span><span aria-hidden="true">·</span><span>不上传</span></div>
+          <div className="storage-copy">
+            <div className="local-info">仅保存在本机</div>
+            <p className="storage-description">仅导入你选择的文件</p>
+            <div className="storage-boundaries"><span>不自动扫描</span><span aria-hidden="true">·</span><span>不上传</span></div>
+          </div>
+          <img className="storage-illustration" src={localStorageIllustration} alt="" aria-hidden="true" draggable={false} />
         </section>
       </div>
     </Sidebar>
