@@ -84,7 +84,7 @@ else {
       try {
         const result = await dialog.showOpenDialog(window!, {
           title: '选择会话文件，只读预览后确认导入', properties: ['openFile'],
-          filters: [{ name: 'Pinekin / Staithe / Ember / Cindy / Codex / DeepSeek Harness 会话文件', extensions: ['json', 'jsonl', 'zst', 'zstd', 'cshare', 'xdtshare'] }],
+          filters: [{ name: 'Pinekin / Staithe / Ember / NewMax / Claude Code / Cindy / Codex / DeepSeek Harness 会话文件', extensions: ['json', 'jsonl', 'zst', 'zstd', 'cshare', 'xdtshare'] }],
         })
         assertSender(event)
         if (result.canceled || !result.filePaths[0]) return null

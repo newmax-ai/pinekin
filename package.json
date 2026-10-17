@@ -13,6 +13,7 @@
     "dev": "node scripts/desktop.mjs dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "node scripts/desktop.mjs preview",
+    "import:local": "node scripts/import-local.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

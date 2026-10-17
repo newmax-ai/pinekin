@@ -88,6 +88,11 @@ describe('可移植会话', () => {
     expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/Harness.*v4/)
     expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/网页聊天.*不支持/)
     expect(adapters.find(adapter => adapter.id === 'cindy')?.constraints).toMatch(/本地快照/)
+    for (const id of ['newmax', 'claude-code']) expect(adapters.find(adapter => adapter.id === id)).toMatchObject({
+      archiveStatus: 'fixture-tested', capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false },
+    })
+    expect(adapters.find(adapter => adapter.id === 'newmax')?.constraints).toMatch(/白名单快照/)
+    expect(adapters.find(adapter => adapter.id === 'claude-code')?.constraints).toMatch(/父链/)
   })
   it('尚未实现的适配器绝不声明原生迁移能力', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(3)

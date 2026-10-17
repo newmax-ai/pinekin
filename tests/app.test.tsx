@@ -708,6 +708,21 @@ describe('档案界面', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择会话文件' }))
     await waitFor(() => expect(window.staithe.previewImport).toHaveBeenCalledOnce())
   })
+  it('窗口重新获得焦点时回读本地档案，更新外部批次计数并保留当前来源和选中会话', async () => {
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: /^Codex\s*1$/ }))
+    const selected = demoSessions.find(session => session.source === 'codex')!
+    vi.mocked(window.staithe.list).mockResolvedValue([...demoSessions, { ...selected, id: 'new-local-archive', title: '批次新档案' }])
+    fireEvent.focus(window)
+    await screen.findByRole('button', { name: /^Codex\s*2$/ })
+    expect(screen.getByRole('heading', { level: 2, name: selected.title })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Codex\s*2$/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(window.staithe.previewImport).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Pin 走这段对话' }))
+    const calls = vi.mocked(window.staithe.list).mock.calls.length
+    fireEvent.focus(window)
+    expect(window.staithe.list).toHaveBeenCalledTimes(calls)
+  })
   it('加载期间显示进度，失败可重试恢复', async () => {
     let reject!: (reason: Error) => void
     vi.mocked(window.staithe.list).mockReturnValueOnce(new Promise((_, fail) => { reject = fail }))

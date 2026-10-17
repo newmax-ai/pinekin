@@ -8,7 +8,8 @@
 | 窗口装饰与展示策略 | `src/main/window-options.ts` | macOS 原生红绿灯布局；其他平台保留系统装饰；仅未打包且显式标记的后台测试禁用显示 / 聚焦，正常启动不变 |
 | 选择文件读取 | `src/main/import-file.ts` | 非阻塞打开、句柄类型检查、有界读取快照 |
 | 导入协调 | `src/main/imports.ts` | 内容识别、快照、预览 token、失效/确认与重复检测 |
-| 外部格式解析 | `src/main/cindy.ts`、`cindy-local.ts`、`deepseek.ts`、`codex.ts`、`codex-zstd.ts`、`zip.ts` | 固定格式映射、ZIP / Zstandard / JSONL 资源约束、来源校验、损失报告；Cindy 本地快照仅解析已提取文件，不连接数据库 |
+| 外部格式解析 | `src/main/cindy.ts`、`cindy-local.ts`、`newmax-local.ts`、`claude-code.ts`、`deepseek.ts`、`codex.ts`、`codex-zstd.ts`、`zip.ts` | 固定格式映射、ZIP / Zstandard / JSONL 资源约束、来源校验、损失报告；NewMax/Cindy 本地快照仅解析已提取文件，不连接数据库 |
+| 显式开发批次 | `scripts/import-local.mjs`、`src/main/local-import.ts` | 用户授权的只读 NewMax 白名单提取或有界 Claude Code/Codex 日志批次；默认预演、显式确认保存；不接入 IPC、桌面启动或后台扫描 |
 | 本地档案服务 | `src/main/library.ts` | 串行入库、原件与记录整体发布、旧库读取和损坏保护 |
 | 安全桥 | `src/preload/index.ts` | 只暴露具名能力，不暴露任意 IPC、路径读写或 Node.js |
 | 会话核心 | `src/core/` | 文本模型、版本校验、搜索、交接文本、深链、来源能力 |
@@ -57,7 +58,7 @@ v2 只接受 `staithe.session`，扩展 Cindy / DeepSeek 来源标识和可选�
 3. **打开来源**：当前只有 Pinekin 自身本地定位；未接入来源客户端打开入口。
 4. **原生恢复／迁移**：涉及原会话 ID、工作区、工具状态、权限、模型、客户端版本和正式恢复入口；本版全部未支持。
 
-`SessionAdapter.capabilities` 描述 Pinekin 实际实现：Cindy、Codex 与 DeepSeek Harness 的 `importArchive=true`，标记 `archiveStatus=fixture-tested` 并限定具体格式。DeepSeek 网页聊天仍未支持。少量获授权本机核验单独记录，不将整个产品提升为全面集成验证。所有外部来源的 `readLocal/nativeResume/deepLink` 仍为 false；Cindy 一次性开发核验不等于产品具备数据库连接或自动扫描能力。
+`SessionAdapter.capabilities` 描述桌面实际实现：NewMax 白名单快照、Claude Code JSONL、Cindy、Codex 与 DeepSeek Harness 的 `importArchive=true`，标记 `archiveStatus=fixture-tested` 并限定具体格式。DeepSeek 网页聊天仍未支持。少量获授权本机核验单独记录，不将整个产品提升为全面集成验证。所有外部来源的 `readLocal/nativeResume/deepLink` 仍为 false；显式开发 CLI 可在授权路径内生成 NewMax 快照或导入有界日志批次，但不改变桌面 API，不提供启动扫描或持续同步。详见 [接入契约与核验](newmax-claude-local-validation-2026-10-17.md)。
 
 ## 深链
 

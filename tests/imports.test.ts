@@ -10,6 +10,8 @@ import { codexFixture, codexThreadId, codexPaginatedFixture } from './fixtures/c
 import { zstdCompressSync } from 'node:zlib'
 import { deepseekFixture } from './fixtures/deepseek'
 import { cindyLocalFixture } from './fixtures/cindy-local'
+import { newmaxFixture } from './fixtures/newmax'
+import { claudeFixture } from './fixtures/claude-code'
 
 const directories: string[] = []
 afterEach(async () => { await Promise.all(directories.splice(0).map(dir => rm(dir, { recursive: true, force: true }))) })
@@ -70,6 +72,8 @@ describe('用户确认的只读导入', () => {
   it.each([
     ['DeepSeek Harness', () => zstdCompressSync(deepseekFixture()), 'deepseek-harness-v4'],
     ['Cindy 本地快照', cindyLocalFixture, 'cindy-local-snapshot'],
+    ['NewMax 本地快照', newmaxFixture, 'newmax-local-snapshot'],
+    ['Claude Code JSONL', claudeFixture, 'claude-code-jsonl'],
   ] as const)('%s 预览取消不落盘，确认保存原件并重复定位', async (_name, fixture, adapterId) => {
     const { directory, importer } = await setup()
     const bytes = fixture()

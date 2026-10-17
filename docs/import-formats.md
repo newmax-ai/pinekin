@@ -23,7 +23,8 @@ IPC 只有 `previewImport()`、`confirmImport(token)`、`cancelImport(token)`，
 | DeepSeek Harness v4 JSONL / JSONL.ZSTD | 合成回归 + 0.2.1-rc.1 环境下 3 份现有日志核验 | 序号从 0 连续、非继承/非子会话的用户输入和助手文本 | 网页聊天导出、未来格式、表面替换、截断或超限日志、原生恢复 |
 | DeepSeek 消费者聊天导出 | 官方有导出说明；Staithe 未支持 | 无 | 缺少官方 schema 或获授权脱敏样本，不能猜测适配 |
 | Codex 独立主会话 JSONL / JSONL.ZST | 合成回归 + 少量获授权本机文件抽样 | legacy 或从 0 连续编号、无引用的分页主会话；有界解压、原件与来源报告 | 有引用/缺序号的分页、继承、子会话、超限文件；不重建有效分支、不启动 resume |
-| Claude Code 日志 | 尚未实现 | 无 | 不自动扫描本地日志、不启动 resume |
+| Pinekin NewMax 本地快照 v1 | 合成回归 + 1.1.22 本机 10 段核验并归档 | 普通非隐私、非分叉主会话的字段白名单快照，用户展示文本与助手当前正文 | 非官方包；桌面入口不直接接受数据库；未来版本、内部轮次、附件和原生恢复不支持 |
+| Claude Code 原生 JSONL | 合成回归 + 2.1.286 环境下 10 段归档 | 完整单根、非子会话混合事件图中末条消息父链的文本投影，追加块合并与损失报告 | 不保证全部分支或原生活动链；压缩/逻辑父链、跨文件、自动扫描与 resume 不支持 |
 
 Codex 的消息/事件去重、压缩/回退语义及独立限额见 [Codex 专项说明](codex-import.md)。下列 ZIP 和清单规则仅用于 Cindy，不套用到 Codex JSONL。
 
@@ -119,4 +120,4 @@ userData/imports/<sha256>/
 - `https://github.com/makecindy/cindy/blob/e532ef3d8fe8271a3decf7f478d09d8ce959f824/apps/desktop/src/main/session-share/__tests__/sessionShareImport.test.ts`：L289–338 合成正文编码。
 - `https://cdn.deepseek.com/policies/zh-CN/deepseek-privacy-policy.html`：第 2.2(d) 说明导出入口，不提供具体 schema。
 
-后续已接入 Codex 日志、Pinekin Cindy 本地快照与 DeepSeek Harness v4 文本投影；格式与本机核验范围见 [本地接入记录](cindy-deepseek-local-validation-2026-10-17.md)。Cindy 本地快照核验不等于官方分享包验收，Harness 不等于 DeepSeek 网页聊天。下一步仍需拓展版本、附件、分叉和大文件样本；原生恢复须独立授权与验收。
+后续已接入 Codex 日志、Pinekin Cindy 本地快照与 DeepSeek Harness v4 文本投影；格式与本机核验范围见 [本地接入记录](cindy-deepseek-local-validation-2026-10-17.md)。新增 NewMax 白名单快照、Claude Code JSONL 的详细契约、资源边界、显式开发批次使用方式与首批归档统计见 [NewMax / Claude Code 接入](newmax-claude-local-validation-2026-10-17.md)。Cindy/NewMax 本地快照核验不等于官方导出包验收，Harness 不等于 DeepSeek 网页聊天。下一步仍需拓展版本、压缩/逻辑父链、附件、分叉和大文件样本；原生恢复须独立授权与验收。

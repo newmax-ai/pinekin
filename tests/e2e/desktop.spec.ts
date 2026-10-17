@@ -5,6 +5,8 @@ import { codexFixture, codexThreadId, codexPaginatedFixture } from '../fixtures/
 import { zstdCompressSync } from 'node:zlib'
 import { deepseekFixture } from '../fixtures/deepseek'
 import { cindyLocalFixture } from '../fixtures/cindy-local'
+import { newmaxFixture } from '../fixtures/newmax'
+import { claudeFixture } from '../fixtures/claude-code'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -1337,6 +1339,8 @@ test('Codex 压缩分页根日志经 Electron 有界解码与确认，原件不�
 for (const fixture of [
   { name: 'DeepSeek Harness', filename: 'session.v4.jsonl.zstd', title: 'DeepSeek 合成会话', bytes: () => zstdCompressSync(deepseekFixture()), adapter: 'deepseek-harness-v4' },
   { name: 'Cindy 本地快照', filename: 'cindy.local.json', title: 'Cindy 本地合成会话', bytes: cindyLocalFixture, adapter: 'cindy-local-snapshot' },
+  { name: 'NewMax 本地快照', filename: 'newmax.local.json', title: 'NewMax 合成会话', bytes: newmaxFixture, adapter: 'newmax-local-snapshot' },
+  { name: 'Claude Code JSONL', filename: 'claude.jsonl', title: 'Claude Code · 合成问题：整理项目计划', bytes: claudeFixture, adapter: 'claude-code-jsonl' },
 ]) test(`${fixture.name} 合成文件经桌面预览、保存、去重与重启读取`, async () => {
   const file = join(directory, fixture.filename), bytes = fixture.bytes()
   await writeFile(file, bytes)
@@ -1363,6 +1367,19 @@ for (const fixture of [
   await page.getByRole('button', { name: '打开已有档案' }).click()
   await app.close(); await launch()
   await expect(page.getByRole('heading', { level: 2, name: fixture.title })).toBeVisible()
+})
+
+test('本地批次新增档案后，后台模拟窗口 focus 回读计数且保留当前会话', async () => {
+  const sidebar = page.getByRole('complementary')
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeEnabled()
+  await sidebar.getByRole('button', { name: /^Codex/ }).click()
+  const selected = demoSessions.find(session => session.source === 'codex')!
+  await expect(page.getByRole('heading', { level: 2, name: selected.title })).toBeVisible()
+  await writeFile(join(directory, 'library.json'), JSON.stringify([...demoSessions, { ...selected, id: 'batch-new', title: '批次合成新档案' }]))
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(sidebar.getByRole('button', { name: /^Codex\s*2$/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('heading', { level: 2, name: selected.title })).toBeVisible()
+  await expect(page.getByRole('button', { name: /批次合成新档案/ })).toBeVisible()
 })
 
 test('取消文件选择与加密包拒绝不写入档案', async () => {

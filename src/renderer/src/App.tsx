@@ -55,6 +55,13 @@ export function App() {
     return () => { active = false }
   }, [loadAttempt])
   useEffect(() => {
+    if (!loaded || busy || handoff || importPreview) return
+    // 仅回读 Pinekin 档案，接收显式批次的入库结果；不访问外部客户端目录。
+    function refreshLocalArchives() { setLoadAttempt(value => value + 1) }
+    window.addEventListener('focus', refreshLocalArchives)
+    return () => window.removeEventListener('focus', refreshLocalArchives)
+  }, [loaded, busy, handoff, importPreview])
+  useEffect(() => {
     if (!loaded) return
     return window.staithe.onOpenSession(id => {
       if (!sessions.some(s => s.id === id)) { setStatus('本机没有这段会话，请先导入对应的 Pinekin 包。'); return }
@@ -242,7 +249,7 @@ export function App() {
         <div className="notice"><DesignIcon name="info" /><div><strong>兼容范围有限</strong><p>验证状态：合成夹具通过，未经第三方客户端实机验证。</p></div></div>
         {importPreview.warnings.length > 0 && <div className="import-report"><h3>导入说明与缺失项 <span>{importPreview.warnings.length}</span></h3><ul className="import-warnings">{importPreview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
         <p className="privacy-note">确认后在本机明文保存原始文件和文本档案，原件可能包含附件、工作区路径及敏感信息。不会上传、执行历史指令或修改来源客户端。原件不随交接导出。</p>
-        <details className="format-help"><summary>支持格式与能力边界</summary><p>支持 Pinekin（沿用 Staithe 格式）/ Ember 包、未加密 Cindy v1 分享包及 Pinekin Cindy 本地快照、Codex 独立主会话 JSONL / JSONL.ZST、DeepSeek Harness v4 独立主会话 JSONL / JSONL.ZSTD。DeepSeek 网页聊天导出仍未支持；不支持原生恢复。</p></details>
+        <details className="format-help"><summary>支持格式与能力边界</summary><p>支持 Pinekin（沿用 Staithe 格式）/ Ember 包、Pinekin NewMax 1.1.22 普通主会话白名单快照、Claude Code 完整单根 JSONL 的末条消息父链文本投影、未加密 Cindy v1 分享包及 Pinekin Cindy 本地快照、Codex 独立主会话 JSONL / JSONL.ZST、DeepSeek Harness v4 独立主会话 JSONL / JSONL.ZSTD。Claude Code 其他分支和压缩/逻辑父链不在支持范围；DeepSeek 网页聊天导出仍未支持；不支持自动扫描或原生恢复。</p></details>
         {importPreview.duplicate && <p className="duplicate-note">这个文件已导入，将打开已有档案，不新增副本。</p>}
         {status && <div className="dialog-status" role="status">{status}</div>}
       </ScrollArea>

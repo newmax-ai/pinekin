@@ -24,6 +24,8 @@ Pinekin 是一个独立的、本地优先的 AI 会话档案桌面客户端，�
 - 「导入会话文件」：用户选文件 → 只读预览来源和损失 → 明确确认 → 保存原件与文本档案；取消不落盘。
 - Staithe 文本包 v1 / v2，兼容旧 Ember v1 包；严格版本和字段校验。
 - **Cindy `.cshare` / `.xdtshare` 未加密普通 v1 包**的文本投影。固定官方源码提交、合成夹具验证；加密包、Orca 协同包及未来版本明确拒绝，尚未用真实客户端导出包验收。
+- **Pinekin NewMax 本地快照 v1**：NewMax 1.1.22 普通非隐私、非分叉主会话的字段白名单快照；按当前 SQLite 消息行顺序投影用户展示文本和助手正文，排除已标记内部续轮。不复制数据库、设置、工具或附件；不是官方导出包。
+- **Claude Code 原生 JSONL**：完整单根、非子会话日志的显式末条消息父链文本投影；先建完整 UUID 图，再提取人类/助手文本并合并追加块，避免把工具结果冒充用户输入。其他分支仅保留在原件，压缩/逻辑父链尚未支持；不是原生活动链或原生恢复。
 - **Pinekin Cindy 本地快照 v1**：依据 Cindy 0.1.97 普通桌面主会话生成的字段白名单快照，按桌面时间线顺序读取，排除已清空/回退正文。不是官方 `.cshare`；不自动打开数据库。
 - **DeepSeek Harness session-v4 JSONL / JSONL.ZSTD**：独立、非继承、非子会话；只展示用户主动输入与助手文本，不混入运行时注入、推理、工具或流式副本。已在安装版本 0.2.1-rc.1 环境核验 3 份现有日志，不代表全部由该版本新建。
 - **Codex 独立主会话 JSONL / JSONL.ZST** 的文本投影。支持 legacy，以及无外部引用、序号从 0 连续的 paginated 根日志；Zstandard 输入/展开均限 5 MiB，解码窗口限 8 MiB。只提取顶层消息，避免事件副本重复；工具、推理、压缩和回退的损失明确报告。继承、序号缺失与子会话仍拒绝，不自动扫描目录，不启动 resume。
@@ -36,7 +38,7 @@ Pinekin 是一个独立的、本地优先的 AI 会话档案桌面客户端，�
 ## 明确未实现
 
 - **DeepSeek 网页聊天导出适配**：仍缺已验证格式；Harness 的日志支持不等于消费者聊天导出支持。
-- 产品内自动扫描、持续同步与直接数据库连接入口；本次 Cindy 数据库读取仅为获明确授权的一次性开发核验。NewMax、Claude Code 日志适配尚未实现。Codex 仅支持用户选择的有限 JSONL / JSONL.ZST 布局，未做客户端恢复验收。
+- 产品内自动扫描、持续同步与直接数据库连接入口。NewMax 白名单快照和 Claude Code 单根 JSONL 已有限接入；`npm run import:local` 仅供显式授权的开发期有界批次，默认预演、加 `--confirm` 才保存，不是桌面自动读取能力。Cindy 数据库读取仍仅为获明确授权的一次性开发核验。Codex 仅支持有限 JSONL / JSONL.ZST 布局，未做客户端恢复验收。
 - 写入其他客户端数据库、原生会话恢复、自动创建目标会话或跨 harness 跳转。
 - 附件、结构化工具状态、权限、模型状态、分支树的迁移；Cindy 原包中的这些内容只保留在本地原件，不进入文本快照。
 - SQLite、后台解析 worker、大库分页/增量索引、逐会话删除界面与自动备份。
@@ -80,7 +82,7 @@ E2E 通过 Playwright 在后台启动项目安装的 Electron，无需下载浏�
 
 ## 数据与隐私
 
-- 不配置云端、不自动上传、不扫描主目录；产品仅读取用户通过文件选择框授权的文件。开发期真实应用核验另需明确授权，限定会话数据，只读来源且不读取认证配置；真实数据副本只进入应用 userData，不进入仓库或测试。
+- 不配置云端、不自动上传、不扫描主目录；桌面仅读取用户通过文件选择框授权的文件。开发期 `import:local` 另需明确授权，只检查指定会话文件或约定日志层级，只读来源且不读取认证配置；默认预演、明确确认后真实副本只进入指定 Pinekin 档案目录，不进入仓库或测试。
 - `library.json`、新档案记录和 `original.bin` 都是**明文**。新归档目录创建权限 `0700`，文件 `0600`；这不是加密，Windows 权限语义也不同。
 - 确认导入会保存整个原始包，可能包含附件、工作区路径和敏感信息；预览明确告知。原件默认不随对外导出传递。
 - 导出的文本仍可能包含凭据、个人信息和项目机密；当前没有自动脱敏。
@@ -96,6 +98,7 @@ E2E 通过 Playwright 在后台启动项目安装的 Electron，无需下载浏�
 - [Codex 日志适配边界](docs/codex-import.md) · [首批 Codex 验收](docs/codex-verification.md)
 - [本机只读抽样与格式修正验收](docs/local-validation-2026-10-17.md)
 - [Cindy 与 DeepSeek Harness 本地接入及更新核验](docs/cindy-deepseek-local-validation-2026-10-17.md)
+- [NewMax / Claude Code 接入、显式本地批次与首批归档核验](docs/newmax-claude-local-validation-2026-10-17.md)
 - [后续接入路线](docs/roadmap.md)
 - [产品调研](docs/research/harness-landscape-2026-10-16.md) · [接入方案](docs/research/integration-proposal-2026-10-16.md)
 - [首版验证与依赖告警](docs/verification.md) · [Staithe 更名验收](docs/rename-verification.md)
