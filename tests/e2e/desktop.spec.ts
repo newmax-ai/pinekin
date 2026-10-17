@@ -338,12 +338,13 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   const resizeHandle = preview.getByRole('separator', { name: '调整侧栏宽度' })
   await expect(resizeHandle).toHaveAttribute('aria-orientation', 'vertical')
   await expect(resizeHandle).toHaveCSS('-webkit-app-region', 'no-drag')
-  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '180px')
-  const maximumWidth = await preview.evaluate(() => Math.max(180, Math.min(360, innerWidth - (innerWidth <= 1150 ? 280 : 310) - 408)))
+  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '240px')
+  await expect(resizeHandle).toHaveAttribute('aria-valuemin', '240')
+  const maximumWidth = await preview.evaluate(() => Math.max(240, Math.min(360, innerWidth - (innerWidth <= 1150 ? 280 : 310) - 408)))
   await resizeHandle.focus()
   for (const [key, width] of [
-    ['ArrowRight', 190], ['ArrowLeft', 180], ['ArrowLeft', 180],
-    ['End', maximumWidth], ['ArrowRight', maximumWidth], ['ArrowLeft', maximumWidth - 10], ['Home', 180],
+    ['ArrowRight', 250], ['ArrowLeft', 240], ['ArrowLeft', 240],
+    ['End', maximumWidth], ['ArrowRight', maximumWidth], ['ArrowLeft', maximumWidth - 10], ['Home', 240],
   ] as const) {
     await preview.keyboard.press(key)
     await expect(preview.locator('aside.sidebar')).toHaveCSS('width', `${width}px`)
@@ -351,7 +352,7 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
     await expect.poll(() => preview.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))).toBe(String(width))
   }
   await resizeHandle.dblclick()
-  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '180px')
+  await expect(preview.locator('aside.sidebar')).toHaveCSS('width', '240px')
   await expect.poll(() => preview.evaluate(() => localStorage.getItem('pinekin.sidebar-width'))).toBeNull()
   await expect(preview.locator('.workspace-card')).toHaveCSS('overflow', 'hidden')
   expect(await preview.locator('.workspace-card').evaluate(el => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeCloseTo(18 * 1.348, 3)
@@ -462,7 +463,7 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   }
 
   await resizeWindow(1440)
-  await expectWidth(200)
+  await expectWidth(240)
   expect(await preference()).toBeNull()
   await expect(handle).toHaveAttribute('aria-orientation', 'vertical')
   await expect(handle).toHaveCSS('-webkit-app-region', 'no-drag')
@@ -493,14 +494,17 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   await expectWidth(360)
   await expect(handle).toBeVisible()
   await handle.dblclick()
-  await expectWidth(200)
+  await expectWidth(240)
   await expect.poll(preference).toBeNull()
   await resizeWindow(1000)
-  await expectWidth(180)
+  await expectWidth(240)
   expect(await preference()).toBeNull()
   await resizeWindow(1440)
-  await expectWidth(200)
-  await dragTo(80, 180, null)
+  await expectWidth(240)
+  await dragTo(80, 240, null)
+  await expectFade(false)
+  // 新下限已能容纳完整来源名；仅在隔离测试中收窄文字容器，继续验证溢出 mask。
+  await label.evaluate(element => { element.style.maxWidth = '80px' })
   await expectFade(true)
 
   const icon = deepseek.locator('.source-icon')
@@ -541,6 +545,15 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
     await expect(page.getByRole('heading', { level: 2, name: 'DeepSeek 合成会话' })).toBeVisible()
   }
   await expectFade(true)
+  await label.evaluate(element => { element.style.maxWidth = '' })
+  await expectFade(false)
+  // 旧版本保存的窄宽度在刷新后也必须遵守 240px 下限，不主动重写偏好。
+  await page.evaluate(() => localStorage.setItem('pinekin.sidebar-width', '200'))
+  await page.reload()
+  await expectWidth(240)
+  await expect(handle).toHaveAttribute('aria-valuemin', '240')
+  expect(await preference()).toBe('200')
+  await expectFade(false)
   await assertBackground()
   await page.screenshot({ scale: 'css', path: 'test-results/pinekin-resizable-sidebar.png' })
 })
@@ -553,7 +566,7 @@ test('会话栏内容对齐，12px 列表圆角与双侧 1px 行间距保持紧�
     await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
     await page.emulateMedia({ colorScheme })
     // 窗口 resize 后，等待 React 提交响应式侧栏宽度，再读取同一帧的对齐基线。
-    await expect(page.locator('.sidebar')).toHaveCSS('width', width <= 1150 ? '180px' : '200px')
+    await expect(page.locator('.sidebar')).toHaveCSS('width', '240px')
     const pane = page.locator('.session-pane')
     const left = (await pane.boundingBox())!.x + 20
     for (const selector of ['.list-heading h2', '.session-card h3', '.session-card .card-meta']) {
@@ -853,10 +866,10 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
     expect(contrasts[0]).toBeGreaterThan(contrasts[1])
     expect(contrasts[1]).toBeGreaterThan(contrasts[2])
     for (const contrast of contrasts) expect(contrast).toBeGreaterThanOrEqual(4.5)
-    for (const [sidebarWidth, illustrationSize] of [[240, 100], [200, 68], [180, 56]] as const) {
+    for (const [sidebarWidth, illustrationSize] of [[240, 100], [280, 100], [360, 100]] as const) {
       const resizeHandle = page.getByRole('separator', { name: '调整侧栏宽度' })
       await resizeHandle.press('Home')
-      for (let width = 180; width < sidebarWidth; width += 10) await resizeHandle.press('ArrowRight')
+      for (let width = 240; width < sidebarWidth; width += 10) await resizeHandle.press('ArrowRight')
       await expect(page.locator('.sidebar')).toHaveCSS('width', `${sidebarWidth}px`)
       await expect(illustration).toHaveCSS('width', `${illustrationSize}px`)
       await expect(illustration).toHaveCSS('height', `${illustrationSize}px`)

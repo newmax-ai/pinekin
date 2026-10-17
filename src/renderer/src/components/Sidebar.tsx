@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 
 const STORAGE_KEY = 'pinekin.sidebar-width'
-const MIN_WIDTH = 180
+const MIN_WIDTH = 240
 const MAX_WIDTH = 360
 const clamp = (value: number, max: number) => Math.round(Math.max(MIN_WIDTH, Math.min(max, value)))
 function readWidth(): number | undefined {
@@ -21,7 +21,7 @@ export function Sidebar({ open, children }: { open: boolean; children: ReactNode
   const narrow = viewport <= 1150
   // 为会话列表、至少 400px 的阅读区和 8px 工作区外边距保留空间。
   const max = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewport - (narrow ? 280 : 310) - 408))
-  const width = clamp(preferred ?? (narrow ? 180 : 200), max)
+  const width = clamp(preferred ?? MIN_WIDTH, max)
   useEffect(() => {
     const resize = () => { cancelRef.current?.(); setViewport(window.innerWidth) }
     window.addEventListener('resize', resize)

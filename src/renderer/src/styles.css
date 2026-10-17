@@ -40,7 +40,7 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 @keyframes ds-tooltip-enter { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 
 /* 全高桌面工作台：各栏独立滚动，不挤压阅读与主操作。 */
-.shell { --sidebar-width: 200px; --list-width: 310px; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--ds-surface-300); }
+.shell { --sidebar-width: 240px; --list-width: 310px; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--ds-surface-300); }
 .app-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: var(--ds-surface-300); container-type: inline-size; }
 .sidebar[hidden] { display: none; }
@@ -211,7 +211,7 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 
 * { scrollbar-width: thin; scrollbar-color: var(--ds-on-surface-active) transparent; }
 @media (max-width: 1150px) {
-  .shell { --sidebar-width: 180px; --list-width: 280px; }
+  .shell { --sidebar-width: 240px; --list-width: 280px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
