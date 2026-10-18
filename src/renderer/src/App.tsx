@@ -213,7 +213,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
             {loadError && visible.length > 0 && <EmptyState kind="archive-error" layout="quiet" description={loadError} action={emptyAction('archive-error')} />}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
               <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><SessionTime dateTime={s.updatedAt} now={now} /></div>
-              <h3>{s.title}</h3>
+              <FadeText as="h3" text={s.title} lines={2} />
             </button>)}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" />}
           </ScrollArea>

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
+import { fixtureSessions } from '../fixtures/sessions'
 import { codexFixture, codexMessage, codexMeta } from '../fixtures/codex'
 import { DatabaseSync } from 'node:sqlite'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
@@ -91,6 +92,63 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   try { if (app?.process().exitCode === null) await background() }
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来源与档案一致', async () => {
+  const title = '合成播放任务 file:///synthetic/' + 'WorkspacePath'.repeat(4)
+  const shortTitle = '合成短标题'
+  for (let index = 0; index < 65; index++) {
+    await writeFile(join(source, `synthetic-${index}.jsonl`), claudeFixture([...claudeRecords(),
+      { type: 'custom-title', customTitle: index === 64 ? shortTitle : title }]))
+  }
+  await connect()
+  const verify = async () => {
+    const long = page.locator('.session-card h3').filter({ hasText: title }).first()
+    const short = page.getByRole('heading', { level: 3, name: shortTitle, exact: true })
+    const handle = page.getByRole('separator', { name: '调整会话栏宽度' })
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await handle.focus(); await page.keyboard.press('Home')
+      await expect(long).toHaveAttribute('data-lines', '2')
+      await expect(long).toHaveAttribute('data-overflow', 'true')
+      await expect(long).toHaveAttribute('title', title)
+      await expect(long).toHaveText(title)
+      await expect(long).toHaveCSS('text-overflow', 'clip')
+      await expect(long).toHaveCSS('-webkit-line-clamp', 'none')
+      const css = await long.evaluate(element => {
+        const styles = getComputedStyle(element)
+        return { mask: styles.maskImage, size: styles.maskSize, repeat: styles.maskRepeat,
+          lineHeight: parseFloat(styles.lineHeight), height: element.getBoundingClientRect().height }
+      })
+      expect(css.mask.match(/linear-gradient/g)).toHaveLength(2)
+      expect(css.mask).toContain('64px')
+      expect(css.size).toContain('calc(100% - ')
+      expect(css.repeat).toBe('no-repeat, no-repeat')
+      expect(css.height).toBeCloseTo(css.lineHeight * 2, 1)
+      await expect(short).toHaveAttribute('data-overflow', 'false')
+      await expect(short).toHaveCSS('mask-image', 'none')
+      const card = long.locator('..')
+      await expect(card.locator('.card-meta')).toHaveCSS('mask-image', 'none')
+      await expect(card).toHaveCSS('padding', '8px 12px')
+      await handle.focus(); await page.keyboard.press('End')
+      await expect(long).toHaveAttribute('data-overflow', 'false')
+      await expect(long).toHaveCSS('mask-image', 'none')
+      expect(await long.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(css.lineHeight * 2)
+    }
+  }
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1380, 900))
+  await verify()
+  await app.close()
+  await writeFile(join(data, 'library.json'), JSON.stringify([
+    { ...fixtureSessions[0], id: 'mask-long', title },
+    { ...fixtureSessions[0], id: 'mask-short', title: shortTitle },
+  ]))
+  await launch()
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1380, 900))
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await page.getByRole('button', { name: '已有档案', exact: true }).click()
+  await verify()
+  await background()
 })
 
 test('会话卡片显示友好时间、完整时刻且停留时自动更新，不改变紧凑布局', async () => {

@@ -338,7 +338,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
           </div>
           <ScrollArea ref={listViewport} className="session-list" aria-busy={!loaded || scanning}>
             {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
-              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><h3>{entry.title}</h3>{entry.kind && entry.kind !== 'conversation' && <span className="source-kind">{sourceKindNames[entry.kind]}</span>}
+              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><FadeText as="h3" text={entry.title} lines={2} />{entry.kind && entry.kind !== 'conversation' && <span className="source-kind">{sourceKindNames[entry.kind]}</span>}
             </button>)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" action={selected ? emptyAction(emptyKind) : undefined} />}

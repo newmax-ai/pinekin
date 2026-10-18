@@ -145,8 +145,19 @@ describe('Staithe 中性主题与图标契约', () => {
   it('会话卡片纵向紧凑，标题字重 400 且最多两行', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.card-meta\s*\{[^}]*line-height: 16px;[^}]*margin-bottom: 4px;/)
-    expect(styles).toMatch(/\.session-card h3\s*\{[^}]*font-weight: 400;[^}]*line-height: 1\.5;[^}]*-webkit-line-clamp: 2;/)
+    expect(styles).toMatch(/\.session-card h3\s*\{[^}]*font-weight: 400;[^}]*line-height: 1\.5;/)
+    expect(styles).toMatch(/\.ds-fade-text\[data-lines='2'\]\s*\{[^}]*white-space: normal;[^}]*max-height: 3em;/)
+    expect(styles).not.toMatch(/\.session-card h3\s*\{[^}]*-webkit-line-clamp:/)
     expect(styles).not.toMatch(/\.session-card\.selected h3\s*\{[^}]*font-weight:/)
+  })
+  it('两行标题末行右侧以 64px 明显渐隐，首行不受遮罩且不影响单行名称', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const mask = /\.ds-fade-text\[data-lines='2'\]\[data-overflow='true'\]\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(mask).toContain('linear-gradient(black, black) top / 100% calc(100% - 1.5em) no-repeat')
+    expect(mask).toContain('linear-gradient(to right, black calc(100% - var(--fade-overflow-width, 64px)), transparent) bottom / 100% 1.5em no-repeat')
+    expect(styles).toMatch(/\.ds-fade-text\[data-overflow='true'\]\s*\{[^}]*var\(--fade-overflow-width, 16px\)/)
+    expect(mask).toContain('-webkit-mask:')
+    expect(mask).toContain('mask:')
   })
   it('标题下不显示横向分割线，保留列表与阅读区的竖向边界', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
