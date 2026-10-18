@@ -34,6 +34,14 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('全局禁用 focus 与 focus-visible 外轮廓，覆盖浏览器和组件规则但不重置选中态或阴影', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const rule = /:focus\s*,\s*:focus-visible\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(rule).toBeDefined()
+    expect(rule).toMatch(/outline:\s*none\s*!important;/)
+    expect(rule).not.toMatch(/background:|box-shadow:|border:|pointer-events:/)
+    expect(styles).toMatch(/\.session-card\.selected\s*\{[^}]*background: var\(--ds-on-surface-active\);/)
+  })
   it('搜索列表项使用 12px 圆角，不改变搜索框及主列表圆角', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.search-result\s*\{[^}]*border-radius: var\(--ds-radius-md\);/)

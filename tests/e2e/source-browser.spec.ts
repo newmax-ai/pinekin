@@ -115,6 +115,36 @@ test('会话卡片显示友好时间、完整时刻且停留时自动更新，�
   await background()
 })
 
+test('浅深主题下鼠标和键盘聚焦均无外轮廓，保留会话选中态与搜索交互', async () => {
+  await connect()
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    const card = page.locator('.session-card').first()
+    await card.click()
+    await expect(card).toHaveClass(/selected/)
+    const selectedBackground = await card.evaluate(element => getComputedStyle(element).backgroundColor)
+    await page.keyboard.press('Tab')
+    for (const control of [card, page.locator('.nav-item.active'), page.locator('.sidebar-resize-handle')]) {
+      await control.focus()
+      await expect(control).toBeFocused()
+      expect(await control.evaluate(element => element.matches(':focus-visible'))).toBe(true)
+      await expect(control).toHaveCSS('outline-style', 'none')
+    }
+    await expect(card).toHaveCSS('background-color', selectedBackground)
+    await expect(card).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await searchFor('合成问题')
+    const input = page.getByRole('textbox', { name: '搜索会话' })
+    await expect(input).toBeFocused()
+    await expect(input).toHaveCSS('outline-style', 'none')
+    const result = page.locator('.search-result').first()
+    await result.focus()
+    await expect(result).toBeFocused()
+    await expect(result).toHaveCSS('outline-style', 'none')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  }
+})
+
 test('选择控件对齐 NewMax 圆形 DsCheckbox，浅深主题、整行点击、键盘与禁用反馈一致', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })
@@ -148,13 +178,14 @@ test('选择控件对齐 NewMax 圆形 DsCheckbox，浅深主题、整行点击�
     await expect(checkbox.locator('svg')).toHaveCSS('color', colors.text)
     await expect(checkbox.locator('svg')).toHaveAttribute('width', '12')
     await expect(checkbox.locator('path')).toHaveAttribute('d', 'M5 11L10.5 16.5L21 6')
+    await checkbox.evaluate(element => (element as HTMLButtonElement).blur())
     await checkbox.hover(); await expect(checkbox).toHaveCSS('outline-width', '3px')
     await expect(checkbox).toHaveCSS('outline-color', colors.hover)
     await page.mouse.down(); await expect(checkbox).toHaveCSS('transform', 'matrix(0.85, 0, 0, 0.85, 0, 0)')
     await page.mouse.up(); await expect(checkbox).not.toBeChecked()
     await checkbox.focus(); await page.keyboard.press('Enter'); await expect(checkbox).toBeChecked()
-    await expect(checkbox).toHaveCSS('outline-width', '2px')
-    await expect(checkbox).toHaveCSS('outline-color', colors.primary)
+    await expect(checkbox).toBeFocused()
+    await expect(checkbox).toHaveCSS('outline-style', 'none')
     await page.keyboard.press('Space'); await expect(checkbox).not.toBeChecked()
     await checkbox.check(); await dialog.getByRole('heading').hover()
     await dialog.getByRole('list', { name: '可连接的 App' }).screenshot({ path: `test-results/pinekin-checkbox-${colorScheme}.png`, scale: 'css' })
