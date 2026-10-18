@@ -4,6 +4,7 @@
   "private": true,
   "description": "Pinekin — 换个地方，继续思考。",
   "author": "newmax-ai",
+  "license": "MIT",
   "type": "module",
   "main": "out/main/index.js",
   "engines": {
