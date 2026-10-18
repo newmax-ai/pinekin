@@ -62,6 +62,13 @@ describe('NewMax 连续圆角规则的独立适配', () => {
     ])
     expect(rule('.workspace-card')).toContain('box-shadow: var(--ds-workspace-shadow);')
   })
+  it('工作区卡片独立绘制在侧栏背景上方，保留内容裁切与拖拽手柄层级', () => {
+    const card = rule('.workspace-card')
+    expect(card).toContain('position: relative;')
+    expect(card).toContain('z-index: 1;')
+    expect(card).toContain('overflow: hidden;')
+    expect(rule('.sidebar-resize-handle')).toContain('z-index: 5;')
+  })
   it('操作按钮使用胶囊，导航和档案列表仍使用连续列表圆角', () => {
     expect(rule('.ds-button')).toContain('border-radius: var(--ds-radius-pill);')
     expect(rule('.nav-item')).toContain('border-radius: var(--ds-radius-md);')
