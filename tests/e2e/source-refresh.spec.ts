@@ -50,6 +50,68 @@ async function refresh() {
   await expect(page.getByRole('button', { name: '刷新当前来源', exact: true })).toBeEnabled()
 }
 
+test('标题下方显示加载描述，刷新图标在请求期间旋转且遵守减少动态效果设置', async () => {
+  const heading = page.locator('.list-heading')
+  const button = page.getByRole('button', { name: '刷新当前来源', exact: true })
+  const icon = button.locator('svg')
+  const turn = button.locator('.ds-refresh-turn')
+  const progress = button.locator('.ds-refresh-progress')
+  for (const width of [1000, 1380]) {
+    await app.evaluate(({ BrowserWindow }, width) => { BrowserWindow.getAllWindows()[0].setSize(width, 900) }, width)
+    const title = (await heading.locator('h2').boundingBox())!
+    const count = (await heading.getByRole('status').boundingBox())!
+    const control = (await button.boundingBox())!
+    expect(count.y - title.y - title.height).toBeCloseTo(2)
+    expect(count.x).toBe(title.x)
+    expect(control.x).toBeGreaterThan(title.x + title.width)
+    expect(control.width).toBe(28)
+    expect(control.height).toBe(28)
+    expect(await heading.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  }
+  await expect(button).toHaveText('')
+  await expect(button).toHaveAttribute('aria-busy', 'false')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect(icon).toHaveCSS('transition-duration', '0.35s')
+  await expect(icon).toHaveCSS('transition-timing-function', 'cubic-bezier(0.33, 1, 0.68, 1)')
+  const idleBackground = await button.evaluate(element => getComputedStyle(element).backgroundColor)
+  // 隐藏窗口内合成鼠标事件，只改变隔离页面的 hover，不触发系统 show / focus。
+  await button.hover()
+  await expect.poll(() => button.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(idleBackground)
+  await expect.poll(() => icon.evaluate(element => {
+    const matrix = new DOMMatrix(getComputedStyle(element).transform)
+    return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI)
+  })).toBe(-35)
+  await expect(page.getByRole('tooltip')).toHaveText('刷新当前来源')
+  const snapshot = await page.evaluate(() => window.staithe.sources.page({ offset: 0, limit: 50 }))
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    ipcMain.removeHandler('pinekin:sources-check')
+    ipcMain.handle('pinekin:sources-check', () => new Promise(resolve => {
+      Object.assign(globalThis, { finishRefreshButtonTest: () => resolve({ version: snapshot.version, connections: snapshot.connections }) })
+    }))
+  }, snapshot)
+  await button.click()
+  await expect(button).toBeDisabled()
+  await expect(button).toHaveAttribute('aria-busy', 'true')
+  await expect(turn).toHaveCSS('animation-name', 'ds-refresh-turn')
+  await expect(turn).toHaveCSS('animation-duration', '0.7s')
+  await expect(turn).toHaveCSS('animation-timing-function', 'cubic-bezier(0.68, -0.55, 0.265, 1.55)')
+  await expect(progress).toHaveCSS('animation-name', 'source-refresh-spin')
+  await expect(progress).toHaveCSS('animation-delay', '0.7s')
+  await expect(progress).toHaveCSS('animation-iteration-count', 'infinite')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(turn).toHaveCSS('animation-name', 'none')
+  await expect(progress).toHaveCSS('animation-name', 'none')
+  await expect(icon).toHaveCSS('transition-property', 'none')
+  await expect(button).toHaveAttribute('aria-busy', 'true')
+  await app.evaluate(() => { (globalThis as unknown as { finishRefreshButtonTest: () => void }).finishRefreshButtonTest() })
+  await expect(button).toBeEnabled()
+  await expect(button).toHaveAttribute('aria-busy', 'false')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect(progress).toHaveCSS('animation-name', 'none')
+  await page.mouse.move(950, 600)
+  await expect.poll(() => icon.evaluate(element => getComputedStyle(element).transform)).toBe('none')
+})
+
 test('真实滚动位置、分页和阅读容器保持稳定，更新提示与删除快照分离', async () => {
   await page.getByRole('button', { name: '刷新验收会话 .', exact: true }).click()
   const messages = page.getByRole('region', { name: '会话消息' })
@@ -83,6 +145,160 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await expect(page.getByText('来源会话已删除，当前显示的是上次读取的内容', { exact: true })).toBeVisible()
   await expect(messages).toContainText('刷新后新增的合成消息')
   await expect(page.getByRole('button', { name: '重新读取正文', exact: true })).toBeDisabled()
+})
+
+test('微型流动点替代列表文字，保持紧凑布局并支持静态降级', async () => {
+  const snapshot = await page.evaluate(() => window.staithe.sources.page({ offset: 0, limit: 50 }))
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    let done = false
+    const waiting: (() => void)[] = []
+    ipcMain.removeHandler('pinekin:sources-page')
+    ipcMain.handle('pinekin:sources-page', async () => {
+      if (!done) await new Promise<void>(resolve => waiting.push(resolve))
+      return snapshot
+    })
+    Object.assign(globalThis, { finishLoadingMarkTest: () => { done = true; waiting.splice(0).forEach(resolve => resolve()) } })
+  }, snapshot)
+  await page.reload()
+  const mark = page.locator('.list-heading .loading-mark')
+  await expect(mark).toBeVisible()
+  await expect(mark).toHaveAccessibleName('正在读取')
+  await expect(page.locator('.list-heading [role="status"]')).toHaveText('')
+  await expect(mark.locator('i')).toHaveCount(3)
+  await expect(page.locator('.session-list .empty-state .loading-mark')).toBeVisible()
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    for (const width of [1000, 1380]) {
+      await app.evaluate(({ BrowserWindow }, width) => { BrowserWindow.getAllWindows()[0].setSize(width, 900) }, width)
+      await expect(mark.locator('i').first()).toHaveCSS('animation-name', 'loading-dot-flow')
+      await expect(mark.locator('i').first()).toHaveCSS('animation-duration', '1.2s')
+      await expect(mark.locator('i').first()).toHaveCSS('animation-timing-function', 'cubic-bezier(0.37, 0, 0.63, 1)')
+      for (const [index, delay] of ['-0.18s', '-1.2s', '-1.02s'].entries()) {
+        await expect(mark.locator('i').nth(index)).toHaveCSS('animation-delay', delay)
+        await expect(mark.locator('i').nth(index)).toHaveCSS('animation-fill-mode', 'both')
+      }
+      const wave = await mark.locator('i').evaluateAll(dots => {
+        const animations = dots.map(dot => dot.getAnimations()[0])
+        animations.forEach(animation => animation.pause())
+        const keyframes = (animations[0].effect as KeyframeEffect).getKeyframes()
+        const frames = Array.from({ length: 41 }, (_, index) => index * 30).map(time => {
+          animations.forEach(animation => { animation.currentTime = time })
+          return dots.map(dot => ({ width: dot.getBoundingClientRect().width, opacity: Number(getComputedStyle(dot).opacity) }))
+        })
+        animations.forEach(animation => animation.play())
+        return { offsets: keyframes.map(frame => frame.offset), frames }
+      })
+      expect(wave.offsets).toEqual([0, 0.15, 0.4, 0.85, 1])
+      for (let dot = 0; dot < 3; dot++) {
+        expect(Math.min(...wave.frames.map(frame => frame[dot].width))).toBeCloseTo(1.5, 3)
+      }
+      for (const [index, time] of [0, 180, 360].entries()) {
+        const dots = wave.frames[time / 30]
+        expect(dots[index].width).toBeCloseTo(3.45, 2)
+        expect(dots[index].opacity).toBeCloseTo(1, 3)
+        for (const [other, dot] of dots.entries()) {
+          if (other !== index) {
+            expect(dots[index].width - dot.width).toBeGreaterThan(0.5)
+            expect(dots[index].opacity - dot.opacity).toBeGreaterThan(0.3)
+          }
+        }
+      }
+      for (const [index, dots] of wave.frames.entries()) {
+        // 允许尾部渐退，但整组不可静止；相邻帧及循环边界均需连续。
+        if (index) {
+          const changes = dots.map((dot, item) => Math.abs(dot.width - wave.frames[index - 1][item].width))
+          expect(Math.max(...changes) / (3.45 - 1.5)).toBeLessThan(0.29)
+          expect(changes.reduce((sum, change) => sum + change, 0)).toBeGreaterThan(0.0001)
+        }
+      }
+      for (let dot = 0; dot < 3; dot++) {
+        expect(wave.frames[0][dot].width).toBeCloseTo(wave.frames[40][dot].width, 3)
+        expect(wave.frames[0][dot].opacity).toBeCloseTo(wave.frames[40][dot].opacity, 3)
+      }
+      const size = (await mark.boundingBox())!
+      expect(size.width).toBe(18)
+      expect(size.height).toBe(12)
+      await expect(mark.locator('i').first()).toHaveCSS('width', '3px')
+      await expect(mark.locator('i').first()).toHaveCSS('height', '3px')
+      const samples = await mark.locator('i').evaluateAll(dots => dots.flatMap(dot => {
+        const animation = dot.getAnimations()[0]
+        animation.pause()
+        const style = getComputedStyle(dot)
+        const parent = dot.parentElement!.getBoundingClientRect()
+        const centerX = parent.x + parseFloat(style.left) + parseFloat(style.width) / 2
+        const centerY = parent.y + parseFloat(style.top) + parseFloat(style.height) / 2
+        const sizes = [0, 75, 150, 200, 350, 400, 550, 790, 1499].map(time => {
+          animation.currentTime = time
+          const { x, y, width, height } = dot.getBoundingClientRect()
+          return { width, height, radius: style.borderRadius, deltaX: x + width / 2 - centerX, deltaY: y + height / 2 - centerY }
+        })
+        animation.play()
+        return sizes
+      }))
+      for (const sample of samples) {
+        expect(sample.width).toBeCloseTo(sample.height, 3)
+        expect(sample.width).toBeLessThanOrEqual(3.451)
+        expect(sample.deltaX).toBeCloseTo(0, 3)
+        expect(sample.deltaY).toBeCloseTo(0, 3)
+        expect(sample.radius).toBe('50%')
+      }
+      expect(await page.locator('.list-heading').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    }
+  }
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(mark.locator('i').first()).toHaveCSS('animation-name', 'none')
+  await expect(mark).toBeVisible()
+  await app.evaluate(() => { (globalThis as unknown as { finishLoadingMarkTest: () => void }).finishLoadingMarkTest() })
+  await expect(mark).toHaveCount(0)
+  await expect(page.locator('.session-card')).toHaveCount(50)
+})
+
+test('扫描在侧栏右侧数量位置显示微型流动点，不影响其他来源或行高', async () => {
+  const snapshot = await page.evaluate(() => window.staithe.sources.page({ offset: 0, limit: 50 }))
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    let scanning = true
+    ipcMain.removeHandler('pinekin:sources-page')
+    ipcMain.handle('pinekin:sources-page', () => ({ ...snapshot, connections: [
+      ...snapshot.connections.map(connection => scanning ? { ...connection, status: 'scanning', total: null } : connection),
+      { ...snapshot.connections[0], id: 'cindy-synthetic', source: 'cindy', status: 'ready', total: 3, discovered: 3 },
+    ] }))
+    Object.assign(globalThis, { finishSidebarLoadingTest: () => { scanning = false } })
+  }, snapshot)
+  await page.reload()
+  const source = page.locator('.sidebar-section .nav-item').filter({ hasText: 'Claude Code' })
+  const other = page.locator('.sidebar-section .nav-item').filter({ hasText: 'Cindy' })
+  const count = source.locator('.count')
+  const mark = count.locator('.loading-mark')
+  await expect(mark).toBeVisible()
+  await expect(count).toHaveText('')
+  await expect(other.locator('.count')).toHaveText('3')
+  await expect(other.locator('.loading-mark')).toHaveCount(0)
+  const rowHeight = (await source.boundingBox())!.height
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    const rect = (await mark.boundingBox())!
+    expect(rect.width).toBe(18)
+    expect(rect.height).toBe(12)
+    expect(rect.x).toBeGreaterThan((await source.locator('span').first().boundingBox())!.x + (await source.locator('span').first().boundingBox())!.width)
+    const colors = await count.evaluate(element => ({ count: getComputedStyle(element).color, mark: getComputedStyle(element.firstElementChild!).color }))
+    expect(colors.mark).toBe(colors.count)
+    await expect(mark.locator('i').first()).toHaveCSS('animation-name', 'loading-dot-flow')
+    expect((await source.boundingBox())!.height).toBe(rowHeight)
+    if (theme === 'dark') {
+      const sidebar = (await page.locator('.sidebar-section').boundingBox())!
+      const label = (await page.locator('.sources-label').boundingBox())!
+      const lastRow = (await other.boundingBox())!
+      await page.screenshot({ path: resolve('outputs/loading-sidebar-dark.png'), scale: 'css', clip: {
+        x: sidebar.x, y: label.y - 12, width: sidebar.width, height: lastRow.y + lastRow.height - label.y + 24,
+      } })
+    }
+  }
+  await app.evaluate(() => { (globalThis as unknown as { finishSidebarLoadingTest: () => void }).finishSidebarLoadingTest() })
+  await expect(mark).toHaveCount(0)
+  await expect(count).toHaveText('65')
+  expect((await source.boundingBox())!.height).toBe(rowHeight)
 })
 
 test('隐藏窗口不检查，恢复可见后后台检查授权目录而不唤起窗口', async () => {

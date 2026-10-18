@@ -382,8 +382,13 @@ export class SourceBrowser {
       .filter(({ summary: entry, path, rowId }) => [entry.title, entry.project, entry.sourceSessionId ?? '', rowId === undefined ? basename(path) : ''].join('\n').toLocaleLowerCase().includes(search))
       .map(entry => entry.summary)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+    // 覆盖整个筛选结果（包括未加载页），不把正文读取产生的已读状态当作来源更新。
+    // 只散列已有内存元数据，不触发文件读取或正文查询；与本页保持同一同步快照。
+    const snapshot = createHash('sha256')
+    for (const entry of entries) snapshot.update(JSON.stringify([entry.id, entry.revision, entry.title, entry.project, entry.updatedAt, entry.kind]))
     return { items: entries.slice(query.offset, query.offset + query.limit).map(entry => ({ ...entry })), total: entries.length,
-      offset: query.offset, hasMore: query.offset + query.limit < entries.length, connections: await this.connections(), version: this.version }
+      offset: query.offset, hasMore: query.offset + query.limit < entries.length,
+      connections: [...this.states.values()].map(state => ({ ...state.view })), version: this.version, snapshot: snapshot.digest('hex') }
   }
   async read(rawId: string): Promise<SourceContent> {
     const id = entryIdSchema.parse(rawId)

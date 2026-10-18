@@ -11,7 +11,10 @@ const entry: SourceEntry = { id: 'a'.repeat(64), connectionId: connection.id, so
 const entries = Array.from({ length: 120 }, (_, i) => ({ ...entry, id: i ? i.toString(16).padStart(64, '0') : entry.id, title: i ? `会话 ${i}` : entry.title }))
 const content: SourceContent = { session: { ...fixtureSessions[0], id: entry.id, title: entry.title }, warnings: [], revision: 'v1' }
 let version: number, rows: SourceEntry[]
-function page(offset = 0, limit = 50): SourcePage { return { items: rows.slice(offset, offset + limit), total: rows.length, offset, hasMore: offset + limit < rows.length, connections: [connection], version } }
+function page(offset = 0, limit = 50, source?: string, query = ''): SourcePage {
+  const filtered = rows.filter(item => (!source || item.source === source) && item.title.includes(query))
+  return { items: filtered.slice(offset, offset + limit), total: filtered.length, offset, hasMore: offset + limit < filtered.length, connections: [connection], version, snapshot: JSON.stringify(filtered) }
+}
 function checked(): SourceCheckResult { return { version, connections: [connection], selected: rows.find(item => item.id === entry.id) ?? null } }
 beforeEach(() => {
   version = 1; rows = [...entries]
@@ -19,7 +22,7 @@ beforeEach(() => {
   HTMLElement.prototype.showPopover = function () { this.style.display = 'block' }
   HTMLElement.prototype.hidePopover = function () { this.style.display = 'none' }
   window.staithe = { platform: 'darwin', list: vi.fn(), previewImport: vi.fn(), confirmImport: vi.fn(), cancelImport: vi.fn(), exportSession: vi.fn(), copy: vi.fn(), onOpenSession: vi.fn(),
-    sources: { ...mockSourcesAPI(), page: vi.fn().mockImplementation(async query => page(query.offset, query.limit)), read: vi.fn().mockResolvedValue(content), check: vi.fn().mockImplementation(async () => checked()) } }
+    sources: { ...mockSourcesAPI(), page: vi.fn().mockImplementation(async query => page(query.offset, query.limit, query.source, query.query)), read: vi.fn().mockResolvedValue(content), check: vi.fn().mockImplementation(async () => checked()) } }
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
@@ -138,8 +141,44 @@ describe('不打断阅读的来源刷新', () => {
     await screen.findByRole('button', { name: '打开会话：搜索新增' })
     expect(document.querySelectorAll('.search-result')).toHaveLength(100)
   })
-  it('分页发现目录版本变化时不混合新旧顺序，明确提示查看更新', async () => {
+  it('手动无变化不提示搜索更新，关键词之外及其他来源的变化也不误提示', async () => {
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索会话' }), { target: { value: '原会话' } })
+    await screen.findByRole('button', { name: '打开会话：原会话' })
+    await refresh()
+    expect(screen.queryByRole('button', { name: '搜索结果有更新，点击查看' })).toBeNull()
+    rows = [...rows, { ...entry, id: 'f'.repeat(64), title: '无关关键词', source: 'cindy' }]; version++
+    await refresh()
+    await waitFor(() => expect(window.staithe.sources.page).toHaveBeenCalledWith(expect.objectContaining({ query: '原会话', limit: 1 })))
+    expect(screen.queryByRole('button', { name: '搜索结果有更新，点击查看' })).toBeNull()
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    await refresh()
+    await screen.findByRole('button', { name: '搜索结果有更新，点击查看' })
+  })
+  it('来源列表不会因其他 App 的全局变化误提示，分页仍可继续加载', async () => {
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: /Claude Code.*120/ }))
+    await screen.findByText('50 / 120 条已加载')
+    const list = document.querySelector('.session-list') as HTMLElement; list.scrollTop = 250
+    rows = [...rows, { ...entry, id: 'f'.repeat(64), source: 'cindy', title: '其他 App 新会话' }]; version++
+    await refresh()
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+    expect(list.scrollTop).toBe(250)
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await screen.findByText('100 / 120 条已加载')
+    rows = rows.map((item, index) => index === 119 ? { ...item, title: '末页更新' } : item); version++
+    await refresh()
+    await screen.findByRole('button', { name: '列表有更新，点击查看' })
+  })
+  it('分页只遇到全局变化且筛选结果相同时继续合并', async () => {
     await open(); version++
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await screen.findByText('100 / 120 条已加载')
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+  })
+  it('分页发现目录版本变化时不混合新旧顺序，明确提示查看更新', async () => {
+    await open(); rows = [{ ...entry, id: 'f'.repeat(64), title: '分页期间新增' }, ...rows]; version++
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     await screen.findByRole('button', { name: '列表有更新，点击查看' })
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)

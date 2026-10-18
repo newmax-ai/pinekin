@@ -1,5 +1,6 @@
 import type { SourceConnection } from '../../../core/sources'
 import { DsButton } from './ui'
+import { LoadingMark } from './LoadingMark'
 import disconnected from '../assets/empty-states/disconnected.svg'
 import empty from '../assets/empty-states/empty.svg'
 import search from '../assets/empty-states/search.svg'
@@ -114,10 +115,10 @@ export function EmptyState({ kind, layout = 'compact', title, description, actio
   const summary = description ?? defaultDescription
   const Heading = layout === 'hero' ? 'h2' : 'h3'
   return <div className={`empty-state empty-state-${layout}`} data-empty-state={kind} role={layout === 'quiet' ? undefined : preset.role} aria-atomic={preset.role ? true : undefined}>
-    {preset.pending ? layout !== 'quiet' && <span className="empty-progress" aria-hidden="true"><i /><i /><i /></span>
+    {preset.pending ? layout === 'quiet' ? <LoadingMark label={summary ?? preset.title} /> : <span className="empty-progress" aria-hidden="true"><i /><i /><i /></span>
       : layout !== 'quiet' && preset.image && <img className="empty-illustration" src={preset.image} alt="" aria-hidden="true" draggable={false} width={160} height={160} />}
     {layout !== 'quiet' && <Heading>{title ?? preset.title}</Heading>}
-    {summary && <p className="empty-description">{summary}</p>}
+    {summary && !(preset.pending && layout === 'quiet') && <p className="empty-description">{summary}</p>}
     {!preset.pending && action && <DsButton variant="tertiary" disabled={action.disabled} onClick={action.onClick}>{action.label}</DsButton>}
   </div>
 }

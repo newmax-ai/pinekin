@@ -33,7 +33,11 @@ export interface SourceEntry {
 }
 export interface SourcePage {
   items: SourceEntry[]; total: number; offset: number; hasMore: boolean
-  connections: SourceConnection[]; version?: number
+  connections: SourceConnection[]; version?: number; snapshot?: string
+}
+/** snapshot 属于完整筛选结果，与 offset / limit 和其他来源无关；兼容旧测试桥的 version。 */
+export function sameSourceSnapshot(left: SourcePage, right: SourcePage): boolean {
+  return left.snapshot !== undefined && right.snapshot !== undefined ? left.snapshot === right.snapshot : left.version === right.version
 }
 export type SourceRecordKind = 'conversation' | 'browser-task' | 'subagent' | 'internal'
 export interface SourcePresentation {

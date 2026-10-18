@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { browsableSources, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
+import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { Sidebar } from './components/Sidebar'
@@ -9,6 +9,8 @@ import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { FadeText } from './components/FadeText'
 import { DsButton, DsDialog, DsDialogHeader, DesignIcon } from './components/ui'
+import { DsRefreshButton } from './components/DsRefreshButton'
+import { LoadingMark } from './components/LoadingMark'
 import { SourceMessage, SourceActivity } from './components/SourceMessage'
 import { sourceKindNames } from '../../core/sources'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
@@ -22,7 +24,7 @@ type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
 function countLabel(connections: SourceConnection[]) {
   if (!connections.length) return ''
-  if (connections.some(item => item.status === 'scanning')) return '加载中'
+  if (connections.some(item => item.status === 'scanning')) return <LoadingMark />
   if (connections.some(item => item.status === 'error')) return '读取失败'
   if (connections.some(item => item.status === 'partial' || item.status === 'cancelled')) return '部分'
   if (connections.some(item => item.status === 'idle')) return '待刷新'
@@ -240,7 +242,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       for (let offset = 0; offset < limit; offset += 100) {
         const next = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset, limit: Math.min(100, limit - offset) })
         if (!mounted.current || request !== listRequest.current) return
-        if (result && result.version !== next.version) { result = undefined; break }
+        if (result && !sameSourceSnapshot(result, next)) { result = undefined; break }
         result = next; items.push(...next.items)
         if (!next.hasMore || !next.items.length) break
       }
@@ -264,14 +266,21 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       const result = await window.staithe.sources.check({ mode, ...(ids ? { connectionIds: ids } : {}), ...(selectedId ? { selectedId } : {}) })
       if (!mounted.current || request !== listRequest.current) return
       setPage(previous => ({ ...previous, connections: result.connections }))
-      if (mode === 'manual' || result.version !== current.current.page.version) setCatalogVersion(value => value + 1)
+      if (result.version !== current.current.page.version) setCatalogVersion(value => value + 1)
       if (selectedId === current.current.selected?.id && result.selected !== undefined) setLatestEntry(result.selected)
       const failures = result.connections.filter(item => item.error && (!ids || ids.includes(item.id)))
       if (failures.length) setError(`更新未完成，已保留上次内容：${failures.map(item => `${sourceNames[item.source]} · ${item.error}`).join('；')}`)
       if (result.version !== current.current.page.version) {
-        const viewport = listViewport.current
-        if (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement)))) setPendingList(true)
-        else await replaceLoadedList(request)
+        // 全局变化只触发核对，用一条元数据取得当前来源的完整筛选结果指纹。
+        const probe = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset: 0, limit: 1 })
+        if (!mounted.current || request !== listRequest.current) return
+        if (sameSourceSnapshot(current.current.page, probe)) {
+          setPage(previous => ({ ...previous, version: probe.version, snapshot: probe.snapshot, connections: probe.connections })); setPendingList(false)
+        } else {
+          const viewport = listViewport.current
+          if (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement)))) setPendingList(true)
+          else await replaceLoadedList(request)
+        }
       }
     } catch (reason) {
       if (mounted.current && request === listRequest.current) setError(errorText(reason))
@@ -291,7 +300,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     try {
       const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query: '', offset: page.items.length, limit: 50 })
       if (request !== listRequest.current) return
-      if (page.version !== result.version) { setPendingList(true); return }
+      if (!sameSourceSnapshot(page, result)) { setPendingList(true); return }
       setPage(previous => ({ ...result, items: [...new Map([...previous.items, ...result.items].map(item => [item.id, item])).values()] }))
     } catch (reason) { if (request === listRequest.current) setError(errorText(reason)) }
     finally { if (request === listRequest.current) setLoadingMore(false) }
@@ -333,8 +342,9 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       <main className="workspace-card"><div className="workspace">
         <SessionPane label="来源会话列表">
           {!separateNavigation && <header className="topbar">{toolbar}</header>}
-          <div className="list-heading"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status">{count}</span>
-            <DsButton variant="ghost" size="small" aria-label="刷新当前来源" disabled={!loaded || busy || checking || scanning || !relevant.length} onClick={() => refresh()}>{checking ? '检查中…' : '刷新'}</DsButton>
+          <div className="list-heading source-list-heading">
+            <div className="list-heading-copy"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status" aria-label={!listError && (!loaded || scanning) ? count : undefined}>{!listError && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={scanning ? '加载中' : '正在读取'} /></span> : count}</span></div>
+            <DsRefreshButton className="source-refresh-button" aria-label="刷新当前来源" loading={checking || scanning} disabled={!loaded || busy || !relevant.length} onClick={() => refresh()} />
           </div>
           <ScrollArea ref={listViewport} className="session-list" aria-busy={!loaded || scanning}>
             {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
@@ -342,7 +352,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
             </button>)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" action={selected ? emptyAction(emptyKind) : undefined} />}
-            {page.hasMore && <DsButton disabled={scanning || loadingMore || checking || pendingList || !loaded} onClick={() => void more()}>{loadingMore ? '正在加载…' : '加载更多'}</DsButton>}
+            {page.hasMore && <DsButton disabled={scanning || loadingMore || checking || pendingList || !loaded} onClick={() => void more()}>{loadingMore ? <LoadingMark label="正在加载更多会话" /> : '加载更多'}</DsButton>}
           </ScrollArea>
           {pendingList && <DsButton className="source-list-update" size="small" aria-label="列表有更新，点击查看" disabled={checking || loadingMore} onClick={() => void showListUpdates()}>列表有更新，点击查看</DsButton>}
         </SessionPane>

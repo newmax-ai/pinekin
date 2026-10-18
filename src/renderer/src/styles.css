@@ -108,6 +108,19 @@ h1, h2, h3, strong { font-weight: 500; }
 .list-heading { padding: 16px 20px 12px; display: flex; gap: 8px; align-items: center; min-height: 48px; }
 .list-heading h2 { flex: 1; min-width: 0; font-size: var(--ds-text-dense); line-height: 20px; }
 .list-heading > span { font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
+.source-list-heading { align-items: flex-start; flex-shrink: 0; }
+.list-heading-copy { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.list-heading-copy > span { font-size: var(--ds-text-xs); line-height: 18px; color: var(--ds-text-tertiary); font-variant-numeric: tabular-nums; }
+.source-refresh-button { margin-top: -4px; }
+/* 钱包同款预备角与回弹曲线；三层 transform 分别负责等待、点击和 hover，互不覆盖。
+   CSS 完整播放点击反馈，后台请求只控制 busy，不添加定时器或逐帧 React 更新。 */
+.ds-refresh-progress, .ds-refresh-turn { display: inline-flex; }
+.ds-refresh-button .design-icon { transition: transform var(--ds-duration-slow) var(--ds-ease-swift); }
+.ds-refresh-button:hover:not([data-unavailable='true']) .design-icon { transform: rotate(-35deg); }
+.ds-refresh-turn[data-active='true'] { animation: ds-refresh-turn var(--ds-motion-bounce); }
+.ds-refresh-button[aria-busy='true'] .ds-refresh-progress { animation: source-refresh-spin 1s linear var(--ds-duration-bounce) infinite; }
+@keyframes ds-refresh-turn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes source-refresh-spin { to { transform: rotate(360deg); } }
 .source-list-update { position: absolute; z-index: 2; bottom: 16px; left: 20px; right: 20px; background: var(--ds-surface-300); box-shadow: var(--ds-input-shadow); }
 .source-update-notice { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 24px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); background: var(--ds-surface-200); }
 .search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 8px 0 12px; height: 40px; border-radius: var(--ds-radius-md); background: var(--ds-surface-input); color: var(--ds-icon); box-shadow: var(--ds-input-shadow); }

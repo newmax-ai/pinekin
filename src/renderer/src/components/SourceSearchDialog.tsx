@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { sourceNames, type BrowsableSource, type SourceEntry, type SourcePage } from '../../../core/sources'
+import { sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceEntry, type SourcePage } from '../../../core/sources'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './EmptyState'
 import { FadeText } from './FadeText'
+import { LoadingMark } from './LoadingMark'
 import { ScrollArea } from './ScrollArea'
 import { SourceIcon } from './SourceIcon'
 import { DsButton, DsDialog, DsDialogClose, DesignIcon } from './ui'
@@ -44,10 +45,18 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
   useEffect(() => {
     if (seenRevision.current === revision) return
     seenRevision.current = revision
-    // 正在浏览的搜索结果不突然换序；空结果可直接补查。
-    if (page.items.length) setPending(true)
-    else setReload(value => value + 1)
-  }, [revision])
+    // 全局变化不代表当前关键词命中变化；只核对完整结果指纹，不重载已加载范围。
+    let active = true
+    const request = requestId.current
+    void window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query, offset: 0, limit: 1 }).then(result => {
+      if (!active || request !== requestId.current) return
+      if (sameSourceSnapshot(page, result)) {
+        setPage(previous => ({ ...previous, version: result.version, snapshot: result.snapshot, connections: result.connections })); setPending(false)
+      } else if (page.items.length) setPending(true)
+      else setReload(value => value + 1)
+    }).catch(reason => { if (active && request === requestId.current) setMoreError(errorText(reason)) })
+    return () => { active = false }
+  }, [revision, source, query])
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout> | undefined
     const request = ++requestId.current
@@ -63,7 +72,7 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
         for (let offset = 0; offset < range.current; offset += 50) {
           const next = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query, offset, limit: Math.min(50, range.current - offset) })
           if (!active || request !== requestId.current) return
-          if (result && result.version !== next.version) throw new Error('来源仍在更新，请稍后重试')
+          if (result && !sameSourceSnapshot(result, next)) throw new Error('来源仍在更新，请稍后重试')
           result = next; items.push(...next.items)
           if (!next.hasMore || !next.items.length) break
         }
@@ -84,7 +93,7 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
     try {
       const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query, offset: page.items.length, limit: 50 })
       if (request !== requestId.current) return
-      if (result.version !== page.version) { setPending(true); return }
+      if (!sameSourceSnapshot(result, page)) { setPending(true); return }
       setPage(previous => ({ ...result, items: [...new Map([...previous.items, ...result.items].map(item => [item.id, item])).values()] }))
     } catch (reason) { if (request === requestId.current) setMoreError(errorText(reason)) }
     finally { if (request === requestId.current) setLoadingMore(false) }
@@ -102,7 +111,7 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
       {query && <DsButton variant="ghost" size="small" className="search-clear" aria-label="清空搜索" onClick={clear}>清空</DsButton>}
       <DsDialogClose aria-label="关闭搜索" onClick={onDismiss} />
     </div></div>
-    <ScrollArea className="dialog-content search-content"><p className="search-context">当前来源内 · {count} · 仅搜索元数据</p>
+    <ScrollArea className="dialog-content search-content"><p className="search-context">当前来源内 · {!error && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={count} /></span> : count} · 仅搜索元数据</p>
       <ScrollArea ref={viewport} className="search-results" aria-busy={!loaded || scanning}>{page.items.map(entry => <button key={entry.id} className="search-result" aria-label={`打开会话：${entry.title}`} onClick={() => onSelect(entry)}>
         <SourceIcon source={entry.source} /><span><strong>{entry.title}</strong><small><FadeText text={`${sourceNames[entry.source]}${entry.project ? ` · ${entry.project}` : ''}`} /></small></span><DesignIcon name="chevron" size={14} />
       </button>)}</ScrollArea>
@@ -111,7 +120,7 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
         if (viewport.current) viewport.current.scrollTop = 0
         setReload(value => value + 1)
       }}>搜索结果有更新，点击查看</DsButton>}
-      {page.hasMore && <DsButton disabled={scanning || loadingMore || pending || !loaded} onClick={() => void more()}>加载更多结果</DsButton>}
+      {page.hasMore && <DsButton disabled={scanning || loadingMore || pending || !loaded} onClick={() => void more()}>{loadingMore ? <LoadingMark label="正在加载更多结果" /> : '加载更多结果'}</DsButton>}
       {emptyKind && <EmptyState kind={emptyKind} title={emptyKind === 'no-results' ? '没有匹配的会话' : undefined} description={emptyKind === 'list-error' ? error : undefined} action={emptyAction(emptyKind)} />}
       {((error && !emptyKind) || moreError) && <p role="alert" className="dialog-status">{error || moreError}</p>}
     </ScrollArea>

@@ -49,7 +49,8 @@ describe('来源空占位接入', () => {
     expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe(kind)
     const listEmpty = document.querySelector('.session-list .empty-state')!
     expect(listEmpty.querySelector('h2, h3, img')).toBeNull()
-    expect(listEmpty.querySelectorAll('p')).toHaveLength(1)
+    expect(listEmpty.querySelectorAll('p')).toHaveLength(status === 'scanning' ? 0 : 1)
+    if (status === 'scanning') expect(within(listEmpty as HTMLElement).getByRole('img', { name: '正在发现会话…' })).toBeTruthy()
     expect(listEmpty.textContent!.length).toBeLessThanOrEqual(16)
     expect(detail().textContent).not.toContain('选中一段对话')
     expect(document.querySelector('.empty-footnote')).toBeNull()
@@ -86,6 +87,8 @@ describe('来源空占位接入', () => {
       .mockRejectedValue(new Error('后续目录读取失败'))
     render(<SourceApp onArchives={() => {}} />); await sourceReady()
     await waitFor(() => expect(document.querySelector('.session-list')?.textContent).toContain('后续目录读取失败'))
+    expect(document.querySelector('.list-heading [role="status"]')?.textContent).toBe('读取失败')
+    expect(document.querySelector('.list-heading .loading-mark')).toBeNull()
     expect(screen.getByRole('button', { name: '合成会话' })).toBeTruthy()
     expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe('selection')
     expect(document.querySelector('.session-list .empty-illustration')).toBeNull()

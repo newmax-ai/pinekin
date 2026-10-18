@@ -23,8 +23,10 @@
 | `check(query)` | `pinekin:sources-check` | strictObject；可选 ≤100 个连接 UUID、64 位十六进制 selectedId、automatic/manual 模式；只检查已授权连接并等待完成，返回目录 version、连接状态及选中条目的最新元数据／null；不读取正文，不接受路径 |
 | `cancel(id)` | `pinekin:sources-cancel` | UUID；扫描失效，保留已发现目录，`total=null` |
 | `disconnect(id)` | `pinekin:sources-disconnect` | UUID；串行移除持久化授权，撤销读取并清空索引，不删除来源 |
-| `page(query)` | `pinekin:sources-page` | strictObject；可选来源／连接 ID，查询 ≤200 字，offset ≥0，limit 1–100；返回已发现元数据及目录 version |
+| `page(query)` | `pinekin:sources-page` | strictObject；可选来源／连接 ID，查询 ≤200 字，offset ≥0，limit 1–100；返回已发现元数据、目录 version 及完整筛选结果 snapshot |
 | `read(id)` | `pinekin:sources-read` | 64 位十六进制 opaque ID；只从当前索引映射路径，完整解析并返回文本、实际读取 revision 和损失说明，不归档 |
+
+`SourcePage.snapshot` 是按来源、连接、关键词筛选后的完整有序元数据结果哈希，包含未加载页，分页间一致。它忽略单纯的已读状态变化。`check` 保留全局 `version`；全局变化后，前端用 `page(limit:1)` 取得当前范围指纹，不变则不提示列表更新、也不阻断后续分页；只散列内存元数据，不额外读取正文。
 
 正文预算沿用既有解析器：输入 5 MiB，压缩展开与窗口另有预算，未知布局明确拒绝。读取失败更新条目可读状态，不将条目删除。
 

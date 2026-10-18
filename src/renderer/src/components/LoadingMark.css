@@ -1,0 +1,13 @@
+.loading-mark { position: relative; display: inline-block; width: 18px; height: 12px; flex: 0 0 18px; vertical-align: middle; color: inherit; }
+.loading-mark > i { position: absolute; left: 1.5px; top: 4.5px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; transform-origin: center; animation: loading-dot-flow 1.2s cubic-bezier(0.37, 0, 0.63, 1) infinite both; animation-delay: -0.18s; }
+.loading-mark > i:nth-child(2) { left: 7.5px; animation-delay: -1.2s; }
+.loading-mark > i:nth-child(3) { left: 13.5px; animation-delay: -1.02s; }
+@keyframes loading-dot-flow {
+  0%, 85%, 100% { transform: scale(0.5); opacity: 0.35; }
+  15% { transform: scale(1.15); opacity: 1; }
+  40% { transform: scale(0.85); opacity: 0.45; }
+}
+.source-loading-count { display: inline-flex; align-items: center; gap: 6px; min-height: 18px; }
+@media (prefers-reduced-motion: reduce) {
+  .loading-mark > i { animation: none; transform: none; opacity: 0.7; }
+}

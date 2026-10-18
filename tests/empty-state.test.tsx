@@ -137,11 +137,15 @@ describe('统一空占位组件', () => {
     ['empty', '暂无会话'], ['no-results', '未找到匹配的会话'], ['selection', '选择会话查看内容'],
     ['read-error', '会话读取失败，请重试'], ['unsupported', '暂不支持读取此格式'], ['messages', '暂无消息'],
     ['archives-empty', '暂无会话档案'], ['source-empty', '此来源暂无档案'], ['archive-error', '档案读取失败，请重试'], ['connections-empty', '暂无连接'],
-  ] as const)('quiet %s 只显示一句简短描述，不显示标题或装饰', (kind, text) => {
+  ] as const)('quiet %s 加载用动画，其余只显示短描述，不显示标题或插画', (kind, text) => {
     const { container } = render(<EmptyState kind={kind} layout="quiet" title="不应显示的标题" />)
     expect(screen.queryByRole('heading')).toBeNull()
-    expect(container.querySelectorAll('p')).toHaveLength(1)
-    expect(container.querySelector('p')?.textContent).toBe(text)
+    const pending = ['loading', 'archive-loading', 'scanning'].includes(kind)
+    expect(container.querySelectorAll('p')).toHaveLength(pending ? 0 : 1)
+    if (pending) {
+      expect(screen.getByRole('img', { name: text }).classList.contains('loading-mark')).toBe(true)
+      expect(container.textContent).toBe('')
+    } else expect(container.querySelector('p')?.textContent).toBe(text)
     expect(text.length).toBeLessThanOrEqual(16)
     expect(container.querySelector('img, .empty-progress, .empty-footnote')).toBeNull()
     expect(screen.queryByRole('status')).toBeNull()

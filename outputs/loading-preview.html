@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pinekin · 来源数量加载预览</title>
+<link rel="stylesheet" href="../src/renderer/src/components/LoadingMark.css">
+<style>
+:root{--ds-ease-soft:cubic-bezier(.22,1,.36,1);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#242424;background:#eeedeb}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.preview{width:660px;max-width:100%}h1{font-size:18px;font-weight:500;margin:0 0 8px}.note{font-size:12px;line-height:1.7;color:#858585;margin:0 0 22px}.themes{display:grid;grid-template-columns:1fr 1fr;gap:16px}.sidebar{background:#fafafa;color:#242424;border-radius:18px;padding:24px 12px}.sidebar.dark{background:#262626;color:#ededed}.label{font-size:11px;opacity:.45;padding:0 12px;margin-bottom:12px}.row{display:flex;align-items:center;justify-content:space-between;height:40px;padding:0 12px;border-radius:14px;font-size:14px;color:color-mix(in srgb,currentColor 70%,transparent)}.row.active{background:color-mix(in srgb,currentColor 7%,transparent)}.name{white-space:nowrap}.count{display:inline-flex;align-items:center;justify-content:flex-end;min-width:40px;height:18px;font-size:12px;color:color-mix(in srgb,currentColor 65%,transparent)}.complete .count[data-total] .loading-mark{display:none}.complete .count[data-total]::after{content:attr(data-total)}footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;font-size:12px;color:#858585}button{font:inherit;border:0;border-radius:10px;background:#deddda;color:#444;padding:8px 12px;cursor:pointer}button:hover{background:#d2d0cc}.paused .loading-mark>i{animation-play-state:paused}@media(max-width:560px){.themes{grid-template-columns:1fr}footer{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<main class="preview" id="preview">
+<h1>加载就在右侧数字的位置。</h1>
+<p class="note">实际 18 × 12px，不放大。三枚圆点依次等比放大、缩小，全程保持圆形；扫描完成的来源仍显示数量。以下均为演示数字，不读取真实会话。</p>
+<div class="themes">
+<section class="sidebar" aria-label="浅色预览"><div class="label">会话来源</div>
+<div class="row active"><span class="name">所有会话</span><span class="count" data-total="118"><span class="loading-mark" role="img" aria-label="正在统计所有会话"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></span></span></div>
+<div class="row"><span class="name">NewMax</span><span class="count">42</span></div>
+<div class="row"><span class="name">Claude Code</span><span class="count" data-total="65"><span class="loading-mark" role="img" aria-label="正在统计 Claude Code 会话"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></span></span></div>
+<div class="row"><span class="name">Codex</span><span class="count">5</span></div>
+<div class="row"><span class="name">Cindy</span><span class="count">3</span></div>
+<div class="row"><span class="name">DeepSeek Harness</span><span class="count">3</span></div></section>
+<section class="sidebar dark" aria-label="深色预览"><div class="label">会话来源</div>
+<div class="row active"><span class="name">所有会话</span><span class="count" data-total="118"><span class="loading-mark" role="img" aria-label="正在统计所有会话"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></span></span></div>
+<div class="row"><span class="name">NewMax</span><span class="count">42</span></div>
+<div class="row"><span class="name">Claude Code</span><span class="count" data-total="65"><span class="loading-mark" role="img" aria-label="正在统计 Claude Code 会话"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i></span></span></div>
+<div class="row"><span class="name">Codex</span><span class="count">5</span></div>
+<div class="row"><span class="name">Cindy</span><span class="count">3</span></div>
+<div class="row"><span class="name">DeepSeek Harness</span><span class="count">3</span></div></section>
+</div>
+<footer><span>左 → 中 → 右接力 · 渐退尾迹 · 1.2 秒循环</span><div><button id="pause" type="button">暂停动画</button> <button id="complete" type="button">模拟扫描完成</button></div></footer>
+</main>
+<script>
+const preview=document.querySelector('#preview');
+document.querySelector('#pause').addEventListener('click',event=>{const paused=preview.classList.toggle('paused');event.currentTarget.textContent=paused?'继续播放':'暂停动画'});
+document.querySelector('#complete').addEventListener('click',event=>{const complete=preview.classList.toggle('complete');event.currentTarget.textContent=complete?'重新演示加载':'模拟扫描完成'});
+</script>
+</body>
+</html>
