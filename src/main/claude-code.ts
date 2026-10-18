@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { MAX_BYTES, sessionSchema } from '../core/session'
 import type { Message, ParsedArchive } from '../core/types'
+import type { SourcePresentation } from '../core/sources'
+import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
+import { SourceActivities } from './source-activity'
 
 const identifier = z.string().min(1).max(512)
 const object = z.record(z.string(), z.unknown())
@@ -46,15 +49,16 @@ export function isClaudeCodeLog(text: string): boolean {
   return false
 }
 
-export function parseClaudeCode(text: string): ParsedArchive {
+export function parseClaudeCode(text: string, sourceView = false): ParsedArchive & { presentation?: SourcePresentation } {
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('Claude Code 文件过大，最大支持 5 MB')
+  const activity = sourceView ? new SourceActivities() : undefined
   const nodes = new Map<string, Node>()
   const versions = new Set<string>()
   const warnings = new Set<string>([
     '这是 Claude Code JSONL 的末条用户/助手消息父链（latest-message）文本投影，不是原生活动链或原生恢复。',
     '混合事件先构建完整 UUID 图，再沿末条消息的单父链投影；其他分支和链外内容仅保存在原件，不补拼同 ID 的离链块。',
     '只显示用户文本和助手 text 块；推理、工具调用/结果、附件、isMeta 注入和运行状态不进入正文或交接。',
-    '助手多记录按追加块顺序合并，不将相同 message.id 覆盖成最后一块；标题由首条用户文本生成，不是客户端标题。',
+    '助手多记录按追加块顺序合并，不将相同 message.id 覆盖成最后一块；档案导入标题由首条用户文本生成，来源直读可优先使用来源列表提取的标题。',
     '版本字段只作为输入声明；不沿路径或引用读取文件，不执行历史指令，原始 JSONL 不随文本包或交接导出。',
   ])
   let last: Node | undefined
@@ -116,26 +120,35 @@ export function parseClaudeCode(text: string): ParsedArchive {
   let previousOutputId: string | undefined
   for (const node of chain) {
     updatedAt = Math.max(updatedAt, Date.parse(node.timestamp))
-    if (node.type !== 'user' && node.type !== 'assistant') continue
+    if (node.type !== 'user' && node.type !== 'assistant') {
+      if (activity) {
+        if (node.type === 'attachment') activity.presentation.attachments += 1
+        else activity.presentation.omittedRecords += 1
+      }
+      continue
+    }
     const result = messageSchema.safeParse(node.message)
     if (!result.success || result.data.role !== node.type) throw new Error('Claude Code 消息字段或角色不一致，未导入')
     const message = result.data
-    if (node.isMeta) continue
+    if (node.isMeta) { if (activity) activity.presentation.omittedRecords += 1; continue }
     if (node.type === 'assistant') {
       if (!message.id || typeof message.content === 'string') throw new Error('Claude Code 助手消息 ID 或内容块结构不支持')
       if (assistantIndices.has(message.id)) {
         const previous = assistantIndices.get(message.id)
-        if (previous === undefined || node.apiBlockIndex === undefined || node.apiBlockIndex <= previous || previousAssistantId !== message.id) {
+        const legacy = sourceView && previous === undefined && node.apiBlockIndex === undefined && previousAssistantId === message.id
+        if (legacy) warnings.add('旧版助手记录缺少追加块索引：按父链保留独立文本片段，不推断快照、不去重或增量合并。')
+        else if (previous === undefined || node.apiBlockIndex === undefined || node.apiBlockIndex <= previous || previousAssistantId !== message.id) {
           throw new Error('Claude Code 助手重复消息的追加块索引缺失、重放或顺序不明，未猜测合并')
         }
       }
       assistantIndices.set(message.id, node.apiBlockIndex)
       previousAssistantId = message.id
-    }
+    } else previousAssistantId = undefined
     const parts: string[] = []
     if (typeof message.content === 'string') parts.push(message.content)
     else for (const block of message.content) {
       if (typeof block.type !== 'string') throw new Error('Claude Code 内容块缺少类型')
+      activity?.claudeBlock(block)
       if (block.type === 'text') {
         const result = z.string().max(200_000).safeParse(block.text)
         if (!result.success) throw new Error('Claude Code 文本块无效或超过 200,000 字符')
@@ -144,9 +157,10 @@ export function parseClaudeCode(text: string): ParsedArchive {
     }
     const content = parts.join('\n')
     if (content.length > 200_000) throw new Error('Claude Code 合并正文超过 200,000 字符')
-    if (!content.trim()) continue
+    if (!content.trim()) { if (node.type === 'user') previousOutputId = undefined; continue }
+    if (activity && node.type === 'user' && isBrowserTask(content)) activity.presentation.kind = 'browser-task'
     const lastOutput = messages[messages.length - 1]
-    if (node.type === 'assistant' && lastOutput?.role === 'assistant' && previousOutputId === message.id) {
+    if (node.type === 'assistant' && lastOutput?.role === 'assistant' && previousOutputId === message.id && (!sourceView || node.apiBlockIndex !== undefined)) {
       lastOutput.content += '\n' + content
       if (lastOutput.content.length > 200_000) throw new Error('Claude Code 合并正文超过 200,000 字符')
     } else {
@@ -155,10 +169,16 @@ export function parseClaudeCode(text: string): ParsedArchive {
     }
     previousOutputId = node.type === 'assistant' ? message.id : undefined
   }
-  if (!messages.length) throw new Error('Claude Code 父链没有可归档的用户或助手文本')
-  const title = messages.find(message => message.role === 'user')?.content.trim().slice(0, 80) || sessionId.slice(0, 8)
+  if (!messages.length && !(activity && (activity.presentation.toolCalls || activity.presentation.toolResults || activity.presentation.attachments))) throw new Error('Claude Code 父链没有可归档的用户或助手文本')
+  const firstUser = messages.find(message => message.role === 'user')?.content ?? ''
+  const title = (sourceView ? sourcePromptTitle(firstUser, 'claude-code') : firstUser.trim().slice(0, 80)) || sessionId.slice(0, 8)
+  if (activity) {
+    activity.presentation.textMessages = messages.length
+    warnings.add('来源阅读额外展示选中父链的工具活动预览；工具与附件不计为文字消息，不执行、不进入文本交接。预览最多 100 条，每条最多 1,024 字符，完整内容保留在原件。')
+  }
   return { adapterId: 'claude-code-jsonl', adapterVersion: '0.1.0', sourceName: 'Claude Code JSONL',
     sourceVersion: versions.size ? [...versions].join(', ') : undefined, originalSessionId: sessionId, warnings: [...warnings],
-    session: sessionSchema.parse({ id: sessionId, title: `Claude Code · ${title}`, source: 'claude-code',
+    ...(activity ? { presentation: activity.presentation } : {}),
+    session: sessionSchema.parse({ id: sessionId, title: sourceView ? title : `Claude Code · ${title}`, source: 'claude-code',
       updatedAt: new Date(updatedAt).toISOString(), tags: ['Claude Code', '末条消息父链', '文本投影'], messages, demo: false }) }
 }

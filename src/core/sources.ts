@@ -12,28 +12,47 @@ export const sourceQuerySchema = z.strictObject({
   limit: z.number().int().min(1).max(100).default(50),
 })
 export type SourceQuery = z.input<typeof sourceQuerySchema>
+export const sourceCheckSchema = z.strictObject({
+  connectionIds: z.array(connectionIdSchema).max(100).optional(),
+  selectedId: entryIdSchema.optional(), mode: z.enum(['automatic', 'manual']).default('automatic'),
+})
+export type SourceCheck = z.input<typeof sourceCheckSchema>
+export interface SourceCheckResult {
+  version: number; connections: SourceConnection[]; selected?: SourceEntry | null
+}
 export type ConnectionStatus = 'idle' | 'scanning' | 'ready' | 'partial' | 'cancelled' | 'error'
 export interface SourceConnection {
   id: string; source: BrowsableSource; label: string
   status: ConnectionStatus; discovered: number; total: number | null
-  issues: number; ignoredLinks: number; error?: string
+  issues: number; ignoredLinks: number; error?: string; refreshing?: boolean
 }
 export interface SourceEntry {
   id: string; connectionId: string; source: BrowsableSource; sourceSessionId?: string
-  title: string; project: string; updatedAt: string
+  title: string; project: string; updatedAt: string; revision?: string; kind?: SourceRecordKind
   availability: 'unread' | 'readable' | 'unsupported' | 'unreadable'; reason?: string
 }
 export interface SourcePage {
   items: SourceEntry[]; total: number; offset: number; hasMore: boolean
-  connections: SourceConnection[]
+  connections: SourceConnection[]; version?: number
 }
-export interface SourceContent { session: Session; warnings: string[] }
+export type SourceRecordKind = 'conversation' | 'browser-task' | 'subagent' | 'internal'
+export interface SourcePresentation {
+  kind: SourceRecordKind
+  textMessages: number; toolCalls: number; toolResults: number; attachments: number; omittedRecords: number
+  activities: { kind: 'call' | 'result'; name: string; content: string; truncated?: boolean }[]
+  activitiesTruncated: boolean
+}
+export const sourceKindNames: Record<SourceRecordKind, string> = {
+  conversation: '对话', 'browser-task': '浏览器任务', subagent: '子会话', internal: '辅助记录',
+}
+export interface SourceContent { session: Session; warnings: string[]; revision?: string; presentation?: SourcePresentation }
 export interface SourceConnectResult { connections: SourceConnection[]; warnings: string[] }
 export interface SourceBrowserAPI {
   connections(): Promise<SourceConnection[]>
   autoConnect(source: BrowsableSource): Promise<SourceConnectResult>
   connect(source: BrowsableSource): Promise<SourceConnection | null>
   refresh(id: string): Promise<void>
+  check(query: SourceCheck): Promise<SourceCheckResult>
   cancel(id: string): Promise<void>
   disconnect(id: string): Promise<void>
   page(query: SourceQuery): Promise<SourcePage>

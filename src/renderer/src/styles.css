@@ -96,20 +96,26 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 .shell[data-platform='win32'] .window-toolbar { height: 32px; padding-left: 12px; }
 .workspace { display: flex; flex: 1; min-height: 0; }
 .session-pane { width: var(--list-width); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; background: var(--ds-surface-200); border-right: 1px solid var(--ds-divider); }
-.list-heading { padding: 16px 20px 12px; display: flex; justify-content: space-between; align-items: center; min-height: 48px; }
-.list-heading h2 { font-size: var(--ds-text-dense); line-height: 20px; }
+.session-pane { position: relative; }
+.list-heading { padding: 16px 20px 12px; display: flex; gap: 8px; align-items: center; min-height: 48px; }
+.list-heading h2 { flex: 1; min-width: 0; font-size: var(--ds-text-dense); line-height: 20px; }
 .list-heading > span { font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
+.source-list-update { position: absolute; z-index: 2; bottom: 16px; left: 20px; right: 20px; background: var(--ds-surface-300); box-shadow: var(--ds-input-shadow); }
+.source-update-notice { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 24px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); background: var(--ds-surface-200); }
 .search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 8px 0 12px; height: 40px; border-radius: var(--ds-radius-md); background: var(--ds-surface-input); color: var(--ds-icon); box-shadow: var(--ds-input-shadow); }
 .search:focus-within { box-shadow: var(--ds-input-shadow-focus); }
 .search input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: var(--ds-text-primary); font-size: var(--ds-text-sm); }
 .search input::placeholder { color: var(--ds-text-tertiary); }
+/* 搜索弹窗不随结果或占位状态伸缩，小窗口仅按视口收紧。 */
+.ds-dialog:has(> .search-header) { height: min(500px, calc(100dvh - 64px)); }
 /* 输入固定在结果滚动区外，内边距容纳浅 / 深色聚焦环，避免 overflow 裁切。 */
 .search-header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 12px; flex-shrink: 0; }
 .search-header .search { flex: 1; min-width: 0; }
-.search-content { display: flex; flex-direction: column; min-height: 0; }
-.search-context { margin: 0 0 12px; font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
-.search-results { max-height: 320px; overflow: auto; }
-.search-result { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 0; border-radius: var(--ds-radius-sm); background: transparent; text-align: left; }
+.search-content { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.search-context { flex-shrink: 0; margin: 0 0 12px; font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
+.search-results { flex: 1; min-height: 0; overflow: auto; }
+.search-results:empty { display: none; }
+.search-result { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 0; border-radius: var(--ds-radius-md); background: transparent; text-align: left; }
 .search-result:hover, .search-result:focus-visible { background: var(--ds-on-surface); }
 .search-result > span:nth-child(2) { flex: 1; min-width: 0; }
 .search-result strong { display: block; overflow-wrap: anywhere; font-size: var(--ds-text-base); }
@@ -189,7 +195,6 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 .session-list:has(> .empty-state:only-child) { padding-block: 12px; }
 .session-list > .empty-state:only-child, .message-column:has(> .empty-state:only-child) { margin-block: auto; }
 .dialog-content:has(> .empty-state:only-child) { display: flex; flex-direction: column; min-height: min(280px, 40dvh); padding-top: 24px; }
-.search-content:has(> .empty-state) { min-height: min(320px, 50dvh); }
 .dialog-content > .empty-state { margin: auto; }
 .empty-progress { display: flex; align-items: center; gap: 5px; height: 24px; color: var(--ds-text-tertiary); }
 .empty-progress i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: empty-progress-pulse 1.4s ease-in-out infinite; }

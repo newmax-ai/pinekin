@@ -16,7 +16,7 @@ beforeEach(() => {
     sources: { connections: vi.fn(), autoConnect: vi.fn().mockImplementation(async source => {
       const added = { ...connection, id: source, source }; connections = [...connections, added]
       return { connections: [added], warnings: [] }
-    }), connect: vi.fn(), refresh: vi.fn(), cancel: vi.fn(), disconnect: vi.fn().mockImplementation(async id => { connections = connections.filter(item => item.id !== id) }),
+    }), connect: vi.fn(), refresh: vi.fn(), check: vi.fn().mockImplementation(async () => ({ version: 0, connections })), cancel: vi.fn(), disconnect: vi.fn().mockImplementation(async id => { connections = connections.filter(item => item.id !== id) }),
     page: vi.fn().mockImplementation(async () => ({ items: [], total: 0, offset: 0, hasMore: false, connections })), read: vi.fn() },
   }
 })
@@ -46,7 +46,7 @@ describe('已连接来源与多选添加', () => {
     fireEvent.click(screen.getByRole('button', { name: '连接所选 App' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull()); await ready()
     expect(window.staithe.sources.autoConnect).toHaveBeenCalledExactlyOnceWith(source)
-    expect(sidebar().getByRole('button', { name: new RegExp(`^${sourceNames[source]}.*0$`) }).getAttribute('aria-pressed')).toBe('true')
+    expect((await sidebar().findByRole('button', { name: new RegExp(`^${sourceNames[source]}.*0$`) })).getAttribute('aria-pressed')).toBe('true')
     expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source, query: '' }))
     openConnections()
     expect(within(screen.getByRole('list', { name: '可连接的 App' })).queryByRole('checkbox', { name: `选择 ${sourceNames[source]}` })).toBeNull()

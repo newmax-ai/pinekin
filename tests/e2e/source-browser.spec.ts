@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
+import { codexFixture, codexMessage, codexMeta } from '../fixtures/codex'
 import { DatabaseSync } from 'node:sqlite'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
@@ -429,6 +430,220 @@ test('UI 文字不可选中，输入、正文与代码仍可选择', async () =>
   await background()
 })
 
+test('Claude 标题覆盖首问、尾部重命名和超大日志，搜索与阅读区名称一致', async () => {
+  const records = claudeRecords()
+  records[1].message = { role: 'user', content: '标题回归的首条合成提问' }
+  await writeFile(join(source, 'prompt-title.jsonl'), claudeFixture(records))
+  const renamed = Buffer.concat([claudeFixture(), Buffer.from(JSON.stringify({ type: 'file-history-snapshot', padding: 'x'.repeat(140_000) }) + '\n' +
+    JSON.stringify({ type: 'custom-title', customTitle: '尾部的最新会话名称' }) + '\n')])
+  await writeFile(join(source, 'renamed-title.jsonl'), renamed)
+  await writeFile(join(source, 'huge-title.jsonl'), Buffer.concat([claudeFixture(), Buffer.from(JSON.stringify({ type: 'progress', padding: 'x'.repeat(6 * 1024 * 1024) }) + '\n' +
+    JSON.stringify({ type: 'ai-title', aiTitle: '超大日志仍显示标题' }) + '\n')]))
+  await connect()
+  await openMatchingSession('标题回归的首条合成提问')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('标题回归的首条合成提问')
+  await openMatchingSession('尾部的最新会话名称')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+  await openMatchingSession('超大日志仍显示标题')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('超大日志仍显示标题')
+  await expect(page.getByRole('region', { name: '会话消息' })).toHaveCount(0)
+  await expect(page.getByText('正文超过 5 MB 读取上限，仍可查找此会话', { exact: true })).toBeVisible()
+  // 文件名仍可查找，不要求用户知道新提取出的标题。
+  await openMatchingSession('renamed-title.jsonl')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')
+  expect((await readFile(join(source, 'renamed-title.jsonl'))).equals(renamed)).toBe(true)
+  expect(await readFile(join(data, 'connections.json'), 'utf8')).not.toMatch(/最新会话名称|首条合成提问|messages/)
+  await background()
+})
+
+test('长 Claude 首问仍显示标题，预览预算外标题按需读取后同步列表', async () => {
+  const records = claudeRecords()
+  records[1].message = { role: 'user', content: '合成长页面核对任务\nPage snapshot:\n' + 'snapshot '.repeat(12_000) }
+  await writeFile(join(source, 'long-prompt.jsonl'), claudeFixture(records))
+  const late = claudeRecords()
+  late[1].message = { role: 'user', content: '预算之外的合成标题' }
+  await writeFile(join(source, 'late-prompt.jsonl'), Buffer.from([
+    ...Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) })), ...late,
+  ].map(record => JSON.stringify(record)).join('\n') + '\n'))
+  await connect()
+  await openMatchingSession('合成长页面核对任务')
+  await expect(page.locator('.detail-title-row h2')).toContainText('合成长页面核对任务')
+  await expect(page.getByRole('region', { name: '会话消息' }).getByRole('article')).toHaveCount(2)
+  await openMatchingSession('late-prompt.jsonl')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('预算之外的合成标题')
+  await expect(page.locator('.session-card h3').filter({ hasText: /^预算之外的合成标题$/ })).toHaveCount(1)
+  await openMatchingSession('预算之外的合成标题')
+  expect(await readFile(join(data, 'connections.json'), 'utf8')).not.toMatch(/合成标题|snapshot|messages/)
+  await background()
+})
+
+test('Codex 标题使用实际首问，来源阅读排除系统和环境注入且保留完整问答顺序', async () => {
+  const directory = join(root, '.codex', 'sessions')
+  await mkdir(directory, { recursive: true })
+  const bytes = codexFixture([
+    codexMeta({ base_instructions: { text: 'x'.repeat(80_000) } }),
+    codexMessage('developer', [{ type: 'input_text', text: '<app-context>合成桌面上下文，不是对话</app-context>' }]),
+    codexMessage('user', [{ type: 'input_text', text: '# AGENTS.md instructions for /synthetic\n<INSTRUCTIONS>合成规则</INSTRUCTIONS>' }]),
+    codexMessage('user', [{ type: 'input_text', text: '<environment_context>合成环境</environment_context>\n核对 Codex 实际对话' }]),
+    codexMessage('assistant', [{ type: 'output_text', text: '先确认合成问题' }]),
+    codexMessage('user', [{ type: 'input_text', text: '这是第二个合成问题' }]),
+    codexMessage('assistant', [{ type: 'output_text', text: '这是最终合成回答' }]),
+  ])
+  await writeFile(join(directory, 'rollout-conversation.jsonl'), bytes)
+  await connect('codex')
+  await expect(page.locator('.session-card h3')).toHaveText('核对 Codex 实际对话')
+  await openMatchingSession('核对 Codex 实际对话')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('核对 Codex 实际对话')
+  const messages = page.getByRole('region', { name: '会话消息' })
+  await expect(messages.getByRole('article')).toHaveCount(4)
+  await expect(messages.getByRole('article').first()).toContainText('核对 Codex 实际对话')
+  await expect(messages).not.toContainText('app-context')
+  await expect(messages).not.toContainText('environment_context')
+  await expect(messages).not.toContainText('合成规则')
+  await expect(messages.getByRole('article').last()).toContainText('这是最终合成回答')
+  await expect(page.locator('.detail-meta')).toContainText('4 条消息')
+  await openMatchingSession('rollout-conversation.jsonl')
+  await expect(page.locator('.detail-title-row h2')).toHaveText('核对 Codex 实际对话')
+  expect(await readFile(join(directory, 'rollout-conversation.jsonl'))).toEqual(bytes)
+  await background()
+})
+
+test('搜索结果描述保持单行，长项目路径用末端 mask 渐隐，短描述不渐隐', async () => {
+  const longProject = join(source, 'long-project-name-'.repeat(12), 'nested-project-name-'.repeat(10))
+  await mkdir(longProject, { recursive: true })
+  await writeFile(join(longProject, 'fade-description-test.jsonl'), claudeFixture())
+  await connect()
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    for (const width of [1380, 600]) {
+      await page.setViewportSize({ width, height: 800 })
+      await searchFor('fade-description-test')
+      const description = page.locator('.search-result small .ds-fade-text')
+      await expect(description).toHaveCount(1)
+      await expect(description).toHaveAttribute('data-overflow', 'true')
+      await expect(description).toHaveCSS('white-space', 'nowrap')
+      await expect(description).toHaveCSS('overflow', 'hidden')
+      await expect(description).toHaveCSS('text-overflow', 'clip')
+      await expect(description).toHaveCSS('mask-image', /linear-gradient/)
+      await expect(description).toHaveAttribute('title', /Claude Code · .*long-project-name-/)
+      const geometry = await description.evaluate(element => ({ height: element.clientHeight, font: Number.parseFloat(getComputedStyle(element).fontSize), overflowing: element.scrollWidth > element.clientWidth }))
+      expect(geometry.overflowing).toBe(true)
+      expect(geometry.height).toBeLessThan(geometry.font * 2)
+      await page.getByRole('textbox', { name: '搜索会话' }).fill('synthetic-0')
+      await expect(description).toHaveAttribute('data-overflow', 'false')
+      await expect(description).toHaveCSS('mask-image', 'none')
+      await page.keyboard.press('Escape')
+    }
+  }
+  await background()
+})
+
+test('搜索弹窗固定尺寸，结果、分页、加载与错误状态不抖动，小窗口内仍可滚动', async () => {
+  await connect()
+  const dialog = page.getByRole('dialog', { name: '搜索会话' })
+  const input = page.getByRole('textbox', { name: '搜索会话' })
+  const results = page.locator('.search-results')
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    for (const viewport of [{ width: 1380, height: 800 }, { width: 1000, height: 680 }, { width: 600, height: 400 }]) {
+      await page.setViewportSize(viewport)
+      await searchFor('')
+      await expect(page.locator('.search-result')).toHaveCount(50)
+      const bounds = (await dialog.boundingBox())!
+      const header = await page.locator('.search-header').boundingBox()
+      expect(bounds.width).toBe(Math.min(660, viewport.width - 48))
+      expect(bounds.height).toBe(Math.min(500, viewport.height - 64))
+      expect(bounds.x).toBeGreaterThanOrEqual(24)
+      expect(bounds.y).toBeGreaterThanOrEqual(32)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 24)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - 32)
+      await results.evaluate(element => { element.scrollTop = element.scrollHeight })
+      await expect(page.locator('.search-result').last()).toBeInViewport()
+      expect(await page.locator('.search-header').boundingBox()).toEqual(header)
+      await page.getByRole('button', { name: '加载更多结果', exact: true }).click()
+      await expect(page.locator('.search-result')).toHaveCount(66)
+      expect(await dialog.boundingBox()).toEqual(bounds)
+      await input.fill('synthetic-64')
+      await expect(page.locator('.search-result')).toHaveCount(1)
+      expect(await dialog.boundingBox()).toEqual(bounds)
+      await input.fill('绝不匹配的合成尺寸关键词')
+      await expect(dialog.getByRole('heading', { name: '没有匹配的会话' })).toBeVisible()
+      expect(await dialog.boundingBox()).toEqual(bounds)
+      await dialog.getByRole('button', { name: '清空关键词' }).click()
+      await expect(page.locator('.search-result')).toHaveCount(50)
+      expect(await dialog.boundingBox()).toEqual(bounds)
+      expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+      await page.keyboard.press('Escape')
+      await searchFor('synthetic-64')
+      await expect(page.locator('.search-result')).toHaveCount(1)
+      expect(await dialog.boundingBox()).toEqual(bounds)
+      await page.keyboard.press('Escape')
+    }
+  }
+  // 仅在隔离进程中挂起和拒绝查询，稳定覆盖加载与失败状态。
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('pinekin:sources-page')
+    ipcMain.handle('pinekin:sources-page', () => new Promise((_resolve, reject) => {
+      (globalThis as unknown as { rejectSearchSizeTest: () => void }).rejectSearchSizeTest = () => reject(new Error('合成搜索尺寸读取失败'))
+    }))
+  })
+  await searchFor('等待尺寸')
+  await expect(results).toHaveAttribute('aria-busy', 'true')
+  const loadingBounds = await dialog.boundingBox()
+  expect(loadingBounds!.height).toBe(336)
+  await app.evaluate(() => (globalThis as unknown as { rejectSearchSizeTest: () => void }).rejectSearchSizeTest())
+  await expect(dialog.getByRole('alert')).toContainText('合成搜索尺寸读取失败')
+  expect(await dialog.boundingBox()).toEqual(loadingBounds)
+  await background()
+})
+
+test('搜索仅改变弹层结果，保留背景分页、滚动和正文，选择后才跳转', async () => {
+  await connect()
+  await expect(page.locator('.session-card')).toHaveCount(50)
+  // broken.jsonl 也必须保留在目录，不能依赖文件时间或随机 ID 的排序选择正文。
+  await page.getByRole('button', { name: /^合成问题：整理项目计划 / }).first().click()
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+  await page.locator('.session-list').evaluate(element => { element.scrollTop = 140 })
+  async function backgroundContent() {
+    return page.evaluate(() => ({
+      cards: Array.from(document.querySelectorAll('.session-card')).map(element => ({ label: element.getAttribute('aria-label'), selected: element.getAttribute('aria-pressed') })),
+      count: document.querySelector('.list-heading [role="status"]')?.textContent,
+      detail: document.querySelector('.detail')?.textContent,
+      scroll: document.querySelector('.session-list')?.scrollTop,
+    }))
+  }
+  const original = await backgroundContent()
+  expect(original.scroll).toBeGreaterThan(0)
+  await searchFor('synthetic-64')
+  await expect(page.locator('.search-result')).toHaveCount(1)
+  expect(await backgroundContent()).toEqual(original)
+  const input = page.getByRole('textbox', { name: '搜索会话' })
+  await input.fill('绝不匹配的合成关键词')
+  await expect(page.getByRole('heading', { name: '没有匹配的会话' })).toBeVisible()
+  expect(await backgroundContent()).toEqual(original)
+  await page.getByRole('button', { name: '清空关键词' }).click()
+  await expect(page.locator('.search-result')).toHaveCount(50)
+  await page.getByRole('button', { name: '加载更多结果', exact: true }).click()
+  await expect(page.locator('.search-result')).toHaveCount(66)
+  expect(await backgroundContent()).toEqual(original)
+  await input.fill('synthetic-64')
+  await expect(page.locator('.search-result')).toHaveCount(1)
+  await page.getByRole('button', { name: '清空搜索' }).click()
+  await expect(page.locator('.search-result')).toHaveCount(50)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await backgroundContent()).toEqual(original)
+  await searchFor('synthetic-64')
+  await expect(page.locator('.search-result')).toHaveCount(1)
+  await page.locator('.search-result').click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(50)
+  await expect(page.locator('.list-heading [role="status"]')).toHaveText('50 / 66 条已加载')
+  await background()
+})
+
 test('来源主界面沿用原布局、插画、紧凑卡片和弹窗搜索，不附带重设计', async () => {
   await connect()
   await expect(page.locator('.session-card')).toHaveCount(50)
@@ -562,7 +777,8 @@ test('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍
   expect(await readdir(root)).toEqual(files)
   const update = new DatabaseSync(source); update.exec('PRAGMA journal_mode=WAL'); update.close()
   const walFiles = await readdir(root)
-  await page.getByRole('button', { name: '刷新来源', exact: true }).click()
+  await page.getByRole('button', { name: '刷新当前来源', exact: true }).click()
+  await expect(page.getByRole('button', { name: '刷新当前来源', exact: true })).toBeEnabled()
   await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
   await manageConnections()
   await expect(page.getByRole('alert')).toHaveCount(0)

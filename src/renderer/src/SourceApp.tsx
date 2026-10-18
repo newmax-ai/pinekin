@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { browsableSources, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
+import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { Sidebar } from './components/Sidebar'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { FadeText } from './components/FadeText'
-import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DesignIcon } from './components/ui'
-import { MessageContent } from './components/MessageContent'
+import { DsButton, DsDialog, DsDialogHeader, DesignIcon } from './components/ui'
+import { SourceMessage, SourceActivity } from './components/SourceMessage'
+import { sourceKindNames } from '../../core/sources'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
@@ -15,7 +17,7 @@ const emptyPage: SourcePage = { items: [], total: 0, offset: 0, hasMore: false, 
 const statusNames = { idle: '待刷新', scanning: '加载中', ready: '已连接', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 const displaySources: BrowsableSource[] = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek']
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
-type BrowserView = { source: BrowsableSource | 'all'; query: string; selected?: SourceEntry }
+type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
 function countLabel(connections: SourceConnection[]) {
   if (!connections.length) return ''
@@ -28,10 +30,11 @@ function countLabel(connections: SourceConnection[]) {
 
 export function SourceApp({ onArchives }: { onArchives: () => void }) {
   const now = useCurrentTime()
-  const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number; editingSearch: boolean }>({
-    entries: [{ source: 'all', query: '' }], index: 0, editingSearch: false,
+  const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number }>({
+    entries: [{ source: 'all' }], index: 0,
   })
-  const { source, query, selected } = navigation.entries[navigation.index]
+  const { source, selected } = navigation.entries[navigation.index]
+  const [query, setQuery] = useState('')
   const [page, setPage] = useState<SourcePage>(emptyPage)
   const [loaded, setLoaded] = useState(false)
   const [listError, setListError] = useState('')
@@ -50,14 +53,29 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   const [reading, setReading] = useState(false)
   const [handoff, setHandoff] = useState(false)
   const [target, setTarget] = useState<BrowsableSource>('newmax')
+  const [checking, setChecking] = useState(false)
+  const [pendingList, setPendingList] = useState(false)
+  const [catalogVersion, setCatalogVersion] = useState(0)
+  const [latestEntry, setLatestEntry] = useState<SourceEntry | null>()
+  const [newMessageIndex, setNewMessageIndex] = useState<number>()
+  const listViewport = useRef<HTMLDivElement>(null)
+  const messagesViewport = useRef<HTMLDivElement>(null)
+  const restoreScroll = useRef<number | undefined>(undefined)
+  const displayedId = useRef<string | undefined>(undefined)
+  const checkingRef = useRef(false)
+  const mounted = useRef(true)
+  const lastAutomaticCheck = useRef(0)
   const readRequest = useRef(0)
   const listRequest = useRef(0)
+  const current = useRef({ source, selected, page, content, loaded, busy, loadingMore, pendingList })
+  current.current = { source, selected, page, content, loaded, busy, loadingMore, pendingList }
+  const contentChanged = !!content && !!latestEntry && latestEntry.revision !== (content.revision ?? selected?.revision)
   const search = useRef<HTMLInputElement>(null)
   const searchTrigger = useRef<HTMLElement | null>(null)
   const connectionTrigger = useRef<HTMLElement | null>(null)
   const connectedSources = displaySources.filter(id => page.connections.some(item => item.source === id))
   const relevant = page.connections.filter(item => source === 'all' || item.source === source)
-  const scanning = page.connections.some(item => item.status === 'scanning')
+  const scanning = relevant.some(item => item.status === 'scanning')
   const complete = relevant.length > 0 && relevant.every(item => item.status === 'ready')
   const discovered = relevant.reduce((sum, item) => sum + item.discovered, 0)
   const count = listError ? '读取失败' : !loaded ? '正在读取…' : !relevant.length ? '未连接'
@@ -67,37 +85,83 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
           : relevant.every(item => item.status === 'idle') ? '等待刷新'
             : relevant.some(item => item.status === 'cancelled') ? `发现 ${discovered} 条，统计已暂停`
               : `发现 ${discovered} 条，统计未完成`
-  const emptyKind = resolveSourceEmptyState({ loaded, error: listError, count: page.items.length, connections: relevant, query })
+  const emptyKind = resolveSourceEmptyState({ loaded, error: listError, count: page.items.length, connections: relevant, query: '' })
 
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout> | undefined
     const request = ++listRequest.current
-    setLoaded(false); setListError(''); setError(''); setLoadingMore(false)
+    setLoaded(false); setListError(''); setError(''); setLoadingMore(false); setPendingList(false)
     setPage(previous => ({ ...emptyPage, connections: previous.connections }))
     async function load() {
       try {
-        const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query, offset: 0, limit: 50 })
+        const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query: '', offset: 0, limit: 50 })
         if (!active || request !== listRequest.current) return
         setPage(result); setListError(''); setLoaded(true)
-        if (result.connections.some(item => item.status === 'scanning')) timer = setTimeout(() => void load(), 400)
+        if (result.connections.some(item => item.status === 'scanning' && (source === 'all' || item.source === source))) timer = setTimeout(() => void load(), 400)
       } catch (reason) { if (active) { setListError(errorText(reason)); setLoaded(true) } }
     }
     void load()
     return () => { active = false; clearTimeout(timer) }
-  }, [source, query, reload])
+  }, [source, reload])
   useEffect(() => {
     const request = ++readRequest.current
-    setContent(undefined); setReadError(''); setHandoff(false); setReading(false)
+    const sameConversation = displayedId.current === selected?.id
+    const previous = sameConversation ? current.current.content : undefined
+    displayedId.current = selected?.id
+    setReadError(''); setHandoff(false); setReading(false); setNewMessageIndex(undefined)
+    if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
     setReading(true)
     window.staithe.sources.read(selected.id).then(result => {
-      if (request === readRequest.current) setContent(result)
+      if (request === readRequest.current) {
+        if (previous) {
+          restoreScroll.current = messagesViewport.current?.scrollTop
+          const before = previous.session.messages, after = result.session.messages
+          // 只有旧消息逐条保持不变才称为追加；编辑、删除或分支切换不能冒充新消息。
+          if (after.length > before.length && before.every((message, index) => JSON.stringify(message) === JSON.stringify(after[index]))) setNewMessageIndex(before.length)
+        }
+        setContent(result)
+        setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === selected.id
+          ? { ...item, title: result.session.title, availability: 'readable', reason: undefined } : item) }))
+      }
     }).catch(reason => {
       if (request === readRequest.current) setReadError(errorText(reason))
     }).finally(() => { if (request === readRequest.current) setReading(false) })
     return () => { readRequest.current += 1 }
-  }, [selected, readAttempt])
+  }, [selected?.id, readAttempt])
+  useLayoutEffect(() => {
+    if (restoreScroll.current !== undefined && messagesViewport.current) {
+      messagesViewport.current.scrollTop = restoreScroll.current
+      restoreScroll.current = undefined
+    }
+  }, [content])
+  const automaticCheck = useRef<() => void>(() => {})
+  automaticCheck.current = () => { void checkSources('automatic') }
+  useEffect(() => {
+    mounted.current = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let debounce: ReturnType<typeof setTimeout> | undefined
+    function schedule() {
+      clearTimeout(timer)
+      if (document.visibilityState !== 'visible') return
+      timer = setTimeout(() => { automaticCheck.current(); schedule() }, 60_000)
+    }
+    function resume() {
+      clearTimeout(debounce)
+      if (document.visibilityState === 'visible') debounce = setTimeout(() => automaticCheck.current(), 600)
+      schedule()
+    }
+    schedule()
+    window.addEventListener('focus', resume)
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      mounted.current = false; listRequest.current += 1
+      clearTimeout(timer); clearTimeout(debounce)
+      window.removeEventListener('focus', resume)
+      document.removeEventListener('visibilitychange', resume)
+    }
+  }, [])
   useEffect(() => { if (searchOpen) { search.current?.focus(); search.current?.select() } }, [searchOpen])
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -112,26 +176,23 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     return () => window.removeEventListener('keydown', shortcut)
   }, [loaded, busy, connecting, managing, handoff, searchOpen])
 
-  function navigate(update: Partial<BrowserView>, editingSearch = false) {
+  function navigate(update: Partial<BrowserView>) {
     setNavigation(previous => {
       const current = previous.entries[previous.index], next = { ...current, ...update }
-      if (current.source === next.source && current.query === next.query && current.selected?.id === next.selected?.id) return previous
-      const entries = previous.entries.slice(0, previous.index + 1)
-      if (editingSearch && previous.editingSearch) entries[previous.index] = next
-      else entries.push(next)
-      const bounded = entries.slice(-100)
-      return { entries: bounded, index: bounded.length - 1, editingSearch }
+      if (current.source === next.source && current.selected?.id === next.selected?.id) return previous
+      const entries = [...previous.entries.slice(0, previous.index + 1), next].slice(-100)
+      return { entries, index: entries.length - 1 }
     })
   }
   function travel(direction: -1 | 1) {
     setNavigation(previous => {
       const index = previous.index + direction
-      return index < 0 || index >= previous.entries.length ? previous : { ...previous, index, editingSearch: false }
+      return index < 0 || index >= previous.entries.length ? previous : { ...previous, index }
     })
   }
   function clearSelection() {
     readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setHandoff(false)
-    // 刷新／撤销授权同时清掉历史中的旧选择，不保留正文副本或过期对象。
+    // 新增／撤销授权时清掉历史中的旧选择；普通后台刷新不走此路径。
     setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => ({ ...view, selected: undefined })) }))
   }
   function openSearch() {
@@ -151,7 +212,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     finally { setBusy(false) }
   }
   function connected(sources: BrowsableSource[], warnings: string[]) {
-    clearSelection(); navigate({ source: sources.length === 1 ? sources[0] : 'all', query: '', selected: undefined })
+    clearSelection(); navigate({ source: sources.length === 1 ? sources[0] : 'all', selected: undefined })
     setConnectionNotice(warnings.join('；')); setConnecting(false); setReload(value => value + 1)
   }
   function disconnect(connection: SourceConnection) {
@@ -162,21 +223,74 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       setPage(previous => ({ ...previous, connections: remaining, items: previous.items.filter(item => item.connectionId !== connection.id) }))
       if (!remaining.some(item => item.source === connection.source)) {
         // 最后一个位置撤销后，当前筛选及返回／前进历史都不能再指向已断开的来源。
-        setNavigation(previous => ({ ...previous, editingSearch: false, entries: previous.entries.map(view => view.source === connection.source
-          ? { source: 'all', query: '' } : view) }))
+        setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => view.source === connection.source
+          ? { source: 'all' } : view) }))
       }
     })
   }
-  function refresh(ids = relevant.map(item => item.id)) {
-    clearSelection()
-    void action(async () => { for (const id of ids) await window.staithe.sources.refresh(id) })
+  function refresh(ids = relevant.map(item => item.id)) { void checkSources('manual', ids) }
+  async function replaceLoadedList(request: number, resetPosition = false) {
+    const view = current.current
+    const limit = Math.max(50, view.page.items.length)
+    // 重建已加载范围而非重置到第一页；跨页版本变化最多重试一次，绝不混合两份目录。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let result: SourcePage | undefined
+      const items: SourceEntry[] = []
+      for (let offset = 0; offset < limit; offset += 100) {
+        const next = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset, limit: Math.min(100, limit - offset) })
+        if (!mounted.current || request !== listRequest.current) return
+        if (result && result.version !== next.version) { result = undefined; break }
+        result = next; items.push(...next.items)
+        if (!next.hasMore || !next.items.length) break
+      }
+      if (result) {
+        setPage({ ...result, items, offset: 0 }); setPendingList(false); setListError('')
+        if (resetPosition && listViewport.current) listViewport.current.scrollTop = 0
+        return
+      }
+    }
+    throw new Error('来源仍在更新，请稍后重试；已保留当前列表')
+  }
+  async function checkSources(mode: 'automatic' | 'manual', ids?: string[]) {
+    const view = current.current
+    if (checkingRef.current || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
+    if (mode === 'automatic' && (document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
+    if (mode === 'automatic') lastAutomaticCheck.current = Date.now()
+    const request = listRequest.current, selectedId = view.selected?.id
+    checkingRef.current = true; setChecking(true)
+    if (mode === 'manual') setError('')
+    try {
+      const result = await window.staithe.sources.check({ mode, ...(ids ? { connectionIds: ids } : {}), ...(selectedId ? { selectedId } : {}) })
+      if (!mounted.current || request !== listRequest.current) return
+      setPage(previous => ({ ...previous, connections: result.connections }))
+      if (mode === 'manual' || result.version !== current.current.page.version) setCatalogVersion(value => value + 1)
+      if (selectedId === current.current.selected?.id && result.selected !== undefined) setLatestEntry(result.selected)
+      const failures = result.connections.filter(item => item.error && (!ids || ids.includes(item.id)))
+      if (failures.length) setError(`更新未完成，已保留上次内容：${failures.map(item => `${sourceNames[item.source]} · ${item.error}`).join('；')}`)
+      if (result.version !== current.current.page.version) {
+        const viewport = listViewport.current
+        if (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement)))) setPendingList(true)
+        else await replaceLoadedList(request)
+      }
+    } catch (reason) {
+      if (mounted.current && request === listRequest.current) setError(errorText(reason))
+    } finally { checkingRef.current = false; if (mounted.current) setChecking(false) }
+  }
+  async function showListUpdates() {
+    if (checkingRef.current) return
+    checkingRef.current = true; setChecking(true)
+    const request = listRequest.current
+    try { await replaceLoadedList(request, true) }
+    catch (reason) { if (mounted.current && request === listRequest.current) setError(errorText(reason)) }
+    finally { checkingRef.current = false; if (mounted.current) setChecking(false) }
   }
   async function more() {
     const request = listRequest.current
     setLoadingMore(true)
     try {
-      const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query, offset: page.items.length, limit: 50 })
+      const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query: '', offset: page.items.length, limit: 50 })
       if (request !== listRequest.current) return
+      if (page.version !== result.version) { setPendingList(true); return }
       setPage(previous => ({ ...result, items: [...new Map([...previous.items, ...result.items].map(item => [item.id, item])).values()] }))
     } catch (reason) { if (request === listRequest.current) setError(errorText(reason)) }
     finally { if (request === listRequest.current) setLoadingMore(false) }
@@ -185,7 +299,6 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     if (kind === 'disconnected' || kind === 'connections-empty') return { label: '连接来源 App', disabled: busy, onClick: () => { setSearchOpen(false); setManaging(false); openConnections() } }
     if (kind === 'list-error') return { label: '重新加载', disabled: busy, onClick: () => setReload(value => value + 1) }
     if (kind === 'connection-error') return { label: '管理连接', disabled: busy, onClick: () => { setSearchOpen(false); setManaging(true) } }
-    if (kind === 'no-results') return { label: '清空关键词', onClick: () => { navigate({ query: '', selected: undefined }); search.current?.focus() } }
     if (kind === 'needs-refresh' || kind === 'paused' || kind === 'partial' || kind === 'empty') return { label: '刷新', disabled: busy, onClick: () => refresh() }
   }
   const toolbar = <nav className="header-navigation" aria-label="浏览导航">
@@ -202,7 +315,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       <Sidebar open={sidebarOpen}>
         <div className="brand"><span className="brand-logo">pinekin<span className="brand-dot">.</span></span>
           <DsButton variant="ghost" size="small" iconOnly iconRelaxed className="search-trigger" aria-label="搜索" aria-haspopup="dialog" aria-expanded={searchOpen} aria-keyshortcuts="Meta+K Control+K"
-            data-active={Boolean(query)} disabled={!loaded || busy} onClick={openSearch}><DesignIcon name="search" /></DsButton>
+            data-active={searchOpen} disabled={!loaded || busy} onClick={openSearch}><DesignIcon name="search" /></DsButton>
         </div>
         <ScrollArea className="sidebar-section">
           <button className="nav-item" aria-haspopup="dialog" disabled={busy || !loaded} onClick={openConnections}><span><DesignIcon name="plus" /><FadeText text="连接 App" /></span></button>
@@ -219,33 +332,41 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       <main className="workspace-card"><div className="workspace">
         <section className="session-pane" aria-label="来源会话列表">
           {!separateNavigation && <header className="topbar">{toolbar}</header>}
-          <div className="list-heading"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status">{count}</span></div>
-          <ScrollArea className="session-list" aria-busy={!loaded || scanning}>
+          <div className="list-heading"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status">{count}</span>
+            <DsButton variant="ghost" size="small" aria-label="刷新当前来源" disabled={!loaded || busy || checking || scanning || !relevant.length} onClick={() => refresh()}>{checking ? '检查中…' : '刷新'}</DsButton>
+          </div>
+          <ScrollArea ref={listViewport} className="session-list" aria-busy={!loaded || scanning}>
             {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
-              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><h3>{entry.title}</h3>
+              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><h3>{entry.title}</h3>{entry.kind && entry.kind !== 'conversation' && <span className="source-kind">{sourceKindNames[entry.kind]}</span>}
             </button>)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" action={selected ? emptyAction(emptyKind) : undefined} />}
-            {page.hasMore && <DsButton disabled={scanning || loadingMore || !loaded} onClick={() => void more()}>{loadingMore ? '正在加载…' : '加载更多'}</DsButton>}
+            {page.hasMore && <DsButton disabled={scanning || loadingMore || checking || pendingList || !loaded} onClick={() => void more()}>{loadingMore ? '正在加载…' : '加载更多'}</DsButton>}
           </ScrollArea>
+          {pendingList && <DsButton className="source-list-update" size="small" aria-label="列表有更新，点击查看" disabled={checking || loadingMore} onClick={() => void showListUpdates()}>列表有更新，点击查看</DsButton>}
         </section>
         <section className="detail" aria-label="来源会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
             <div className="detail-header">
               <div className="detail-title-row"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span><span className="read-only"><DesignIcon name="lock" size={13} />只读</span></div></div>
-              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span><span>{content ? `${content.session.messages.length} 条消息` : '正文按需读取'}</span><time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>未导入 Pinekin</span></div>
+              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span>{content ? `${content.session.messages.length} 条消息` : '正文按需读取'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>未导入 Pinekin</span></div>
             </div>
-            {reading && <EmptyState kind="loading" title="正在读取来源正文…" />}
-            {readError && <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />}
+            {latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
+            {contentChanged && <div className="source-update-notice" role="status"><span>此对话有更新</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '查看更新'}</DsButton></div>}
+            {newMessageIndex !== undefined && <div className="source-update-notice"><DsButton size="small" onClick={() => {
+              messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' }); setNewMessageIndex(undefined)
+            }}>跳到新增消息</DsButton></div>}
+            {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
+            {readError && (content ? <div className="source-update-notice" role="alert">{readError}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
               <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>读取报告 · 仅文本投影</span><span className="report-count">{content.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary><ScrollArea className="report-body"><ul>{content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea></details>
-              <ScrollArea className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{!content.session.messages.length && <EmptyState kind="messages" />}{content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
+              <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{!content.session.messages.length && !content.presentation && <EmptyState kind="messages" />}{content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
                 <div className={`message-body ${message.role === 'user' ? 'message-bubble' : message.role === 'assistant' ? 'chat-assistant-content' : 'message-record'}`}>
                   {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
-                  <MessageContent content={message.content} />
+                  <SourceMessage message={message} source={content.session.source} />
                 </div>
-              </article>)}{content.session.messages.length > 0 && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
-              <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => refresh()}>刷新来源</DsButton><DsButton variant="primary" disabled={busy} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
+              </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
+              <footer className="detail-footer"><DsButton variant="ghost" disabled={busy || reading || latestEntry === null} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '重新读取正文'}</DsButton><DsButton variant="primary" disabled={busy} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
             </>}
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'list-error' ? listError : undefined}
@@ -255,21 +376,8 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       {(error || connectionNotice) && !searchOpen && !connecting && !managing && <div className="toast" role="alert"><DesignIcon name="info" /><span>{error || connectionNotice}</span><DsButton onClick={openConnections}>检查连接</DsButton><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭提示" onClick={() => { setError(''); setConnectionNotice('') }}><DesignIcon name="close" /></DsButton></div>}
       </main>
     </div>
-    {searchOpen && <DsDialog titleId="search-title" busy={false} onDismiss={() => setSearchOpen(false)} returnFocus={searchTrigger.current} dismissOnBackdrop>
-      <h2 id="search-title" className="visually-hidden">搜索会话</h2>
-      <div className="search-header"><div className="search"><DesignIcon name="search" /><input ref={search} aria-label="搜索会话" value={query} placeholder="搜索标题、项目或会话 ID" onChange={event => navigate({ query: event.target.value, selected: undefined }, true)} />
-        {query && <DsButton variant="ghost" size="small" className="search-clear" aria-label="清空搜索" onClick={() => { navigate({ query: '', selected: undefined }); search.current?.focus() }}>清空</DsButton>}
-        <DsDialogClose aria-label="关闭搜索" onClick={() => setSearchOpen(false)} />
-      </div></div>
-      <ScrollArea className="dialog-content search-content"><p className="search-context">当前来源内 · {count} · 仅搜索元数据</p>
-        <ScrollArea className="search-results">{page.items.map(entry => <button key={entry.id} className="search-result" aria-label={`打开会话：${entry.title}`} onClick={() => { navigate({ selected: entry }); setSearchOpen(false) }}>
-          <SourceIcon source={entry.source} /><span><strong>{entry.title}</strong><small>{sourceNames[entry.source]}{entry.project && ` · ${entry.project}`}</small></span><DesignIcon name="chevron" size={14} />
-        </button>)}</ScrollArea>
-        {page.hasMore && <DsButton disabled={scanning || loadingMore || !loaded} onClick={() => void more()}>加载更多结果</DsButton>}
-        {emptyKind && <EmptyState kind={emptyKind} title={emptyKind === 'no-results' ? '没有匹配的会话' : undefined} description={emptyKind === 'list-error' ? listError : undefined} action={emptyAction(emptyKind)} />}
-        {(listError || error) && !emptyKind && <p role="alert" className="dialog-status">{listError || error}</p>}
-      </ScrollArea>
-    </DsDialog>}
+    {searchOpen && <SourceSearchDialog source={source} query={query} revision={reload + catalogVersion} onQueryChange={setQuery} inputRef={search} returnFocus={searchTrigger.current}
+      onDismiss={() => setSearchOpen(false)} onSelect={entry => { navigate({ selected: entry }); setSearchOpen(false) }} getEmptyAction={emptyAction} />}
     {connecting && <ConnectSourcesDialog connections={page.connections} returnFocus={connectionTrigger.current}
       onConnected={connected} onChanged={() => setReload(value => value + 1)} onBusyChange={setBusy}
       onDismiss={() => setConnecting(false)} onManage={() => { setConnecting(false); setManaging(true) }} onArchives={onArchives} />}
@@ -278,7 +386,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       <ScrollArea className="dialog-content"><p className="dialog-description">断开只撤销 Pinekin 的读取入口，不删除来源会话或已有档案。</p>{page.connections.map(connection => <section key={connection.id} className="import-report">
         <h3><SourceIcon source={connection.source} /> {sourceNames[connection.source]} · {connection.label}</h3><p className="privacy-note">{statusNames[connection.status]} · 已发现 {connection.discovered} 条{connection.total === null ? ' · 总数未确定' : ` · 共 ${connection.total} 条`}</p>
         {connection.error && <p role="alert" className="dialog-status">{connection.error}</p>}<p className="privacy-note">不可访问目录 {connection.issues} · 跳过符号链接 {connection.ignoredLinks}</p>
-        <div className="export-actions">{connection.status === 'scanning' ? <DsButton disabled={busy} onClick={() => void action(() => window.staithe.sources.cancel(connection.id))}>暂停统计</DsButton> : <DsButton disabled={busy} onClick={() => refresh([connection.id])}>刷新连接</DsButton>}
+        <div className="export-actions">{connection.status === 'scanning' ? <DsButton disabled={busy} onClick={() => void action(() => window.staithe.sources.cancel(connection.id))}>暂停统计</DsButton> : <DsButton disabled={busy || checking} onClick={() => refresh([connection.id])}>刷新连接</DsButton>}
           <DsButton variant="ghost" disabled={busy} onClick={() => disconnect(connection)}>断开连接</DsButton></div>
       </section>)}{!page.connections.length && <EmptyState kind="connections-empty" action={emptyAction('connections-empty')} />}{error && <p role="alert" className="dialog-status">{error}</p>}</ScrollArea>
     </DsDialog>}

@@ -11,7 +11,7 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
-  window.staithe = { ...window.staithe, sources: { connections: vi.fn(), autoConnect: vi.fn().mockImplementation(async source => success(source)), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), page: vi.fn(), read: vi.fn() } }
+  window.staithe = { ...window.staithe, sources: { connections: vi.fn(), autoConnect: vi.fn().mockImplementation(async source => success(source)), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), check: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), page: vi.fn(), read: vi.fn() } }
 })
 function mount(connections: SourceConnection[] = []) {
   render(<ConnectSourcesDialog connections={connections} onConnected={connected} onChanged={changed} onBusyChange={busyChanged} onDismiss={vi.fn()} onManage={vi.fn()} onArchives={vi.fn()} />)

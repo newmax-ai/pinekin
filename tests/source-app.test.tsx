@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { App } from '../src/renderer/src/App'
 import type { SourceConnection, SourceContent, SourceEntry, SourcePage } from '../src/core/sources'
 import { fixtureSessions } from './fixtures/sessions'
@@ -20,6 +20,7 @@ beforeEach(() => {
     platform: 'darwin', list: vi.fn().mockResolvedValue([]), previewImport: vi.fn(), confirmImport: vi.fn(), cancelImport: vi.fn(),
     exportSession: vi.fn(), copy: vi.fn(), onOpenSession: vi.fn().mockReturnValue(() => {}),
     sources: { connections: vi.fn().mockResolvedValue([]), autoConnect: vi.fn().mockResolvedValue({ connections: [], warnings: ['未找到此 App 的本机会话，请先在该 App 中创建会话后重试。'] }), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(),
+      check: vi.fn().mockResolvedValue({ version: 1, connections: [connection], selected: entry }),
       page: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0, hasMore: false, connections: [] }), read: vi.fn().mockResolvedValue(content) },
   }
 })
@@ -35,6 +36,16 @@ function chooseSource(source: BrowsableSource) {
 }
 
 describe('来源逻辑沿用原有设计', () => {
+  it('搜索结果描述复用单行渐隐组件，并保留完整来源和项目说明', async () => {
+    const project = Array.from({ length: 12 }, (_, index) => `very-long-project-${index}`).join('/')
+    vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, items: [{ ...entry, project }] })
+    render(<App />); await ready(); openSearch()
+    const result = await within(screen.getByRole('dialog', { name: '搜索会话' })).findByRole('button', { name: `打开会话：${entry.title}` })
+    const description = result.querySelector('small .ds-fade-text')
+    expect(description).not.toBeNull()
+    expect(description?.textContent).toBe(`Claude Code · ${project}`)
+    expect(description?.getAttribute('title')).toBe(`Claude Code · ${project}`)
+  })
   it.each(['darwin', 'win32', 'linux'])('%s 恢复原导航、Logo 搜索、插画及紧凑列表，不新增独立设计', async platform => {
     window.staithe = { ...window.staithe, platform }
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
@@ -174,6 +185,16 @@ describe('来源逻辑沿用原有设计', () => {
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1 })))
   })
+  it('正文补出标题后立即同步当前列表，不重读正文或重置分页', async () => {
+    vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
+    vi.mocked(window.staithe.sources.read).mockResolvedValue({ ...content, session: { ...content.session, title: '正文补出的标题' } })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
+    await screen.findByRole('heading', { level: 2, name: '正文补出的标题' })
+    expect(document.querySelector('.session-card h3')?.textContent).toBe('正文补出的标题')
+    expect(screen.getByText('1 / 135 条已加载')).toBeTruthy()
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+  })
   it('恢复 Logo 搜索弹窗、快捷键和焦点返回，搜索仍由主进程覆盖全部元数据', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
     render(<App />); await ready()
@@ -185,25 +206,139 @@ describe('来源逻辑沿用原有设计', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '搜索' })))
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '搜索会话' }))
-    fireEvent.click(screen.getByRole('button', { name: '打开会话：来源会话' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开会话：来源会话' }))
     await screen.findByRole('region', { name: '会话消息' })
     expect(screen.queryByRole('dialog')).toBeNull()
   })
-  it('原返回、前进按钮恢复来源和查询，不是装饰按钮', async () => {
+  it('搜索词不进入浏览历史，返回、前进只恢复来源和实际打开的会话', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
     render(<App />); await ready()
     fireEvent.click(screen.getByRole('button', { name: /Claude Code.*135/ })); await ready()
     fireEvent.change(openSearch(), { target: { value: '项目' } })
     await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code', query: '项目' })))
-    fireEvent.change(screen.getByRole('textbox', { name: '搜索会话' }), { target: { value: '项目计划' } }); await ready()
+    fireEvent.change(screen.getByRole('textbox', { name: '搜索会话' }), { target: { value: '项目计划' } })
+    await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ query: '项目计划' })))
     fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
     fireEvent.click(screen.getByRole('button', { name: '返回' }))
-    await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code', query: '' })))
-    fireEvent.click(screen.getByRole('button', { name: '返回' }))
     await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith({ query: '', offset: 0, limit: 50 }))
+    expect((screen.getByRole('button', { name: '返回' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: '前进' })); await ready()
+    await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code', query: '' })))
+    openSearch()
+    fireEvent.click(await screen.findByRole('button', { name: '打开会话：来源会话' }))
+    await screen.findByRole('region', { name: '会话消息' })
+    fireEvent.click(screen.getByRole('button', { name: '返回' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '会话消息' })).toBeNull())
     fireEvent.click(screen.getByRole('button', { name: '前进' }))
-    await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code', query: '项目计划' })))
+    await screen.findByRole('region', { name: '会话消息' })
+  })
+  it('输入、清空、无结果及关闭搜索只更新弹层，保留主列表、计数、滚动和当前正文', async () => {
+    const second = { ...entry, id: 'b'.repeat(64), title: '另一段会话' }
+    vi.mocked(window.staithe.sources.page).mockImplementation(async options => options?.query
+      ? { ...page, items: options.query === '不存在' ? [] : [second], total: options.query === '不存在' ? 0 : 1, hasMore: false }
+      : { ...page, items: [entry, second] })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
+    const messages = await screen.findByRole('region', { name: '会话消息' })
+    const list = document.querySelector('.session-list') as HTMLElement
+    list.scrollTop = 120; messages.scrollTop = 80
+    const background = document.querySelector('.workspace')!.innerHTML
+    const input = openSearch()
+    fireEvent.change(input, { target: { value: '另一段' } })
+    await waitFor(() => expect(document.querySelectorAll('.search-result')).toHaveLength(1))
+    expect(document.querySelector('.search-result strong')?.textContent).toBe(second.title)
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    fireEvent.change(input, { target: { value: '不存在' } })
+    await screen.findByRole('heading', { name: '没有匹配的会话' })
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    fireEvent.click(screen.getByRole('button', { name: '清空关键词' }))
+    await waitFor(() => expect(document.querySelectorAll('.search-result')).toHaveLength(2))
+    fireEvent.change(input, { target: { value: '另一段' } })
+    await waitFor(() => expect(document.querySelectorAll('.search-result')).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: '清空搜索' }))
+    await waitFor(() => expect(document.querySelectorAll('.search-result')).toHaveLength(2))
+    fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    expect(list.scrollTop).toBe(120); expect(messages.scrollTop).toBe(80)
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+    expect(document.querySelector('.messages')).toBe(messages)
+    expect(document.querySelector('.session-list')).toBe(list)
+  })
+  it('搜索分页独立追加，搜索分页失败不污染主列表，点击跨页结果才切换正文', async () => {
+    const result = { ...entry, id: 'b'.repeat(64), title: '查询结果' }
+    const next = { ...entry, id: 'c'.repeat(64), title: '下一页查询结果' }
+    let failMore = true
+    vi.mocked(window.staithe.sources.page).mockImplementation(async options => {
+      if (!options?.query) return page
+      if (options.offset) {
+        if (failMore) throw new Error('合成搜索分页失败')
+        return { ...page, items: [next], total: 2, hasMore: false }
+      }
+      return { ...page, items: [result], total: 2 }
+    })
+    vi.mocked(window.staithe.sources.read).mockImplementation(async id => ({ ...content, session: { ...content.session, id, title: id === next.id ? next.title : entry.title } }))
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
+    await screen.findByRole('region', { name: '会话消息' })
+    const background = document.querySelector('.workspace')!.innerHTML
+    fireEvent.change(openSearch(), { target: { value: '查询' } })
+    await screen.findByRole('button', { name: '打开会话：查询结果' })
+    fireEvent.click(screen.getByRole('button', { name: '加载更多结果' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', '合成搜索分页失败')
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    failMore = false
+    fireEvent.click(screen.getByRole('button', { name: '加载更多结果' }))
+    await screen.findByRole('button', { name: '打开会话：下一页查询结果' })
+    expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ query: '查询', offset: 1 }))
+    expect(document.querySelectorAll('.search-result')).toHaveLength(2)
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    fireEvent.click(screen.getByRole('button', { name: '打开会话：下一页查询结果' }))
+    await screen.findByRole('heading', { name: next.title, level: 2 })
+    expect(document.querySelectorAll('.session-card')).toHaveLength(1)
+    expect(document.querySelector('.session-card h3')?.textContent).toBe(entry.title)
+    expect(document.querySelector('.list-heading [role="status"]')?.textContent).toBe('1 / 135 条已加载')
+  })
+  it('过期搜索响应和关闭后的分页响应不覆盖新结果或主列表，搜索失败可独立重试', async () => {
+    let resolveOld!: (value: SourcePage) => void
+    let resolveMore!: (value: SourcePage) => void
+    let fail = true
+    const result = { ...entry, id: 'b'.repeat(64), title: '最新结果' }
+    vi.mocked(window.staithe.sources.page).mockImplementation(async options => {
+      if (!options?.query) return page
+      if (options.query === '旧词') return new Promise(resolve => { resolveOld = resolve })
+      if (options.query === '失败' && fail) throw new Error('合成搜索失败')
+      if (options.offset) return new Promise(resolve => { resolveMore = resolve })
+      return { ...page, items: [result] }
+    })
+    render(<App />); await ready()
+    const background = document.querySelector('.workspace')!.innerHTML
+    const input = openSearch()
+    fireEvent.change(input, { target: { value: '旧词' } })
+    fireEvent.change(input, { target: { value: '新词' } })
+    await screen.findByRole('button', { name: '打开会话：最新结果' })
+    await act(async () => { resolveOld(page) })
+    expect(document.querySelector('.search-result strong')?.textContent).toBe(result.title)
+    fireEvent.change(input, { target: { value: '失败' } })
+    await screen.findByText('合成搜索失败')
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+    await screen.findByRole('button', { name: '打开会话：最新结果' })
+    fireEvent.click(screen.getByRole('button', { name: '加载更多结果' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭搜索' }))
+    await act(async () => { resolveMore({ ...page, items: [result] }) })
+    expect(document.querySelector('.workspace')!.innerHTML).toBe(background)
+    expect((screen.getByRole('button', { name: '返回' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+  it('搜索弹层中显式刷新来源后重新读取搜索结果，不停留在旧空状态', async () => {
+    vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, items: [], total: 0, hasMore: false })
+    render(<App />); await ready(); openSearch()
+    const dialog = screen.getByRole('dialog', { name: '搜索会话' })
+    await within(dialog).findByRole('heading', { name: '还没有可浏览的会话' })
+    vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
+    fireEvent.click(within(dialog).getByRole('button', { name: '刷新' }))
+    await within(dialog).findByRole('button', { name: '打开会话：来源会话' })
+    expect(window.staithe.sources.check).toHaveBeenCalledWith({ mode: 'manual', connectionIds: [connection.id] })
   })
   it('未支持正文仍可选择并解释，不为了恢复设计隐藏问题', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, hasMore: false, items: [{ ...entry, availability: 'unsupported', reason: '分叉结构尚未支持' }] })

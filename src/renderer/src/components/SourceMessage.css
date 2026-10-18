@@ -1,0 +1,27 @@
+.source-disclosure {
+  margin-block: 12px;
+  min-width: 0;
+  font-size: 13px;
+}
+.source-disclosure > summary {
+  color: var(--ds-text-secondary);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.source-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ds-action-primary);
+  outline-offset: 3px;
+}
+.source-disclosure-body {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.source-activity {
+  min-width: 0;
+  color: var(--ds-text-secondary);
+}
+.source-kind {
+  font-size: 11px;
+  color: var(--ds-text-tertiary);
+}

@@ -34,6 +34,13 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('搜索列表项使用 12px 圆角，不改变搜索框及主列表圆角', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.search-result\s*\{[^}]*border-radius: var\(--ds-radius-md\);/)
+    expect(declaration(themes[0], 'radius-md')).toBe('calc(12px * var(--ds-corner-radius-scale, 1))')
+    expect(styles).toMatch(/\.search\s*\{[^}]*border-radius: var\(--ds-radius-md\);/)
+    expect(styles).toMatch(/\.session-card\s*\{[^}]*border-radius: var\(--ds-radius-md\);/)
+  })
   it.each(themes.map((css, index) => ({ css, name: index ? '深色' : '浅色' })))('$name 的表面和常规文字均为中性灰', ({ css }) => {
     for (const token of ['surface-100', 'surface-200', 'surface-300', 'surface-400', 'text-primary', 'text-secondary', 'text-tertiary', 'icon']) {
       const value = channels(color(css, token))
@@ -180,7 +187,11 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toContain('.messages:has(> .message-column > .empty-state:only-child)')
     expect(styles).toMatch(/\.session-list > \.empty-state:only-child,[^{]*\.message-column:has\(> \.empty-state:only-child\)\s*\{[^}]*margin-block: auto;/)
     expect(styles).toContain('.dialog-content:has(> .empty-state:only-child)')
-    expect(styles).toContain('.search-content:has(> .empty-state)')
+    expect(styles).toContain('.ds-dialog:has(> .search-header) { height: min(500px, calc(100dvh - 64px)); }')
+    expect(styles).toMatch(/\.search-content\s*\{[^}]*flex: 1;[^}]*min-height: 0;/)
+    expect(styles).toMatch(/\.search-results\s*\{[^}]*flex: 1;[^}]*min-height: 0;[^}]*overflow: auto;/)
+    expect(styles).toContain('.search-results:empty { display: none; }')
+    expect(styles).not.toContain('.search-content:has(> .empty-state)')
     expect(styles).toContain('.dialog-content > .empty-state { margin: auto; }')
     expect(styles).not.toMatch(/\.empty-state(?:-hero|-quiet)?\s*\{[^}]*(?:position: absolute|height: 100vh|justify-content: center)/)
   })

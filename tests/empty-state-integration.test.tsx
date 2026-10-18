@@ -62,7 +62,7 @@ describe('来源空占位接入', () => {
     expect(document.querySelectorAll('.workspace .empty-illustration')).toHaveLength(status === 'scanning' ? 0 : 1)
     if (status === 'idle' || status === 'cancelled' || status === 'partial') {
       fireEvent.click(within(detail()).getByRole('button', { name: '刷新' }))
-      await waitFor(() => expect(window.staithe.sources.refresh).toHaveBeenCalledWith(connection.id))
+      await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalledWith({ mode: 'manual', connectionIds: [connection.id] }))
     }
     if (status === 'error') {
       fireEvent.click(within(detail()).getByRole('button', { name: '管理连接' }))

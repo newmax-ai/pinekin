@@ -7,7 +7,7 @@ import { isDeepSeekLog, parseDeepSeek } from './deepseek'
 export function isZstandard(input: Buffer): boolean {
   return input.length >= 4 && input.subarray(0, 4).equals(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]))
 }
-export async function parseCompressedCodex(input: Buffer): Promise<ParsedArchive> {
+export async function decodeCompressedLog(input: Buffer): Promise<string> {
   if (input.byteLength > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
   const decoded = await new Promise<Buffer>((resolve, reject) => {
     zstdDecompress(input, {
@@ -25,6 +25,10 @@ export async function parseCompressedCodex(input: Buffer): Promise<ParsedArchive
   })
   const text = new TextDecoder('utf-8', { fatal: true }).decode(decoded)
   if (!isCodexRollout(text) && !isDeepSeekLog(text)) throw new Error('Zstandard 内容不是已支持的 Codex rollout 或 DeepSeek Harness 日志；不递归解压或尝试其他格式')
+  return text
+}
+export async function parseCompressedCodex(input: Buffer): Promise<ParsedArchive> {
+  const text = await decodeCompressedLog(input)
   const parsed = isDeepSeekLog(text) ? parseDeepSeek(text) : parseCodex(text)
   return { ...parsed, sourceName: `${parsed.sourceName} · Zstandard`,
     warnings: [...parsed.warnings, '输入为 Zstandard 压缩日志；本地保存压缩原件，展示有界展开后的文本投影，不随交接导出压缩原件。'] }

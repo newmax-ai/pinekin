@@ -256,7 +256,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
         <p className="search-context">当前来源内 · {visible.length} 段会话</p>
         <ScrollArea className="search-results">{visible.map(session => <button key={session.id} className="search-result" aria-label={`打开档案：${session.title}`}
           onClick={() => { navigate({ selectedId: session.id }); setSearchOpen(false) }}>
-          <SourceIcon source={session.source} /><span><strong>{session.title}</strong><small>{names[session.source]}</small></span><DesignIcon name="chevron" size={14} />
+          <SourceIcon source={session.source} /><span><strong>{session.title}</strong><small><FadeText text={names[session.source]} /></small></span><DesignIcon name="chevron" size={14} />
         </button>)}</ScrollArea>
         {emptyKind && <EmptyState kind={emptyKind} title={emptyKind === 'no-results' ? '没有匹配的档案' : undefined} description={emptyKind === 'archive-error' ? loadError : undefined} action={emptyAction(emptyKind)} />}
         {loadError && !emptyKind && <p role="alert" className="dialog-status">{loadError}</p>}

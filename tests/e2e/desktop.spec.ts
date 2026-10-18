@@ -710,7 +710,7 @@ test('连续圆角应用到容器，胶囊和正圆例外不改变布局或向�
     await trigger.click()
     await rounded('.ds-dialog', 18)
     await rounded('.search', 12)
-    await rounded('.search-result', 8)
+    await rounded('.search-result', 12)
     await expect(page.locator('.search')).toHaveCSS('height', '40px')
     await expect(page.locator('.search')).not.toHaveCSS('box-shadow', 'none')
     await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()

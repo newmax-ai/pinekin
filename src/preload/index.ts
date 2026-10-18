@@ -8,6 +8,7 @@ const api: StaitheAPI = {
     autoConnect: source => ipcRenderer.invoke('pinekin:sources-auto-connect', source),
     connect: source => ipcRenderer.invoke('pinekin:sources-connect', source),
     refresh: id => ipcRenderer.invoke('pinekin:sources-refresh', id),
+    check: query => ipcRenderer.invoke('pinekin:sources-check', query),
     cancel: id => ipcRenderer.invoke('pinekin:sources-cancel', id),
     disconnect: id => ipcRenderer.invoke('pinekin:sources-disconnect', id),
     page: query => ipcRenderer.invoke('pinekin:sources-page', query),

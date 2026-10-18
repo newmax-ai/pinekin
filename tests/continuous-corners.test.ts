@@ -73,7 +73,7 @@ describe('NewMax 连续圆角规则的独立适配', () => {
     expect(rule('.ds-button')).toContain('border-radius: var(--ds-radius-pill);')
     expect(rule('.nav-item')).toContain('border-radius: var(--ds-radius-md);')
     expect(rule('.session-card')).toContain('border-radius: var(--ds-radius-md);')
-    expect(rule('.search-result')).toContain('border-radius: var(--ds-radius-sm);')
+    expect(rule('.search-result')).toContain('border-radius: var(--ds-radius-md);')
     expect(styles).not.toContain('.local-state')
   })
 })
