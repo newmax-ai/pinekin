@@ -49,7 +49,8 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 .sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: var(--ds-surface-300); container-type: inline-size; }
 .sidebar[hidden] { display: none; }
 .sidebar-resize-handle { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; z-index: 5; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
-.sidebar-resize-handle::after { content: ''; position: absolute; top: 8px; bottom: 8px; left: 2px; width: 2px; border-radius: var(--ds-radius-pill); background: var(--ds-text-tertiary); opacity: 0; }
+/* 高亮避开卡片圆角和底部 8px 外边距，两端各以 16px 渐隐；拖拽命中区域仍保持全高。 */
+.sidebar-resize-handle::after { content: ''; position: absolute; top: var(--ds-radius-lg); bottom: calc(8px + var(--ds-radius-lg)); left: 2px; width: 2px; border-radius: var(--ds-radius-pill); background: linear-gradient(to bottom, transparent, var(--ds-text-tertiary) 16px, var(--ds-text-tertiary) calc(100% - 16px), transparent); opacity: 0; }
 .sidebar-resize-handle:hover::after, .sidebar-resize-handle:focus-visible::after, .sidebar[data-resizing='true'] .sidebar-resize-handle::after { opacity: 1; }
 .sidebar-resize-handle:focus-visible { outline: 2px solid var(--ds-brand-primary); outline-offset: -2px; }
 .brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 64px; padding: 0 12px 0 24px; flex-shrink: 0; }

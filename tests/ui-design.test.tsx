@@ -247,6 +247,20 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toMatch(/\.count\s*\{[^}]*flex-shrink: 0;/)
     expect(styles).toMatch(/\.sidebar-resize-handle\s*\{[^}]*width: 6px;[^}]*touch-action: none;[^}]*-webkit-app-region: no-drag;/)
   })
+  it('侧栏拖拽高亮上下透明渐隐，避开工作区圆角且保留完整命中区域', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const handle = /\.sidebar-resize-handle\s*\{([^}]*)\}/.exec(styles)![1]
+    const highlight = /\.sidebar-resize-handle::after\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(handle).toContain('top: 0;')
+    expect(handle).toContain('bottom: 0;')
+    expect(handle).toContain('width: 6px;')
+    expect(highlight).toContain('top: var(--ds-radius-lg);')
+    expect(highlight).toContain('bottom: calc(8px + var(--ds-radius-lg));')
+    expect(highlight).toContain('width: 2px;')
+    expect(highlight).toContain('background: linear-gradient(to bottom, transparent, var(--ds-text-tertiary) 16px, var(--ds-text-tertiary) calc(100% - 16px), transparent);')
+    expect(highlight).toContain('opacity: 0;')
+    expect(styles).toMatch(/\.sidebar-resize-handle:hover::after, \.sidebar-resize-handle:focus-visible::after, \.sidebar\[data-resizing='true'\] \.sidebar-resize-handle::after\s*\{[^}]*opacity: 1;/)
+  })
   it('UI 文案默认不可选中，仅正文、代码、交接预览及编辑区域允许选择', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/body\s*\{[^}]*-webkit-user-select: none;[^}]*user-select: none;/)
