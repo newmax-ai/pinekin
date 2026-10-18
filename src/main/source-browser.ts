@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs'
+import { constants } from 'node:fs'
 import { lstat, mkdir, open, opendir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { readSourceDatabase } from './source-sqlite'
 import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import { MAX_BYTES } from '../core/session'
@@ -18,7 +18,6 @@ type SavedConnection = z.infer<typeof configSchema>['connections'][number]
 type Entry = { summary: SourceEntry; path: string; rowId?: string }
 type State = { saved: SavedConnection; view: SourceConnection; entries: Map<string, Entry>; generation: number; task?: Promise<void> }
 const metadataBytes = 64 * 1024
-const newmaxColumns = ['id', 'title', 'source', 'created_at', 'updated_at', 'forked_from_id', 'is_private', 'message_count']
 function inside(root: string, path: string) {
   const part = relative(root, path)
   return part === '' || (part !== '..' && !part.startsWith('..' + sep) && !isAbsolute(part))
@@ -64,40 +63,6 @@ async function readBounded(path: string, root: string, max: number, preview = fa
     return bytes.subarray(0, count)
   } finally { await handle.close() }
 }
-function requireTable(db: DatabaseSync, table: string, columns: string[]) {
-  if (db.prepare("SELECT type FROM sqlite_schema WHERE name = ?").get(table)?.type !== 'table') throw new Error('数据库结构未支持：缺少会话表')
-  const actual = db.prepare('SELECT name FROM pragma_table_info(?)').all(table).map(row => row.name)
-  if (columns.some(name => !actual.includes(name))) throw new Error('数据库结构未支持：会话字段不匹配')
-}
-function database(path: string) {
-  // readOnly 仍可能初始化 WAL/SHM；使用固定句柄 + immutable，绝不以普通路径打开来源库。
-  // /dev/fd 在本轮仅于 macOS 的 Node / Electron 验证；其他平台先明确拒绝，而非退回有副作用的读取。
-  if (process.platform !== 'darwin') throw new Error('此平台的无副作用数据库读取尚未验证')
-  const authorized = lstatSync(path)
-  if (!authorized.isFile() || authorized.isSymbolicLink() || realpathSync(path) !== path) throw new Error('数据库来源不是授权普通文件')
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
-  let db: DatabaseSync | undefined
-  try {
-    const identity = fstatSync(fd)
-    if (identity.dev !== authorized.dev || identity.ino !== authorized.ino) throw new Error('数据库文件身份已变化')
-    const header = Buffer.alloc(100)
-    if (readSync(fd, header, 0, header.length, 0) !== 100 || header.toString('ascii', 0, 16) !== 'SQLite format 3\0') throw new Error('数据库结构未支持：文件头无效')
-    if (header[18] !== 1 || header[19] !== 1) throw new Error('WAL 数据库暂未支持无副作用直读；不会创建副文件，也不会忽略 WAL 内容')
-    const verify = () => {
-      if (['-wal', '-shm', '-journal'].some(suffix => existsSync(path + suffix))) throw new Error('来源存在 WAL／事务副文件，不能保证完整只读快照，请勿手动删除副文件')
-      const current = lstatSync(path), held = fstatSync(fd)
-      if (realpathSync(path) !== path || current.dev !== identity.dev || current.ino !== identity.ino ||
-        held.mtimeMs !== identity.mtimeMs || held.ctimeMs !== identity.ctimeMs || held.size !== identity.size) throw new Error('数据库正在变化，请稍后刷新；未交付不完整快照')
-    }
-    verify()
-    db = new DatabaseSync(`file:/dev/fd/${fd}?mode=ro&immutable=1`, { readOnly: true })
-    db.exec('PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; BEGIN')
-    return { db, close() { try { verify() } finally { try { db!.close() } finally { closeSync(fd) } } } }
-  } catch (error) {
-    try { db?.close() } finally { closeSync(fd) }
-    throw error
-  }
-}
 
 /** 只持久化用户选择的位置；元数据索引和正文均不写入 Pinekin 档案库。 */
 export class SourceBrowser {
@@ -138,18 +103,27 @@ export class SourceBrowser {
       await rename(temporary, join(this.dataDirectory, 'connections.json'))
     } finally { await rm(temporary, { force: true }) }
   }
+  /** 应用启动时只恢复已保存的授权位置，不发现新 App，也不重复扫描已有运行状态。 */
+  async restoreConnections(): Promise<void> {
+    await this.load()
+    for (const state of this.states.values()) {
+      if (state.view.status === 'idle') this.start(state)
+    }
+  }
   async connections(): Promise<SourceConnection[]> {
     await this.load()
     return [...this.states.values()].map(state => ({ ...state.view }))
   }
-  async connect(rawSource: BrowsableSource, input: string): Promise<SourceConnection> {
+  async connect(rawSource: BrowsableSource, input: string, { requireCanonicalPath = false }: { requireCanonicalPath?: boolean } = {}): Promise<SourceConnection> {
     const source = sourceSchema.parse(rawSource)
     return this.mutate(async () => {
       await this.load()
       const selected = resolve(input)
       if ((await lstat(selected)).isSymbolicLink()) throw new Error('不读取符号链接来源')
-      // 文件对话框选择的根规范化一次（macOS 的 /var 等系统路径本身可以是别名）。
-      const path = await realpath(selected), stat = await checkedPath(path, path)
+      // 文件对话框选择的根规范化一次；自动定位已经校验的真实路径不得再次跟随被替换的父目录。
+      const path = await realpath(selected)
+      if (requireCanonicalPath && path !== selected) throw new Error('会话位置在连接期间变化，拒绝读取新的目标')
+      const stat = await checkedPath(path, path)
       const sqlite = source === 'newmax' || source === 'cindy'
       if (sqlite ? !stat.isFile() : !stat.isDirectory()) throw new Error(sqlite ? '请选择会话数据库普通文件' : '请选择会话日志目录')
       const previous = [...this.states.values()].find(state => state.saved.source === source && state.saved.path === path)
@@ -254,30 +228,22 @@ export class SourceBrowser {
     }
   }
   private async scanDatabase(state: State, active: () => boolean) {
-    const { db, close } = database(state.saved.path)
-    try {
-      const cindy = state.saved.source === 'cindy'
-      const table = cindy ? 'sessions' : 'conversations'
-      requireTable(db, table, cindy ? ['id', 'title', 'updated_at'] : newmaxColumns)
-      // 分批让出事件循环，不在 LIMIT 之后停止，也不加载任何消息正文。
-      const statement = db.prepare(cindy ? 'SELECT id, title, updated_at FROM sessions ORDER BY id LIMIT 200 OFFSET ?' :
-        'SELECT id, title, updated_at, source, forked_from_id, is_private, message_count FROM conversations ORDER BY id LIMIT 200 OFFSET ?')
-      for (let offset = 0; active(); offset += 200) {
-        const rows = statement.all(offset)
-        for (const row of rows) {
-          if (typeof row.id !== 'string' || !row.id.trim() || row.id.length > 512) throw new Error('数据库会话 ID 无效，目录统计不完整')
-          const rowId = row.id
-          const id = createHash('sha256').update(state.saved.id).update('\0').update(rowId).digest('hex')
-          if (state.entries.has(id)) throw new Error('数据库会话 ID 重复，拒绝覆盖目录条目；统计不完整')
-          const reason = cindy ? 'Cindy 正文直读与协同边界尚未验证，仅提供会话目录' : row.is_private ? '隐私会话正文暂未支持' :
-            row.forked_from_id != null ? '分叉会话正文暂未支持' : row.source !== 'app' ? '非普通 App 会话正文暂未支持' : Number(row.message_count) === 0 ? '此会话没有当前消息' : undefined
-          this.add(state, rowId, { sourceSessionId: rowId, title: short(row.title, rowId), project: '', updatedAt: date(row.updated_at),
-            availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
-        }
-        if (rows.length < 200) break
-        await setImmediate()
+    const cindy = state.saved.source === 'cindy'
+    const { rows } = await readSourceDatabase(state.saved.path, cindy ? 'cindy' : 'newmax')
+    // SQLite 在独立只读事务中取得一致投影；分批入索引，不读取消息正文。
+    for (let offset = 0; offset < rows.length && active(); offset += 200) {
+      for (const row of rows.slice(offset, offset + 200)) {
+        if (typeof row.id !== 'string' || !row.id.trim() || row.id.length > 512) throw new Error('数据库会话 ID 无效，目录统计不完整')
+        const rowId = row.id
+        const id = createHash('sha256').update(state.saved.id).update('\0').update(rowId).digest('hex')
+        if (state.entries.has(id)) throw new Error('数据库会话 ID 重复，拒绝覆盖目录条目；统计不完整')
+        const reason = cindy ? 'Cindy 正文直读与协同边界尚未验证，仅提供会话目录' : row.is_private ? '隐私会话正文暂未支持' :
+          row.forked_from_id != null ? '分叉会话正文暂未支持' : row.source !== 'app' ? '非普通 App 会话正文暂未支持' : Number(row.message_count) === 0 ? '此会话没有当前消息' : undefined
+        this.add(state, rowId, { sourceSessionId: rowId, title: short(row.title, rowId), project: '', updatedAt: date(row.updated_at),
+          availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
       }
-    } finally { close() }
+      await setImmediate()
+    }
   }
   async page(input: SourceQuery): Promise<SourcePage> {
     const query = sourceQuerySchema.parse(input)
@@ -299,7 +265,7 @@ export class SourceBrowser {
     const generation = state.generation
     try {
       await checkedPath(state.saved.path, state.saved.path)
-      const parsed = state.saved.source === 'newmax' ? this.readNewMax(entry) : await parseArchive(await readBounded(entry.path, state.saved.path, MAX_BYTES))
+      const parsed = state.saved.source === 'newmax' ? await this.readNewMax(entry) : await parseArchive(await readBounded(entry.path, state.saved.path, MAX_BYTES))
       if (this.states.get(state.saved.id) !== state || generation !== state.generation) throw new Error('来源已刷新或断开，旧的正文请求已取消')
       if (parsed.session.source !== state.saved.source) throw new Error('文件内容与选择的来源不匹配')
       entry.summary.availability = 'readable'; delete entry.summary.reason
@@ -315,28 +281,16 @@ export class SourceBrowser {
       throw new Error(failure(error))
     }
   }
-  private readNewMax(entry: Entry) {
-    const { db, close } = database(entry.path)
-    try {
-      requireTable(db, 'conversations', newmaxColumns)
-      requireTable(db, 'messages', ['seq', 'id', 'conversation_id', 'role', 'content', 'timestamp', 'data'])
-      const row = db.prepare('SELECT id, title, source, created_at, updated_at, forked_from_id, is_private, message_count FROM conversations WHERE id = ?').get(entry.rowId!)
-      if (!row) throw new Error('来源会话已删除，请刷新')
-      if (row.source !== 'app' || row.is_private || row.forked_from_id != null) throw new Error('会话已变为隐私、分叉或非普通会话，请刷新')
-      const budget = db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(CAST(content AS BLOB)) + LENGTH(CAST(data AS BLOB))),0) AS bytes FROM messages WHERE conversation_id = ?').get(entry.rowId!)!
-      if (Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new Error('正文超过读取预算，仍保留会话目录，不截断内容')
-      const messages = db.prepare(`SELECT seq, id, role, content, timestamp,
-        json_extract(data, '$.displayContent') AS displayContent,
-        CASE WHEN json_extract(data, '$.taskContinuationTurn') = 1 OR json_extract(data, '$.goalMeta.type') IS NOT NULL THEN 1 ELSE 0 END AS internal,
-        CASE WHEN json_extract(data, '$.id') = id AND json_extract(data, '$.role') = role AND json_extract(data, '$.content') = content
-          AND json_extract(data, '$.timestamp') = timestamp THEN 1 ELSE 0 END AS consistent
-        FROM messages WHERE conversation_id = ? ORDER BY seq ASC`).all(entry.rowId!)
-      if (messages.some(message => message.consistent !== 1)) throw new Error('来源消息列不一致，拒绝不完整投影')
-      return parseNewMaxLocal({ format: 'pinekin.newmax-local-snapshot', version: 1, sourceVersion: '1.1.22',
-        session: { id: row.id, title: row.title, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at,
-          forkedFromConversationId: row.forked_from_id, isPrivate: false, messageCount: row.message_count },
-        messages: messages.map(message => ({ seq: message.seq, id: message.id, role: message.role, content: message.content, timestamp: message.timestamp,
-          internal: message.internal === 1, ...(message.displayContent != null ? { displayContent: message.displayContent } : {}) })) })
-    } finally { close() }
+  private async readNewMax(entry: Entry) {
+    const { session: row, budget, rows: messages } = await readSourceDatabase(entry.path, 'newmax', entry.rowId!)
+    if (!row) throw new Error('来源会话已删除，请刷新')
+    if (row.source !== 'app' || row.is_private || row.forked_from_id != null) throw new Error('会话已变为隐私、分叉或非普通会话，请刷新')
+    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new Error('正文超过读取预算，仍保留会话目录，不截断内容')
+    if (messages.some(message => message.consistent !== 1)) throw new Error('来源消息列不一致，拒绝不完整投影')
+    return parseNewMaxLocal({ format: 'pinekin.newmax-local-snapshot', version: 1, sourceVersion: '1.1.22',
+      session: { id: row.id, title: row.title, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at,
+        forkedFromConversationId: row.forked_from_id, isPrivate: false, messageCount: row.message_count },
+      messages: messages.map(message => ({ seq: message.seq, id: message.id, role: message.role, content: message.content, timestamp: message.timestamp,
+        internal: message.internal === 1, ...(message.displayContent != null ? { displayContent: message.displayContent } : {}) })) })
   }
 }

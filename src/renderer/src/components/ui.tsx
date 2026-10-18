@@ -38,7 +38,7 @@ export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dism
   useEffect(() => {
     const trigger = returnFocus ?? document.activeElement
     const modal = dialog.current!
-    const initial = Array.from(modal.querySelectorAll<HTMLElement>('input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), [role="combobox"]:not(:disabled)')).find(candidate => {
+    const initial = Array.from(modal.querySelectorAll<HTMLElement>('[data-dialog-initial-focus]:not(:disabled), input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), [role="combobox"]:not(:disabled)')).find(candidate => {
       if (candidate.closest('[hidden], [inert], [aria-hidden="true"], details:not([open])')) return false
       for (let element: HTMLElement | null = candidate; element && element !== modal; element = element.parentElement) {
         const style = getComputedStyle(element)
@@ -89,7 +89,12 @@ const icons = {
   check: Check,
   close: X,
 }
-export function DesignIcon({ name, size = 18 }: { name: keyof typeof icons; size?: number }) {
+export function DesignIcon({ name, size = 18 }: { name: keyof typeof icons | 'check-bold' | 'minus'; size?: number }) {
+  // 选择控件沿用 NewMax DesignIcon 的两个标记；其他 UI 图标继续使用 Lucide。
+  if (name === 'check-bold' || name === 'minus') return <svg className="design-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+    {name === 'check-bold' ? <path d="M5 11L10.5 16.5L21 6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      : <path d="M19 11.25C19.4142 11.25 19.75 11.5858 19.75 12C19.75 12.4142 19.4142 12.75 19 12.75H5C4.58579 12.75 4.25 12.4142 4.25 12C4.25 11.5858 4.58579 11.25 5 11.25H19Z" fill="currentColor" />}
+  </svg>
   const Icon = icons[name]
   return <Icon className="design-icon" size={size} strokeWidth={1.75} aria-hidden="true" focusable="false" />
 }

@@ -34,9 +34,8 @@ async function background() {
 }
 async function connect() {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await page.getByRole('combobox', { name: '来源 App' }).click()
-  await page.getByRole('option', { name: 'Claude Code', exact: true }).click()
-  await page.getByRole('button', { name: '连接', exact: true }).click()
+  await page.getByRole('checkbox', { name: '选择 Claude Code', exact: true }).check()
+  await page.getByRole('button', { name: /^连接所选 App/ }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
 
@@ -249,7 +248,7 @@ test('六张生产 SVG 实际解码，透明边角与深浅主题均正常，不
   names.forEach((_name, index) => expect(samples[1][index]).not.toBe(samples[0][index]))
 })
 
-test('空来源、等待选择、搜索无结果有正确占位，重启待刷新并可恢复等待选择', async () => {
+test('空来源、等待选择、搜索无结果有正确占位，重启自动加载并恢复等待选择', async () => {
   await connect()
   await expect(page.locator('.detail > [data-empty-state="empty"]')).toBeVisible()
   await expect(page.locator('.empty-footnote')).toHaveCount(0)
@@ -273,12 +272,9 @@ test('空来源、等待选择、搜索无结果有正确占位，重启待刷�
   await expect(dialog.locator('.search-result')).toHaveCount(1)
   await page.keyboard.press('Escape')
   await background(); await app.close(); await launch()
-  await expect(page.locator('.session-card')).toHaveCount(0)
-  await expect(page.locator('.detail > [data-empty-state="needs-refresh"]')).toBeVisible()
-  await expect(page.locator('.session-list .empty-description')).toHaveText('刷新后查看会话')
-  await page.locator('.detail').getByRole('button', { name: '刷新', exact: true }).click()
   await expect(page.locator('.session-card')).toHaveCount(1)
   await expect(page.getByRole('button', { name: /^Claude Code\s*1$/ })).toBeVisible()
+  await expect(page.locator('[data-empty-state="needs-refresh"]')).toHaveCount(0)
   const restoredSelection = page.locator('.detail > [data-empty-state="selection"]')
   await expect(restoredSelection).toBeVisible()
   await expect(restoredSelection.getByRole('heading')).toHaveText('尚未选择会话')

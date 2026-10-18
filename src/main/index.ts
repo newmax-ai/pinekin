@@ -66,7 +66,7 @@ else {
     presentWindow(window, backgroundTesting)
   })
   process.argv.forEach(deliverLink)
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     setDevelopmentDockIcon(app.dock, appIconPath, { platform: process.platform, isPackaged: app.isPackaged, backgroundTesting })
     const library = new Library(app.getPath('userData'))
     const imports = new ImportCoordinator(library)
@@ -102,7 +102,11 @@ else {
         })
         assertSender(event)
         if (result.canceled || !result.filePaths[0]) return null
-        return await sourceBrowser.connect(source, result.filePaths[0])
+        const connection = await sourceBrowser.connect(source, result.filePaths[0])
+        if (connection.status !== 'scanning') await sourceBrowser.refresh(connection.id)
+        await sourceBrowser.waitForScan(connection.id)
+        assertSender(event)
+        return (await sourceBrowser.connections()).find(item => item.id === connection.id) ?? connection
       } finally { choosingSource = false }
     })
     ipcMain.handle('staithe:list', event => { assertSender(event); return library.list() })
@@ -160,6 +164,10 @@ else {
       app.setAsDefaultProtocolClient('newmax-staithe')
       app.setAsDefaultProtocolClient('newmax-ember')
     }
+    // 先将已有连接置为加载中，再创建窗口；扫描在后台继续，不阻塞首屏。
+    // 配置读取失败仍会由 page/connections API 反馈给界面，不隐藏错误或覆盖配置。
+    try { await sourceBrowser.restoreConnections() }
+    catch (error) { console.error('恢复已授权来源失败：', error) }
     createWindow()
     app.on('activate', () => { if (!window) createWindow() })
   })

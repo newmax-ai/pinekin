@@ -1,5 +1,5 @@
 import { lstat, opendir, realpath } from 'node:fs/promises'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { sourceNames, sourceSchema, type BrowsableSource, type SourceConnectResult } from '../core/sources'
 import type { SourceBrowser } from './source-browser'
 
@@ -33,8 +33,8 @@ export function sourceCandidates(source: BrowsableSource, context: SourceLocatio
     }
     case 'deepseek': return [join(configuredHome(context, 'DSH_HOME', '.dsh'), 'sessions')]
     case 'cindy': return [join(context.appData, 'Cindy'), join(context.appData, 'CindyGlobal')]
-    // 没有已验证的默认 DB 路径，不能用示例或日志路径推断；仍可复用已授权连接。
-    case 'newmax': return []
+    // NewMax 源码 appDataPaths + ConversationStore 确认；不扫描旧迁移目录或推测其他进程环境。
+    case 'newmax': return [join(configuredHome(context, 'NEWMAX_USER_DATA_DIR', '.newmax'), 'newmax.db')]
   }
 }
 async function checkedLocation(path: string) {
@@ -43,6 +43,32 @@ async function checkedLocation(path: string) {
   return stat
 }
 function absent(error: unknown) { return ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '') }
+
+async function checkedNewMaxLocation(path: string, context: SourceLocationContext): Promise<string> {
+  const entry = await lstat(path)
+  let canonical: string
+  try { canonical = await realpath(path) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ELOOP') throw new Error('NewMax 数据库链接存在循环，请检查链接目标')
+    if (entry.isSymbolicLink() && absent(error)) throw new Error('NewMax 数据库链接目标不存在或已失效，请检查来源位置')
+    throw error
+  }
+  const target = await lstat(canonical)
+  if (!target.isFile() || target.isSymbolicLink()) throw new Error('NewMax 数据库目标不是普通文件')
+  // 开发副本会把配置目录中的 newmax.db 链接到默认数据目录。只允许这两个明确入口，不能借链接读取其他文件。
+  let allowed = false
+  for (const directory of new Set([dirname(path), join(context.home, '.newmax')])) {
+    try {
+      if (canonical === join(await realpath(directory), 'newmax.db')) { allowed = true; break }
+    } catch (error) { if (!absent(error)) throw error }
+  }
+  if (!allowed) throw new Error('NewMax 数据库链接目标不在默认或配置的数据目录中，请手动选择实际数据库文件')
+  const current = await lstat(path)
+  if (current.dev !== entry.dev || current.ino !== entry.ino || await realpath(path) !== canonical || await realpath(canonical) !== canonical) {
+    throw new Error('NewMax 会话位置在连接期间变化，请重试')
+  }
+  return canonical
+}
 
 /** 仅由用户点击连接触发。多个默认位置全部处理；单点失败不隐藏其他结果。 */
 export async function autoConnectSource(browser: SourceBrowser, rawSource: BrowsableSource, context: SourceLocationContext,
@@ -71,10 +97,14 @@ export async function autoConnectSource(browser: SourceBrowser, rawSource: Brows
   } else candidates.push(...roots)
   for (const path of candidates) {
     assertAuthorized()
+    let location = path
     try {
-      const stat = await checkedLocation(path)
-      const sqlite = source === 'newmax' || source === 'cindy'
-      if (sqlite ? !stat.isFile() : !stat.isDirectory()) throw new Error(sqlite ? '会话位置不是数据库文件' : '会话位置不是文件夹')
+      if (source === 'newmax') location = await checkedNewMaxLocation(path, context)
+      else {
+        const stat = await checkedLocation(path)
+        const sqlite = source === 'cindy'
+        if (sqlite ? !stat.isFile() : !stat.isDirectory()) throw new Error(sqlite ? '会话位置不是数据库文件' : '会话位置不是文件夹')
+      }
     } catch (error) {
       if (absent(error)) continue
       result.warnings.push(locationFailure(path, error)); continue
@@ -82,14 +112,25 @@ export async function autoConnectSource(browser: SourceBrowser, rawSource: Brows
     // 异步文件检查后重新确认调用方仍持有授权，失效时不继续连接其他位置。
     assertAuthorized()
     try {
-      const connection = await browser.connect(source, path)
+      const connection = source === 'newmax'
+        ? await browser.connect(source, location, { requireCanonicalPath: true })
+        : await browser.connect(source, location)
       if (!result.connections.some(item => item.id === connection.id)) result.connections.push(connection)
     } catch (error) { result.warnings.push(locationFailure(path, error)) }
   }
-  if (!result.connections.length && !result.warnings.length) {
-    result.warnings.push(roots.length ? `未找到 ${sourceNames[source]} 的本机会话，请先在该 App 中创建会话后重试。使用自定义位置时可手动指定。` :
-      `${sourceNames[source]} 的默认会话位置尚未验证，暂不能自动定位；已有连接可直接复用，否则需手动指定一次。`)
+  // 添加位置不等于读取成功。等待首次扫描，批量界面才能逐项报告真实结果。
+  for (const connection of result.connections) { assertAuthorized(); await browser.waitForScan(connection.id) }
+  assertAuthorized()
+  const latest = await browser.connections()
+  result.connections = result.connections.map(connection => latest.find(item => item.id === connection.id) ?? connection)
+  for (const connection of result.connections) {
+    if (connection.error) result.warnings.push(`${connection.label}：${connection.error}`)
+    else if (connection.status === 'cancelled') result.warnings.push(`${connection.label}：统计已暂停，可在管理连接中刷新`)
   }
+  if (!result.connections.length && !result.warnings.length) {
+    result.warnings.push(`未找到 ${sourceNames[source]} 的本机会话，请先在该 App 中创建会话后重试。使用自定义位置时可手动指定。`)
+  }
+  result.warnings = [...new Set(result.warnings)]
   return result
 }
 function locationFailure(path: string, error: unknown) {

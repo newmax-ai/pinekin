@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import { browsableSources, sourceLocations, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
+import { browsableSources, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
+import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { Sidebar } from './components/Sidebar'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
 import { FadeText } from './components/FadeText'
 import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DesignIcon } from './components/ui'
-import { DsSelect } from './components/DsSelect'
 import { MessageContent } from './components/MessageContent'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
 const emptyPage: SourcePage = { items: [], total: 0, offset: 0, hasMore: false, connections: [] }
-const statusNames = { idle: '待刷新', scanning: '统计中', ready: '已连接', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
+const statusNames = { idle: '待刷新', scanning: '加载中', ready: '已连接', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 const displaySources: BrowsableSource[] = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek']
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 type BrowserView = { source: BrowsableSource | 'all'; query: string; selected?: SourceEntry }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
 function countLabel(connections: SourceConnection[]) {
-  if (!connections.length) return '未连接'
-  if (connections.some(item => item.status === 'scanning')) return '统计中'
+  if (!connections.length) return ''
+  if (connections.some(item => item.status === 'scanning')) return '加载中'
   if (connections.some(item => item.status === 'error')) return '读取失败'
   if (connections.some(item => item.status === 'partial' || item.status === 'cancelled')) return '部分'
   if (connections.some(item => item.status === 'idle')) return '待刷新'
@@ -40,11 +40,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [connecting, setConnecting] = useState(false)
-  const [connectSource, setConnectSource] = useState<BrowsableSource>('newmax')
   const [connectionNotice, setConnectionNotice] = useState('')
-  const [manualFallback, setManualFallback] = useState(false)
-  const [partialSource, setPartialSource] = useState<BrowsableSource>()
-  const [choosingLocation, setChoosingLocation] = useState(false)
   const [managing, setManaging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [content, setContent] = useState<SourceContent>()
@@ -57,13 +53,14 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   const search = useRef<HTMLInputElement>(null)
   const searchTrigger = useRef<HTMLElement | null>(null)
   const connectionTrigger = useRef<HTMLElement | null>(null)
+  const connectedSources = displaySources.filter(id => page.connections.some(item => item.source === id))
   const relevant = page.connections.filter(item => source === 'all' || item.source === source)
   const scanning = page.connections.some(item => item.status === 'scanning')
   const complete = relevant.length > 0 && relevant.every(item => item.status === 'ready')
   const discovered = relevant.reduce((sum, item) => sum + item.discovered, 0)
   const count = listError ? '读取失败' : !loaded ? '正在读取…' : !relevant.length ? '未连接'
     : complete ? `${page.items.length} / ${page.total} 条已加载`
-      : relevant.some(item => item.status === 'scanning') ? `发现 ${discovered} 条，统计中`
+      : relevant.some(item => item.status === 'scanning') ? `发现 ${discovered} 条，加载中`
         : relevant.some(item => item.status === 'error') ? '读取失败'
           : relevant.every(item => item.status === 'idle') ? '等待刷新'
             : relevant.some(item => item.status === 'cancelled') ? `发现 ${discovered} 条，统计已暂停`
@@ -141,8 +138,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   }
   function openConnections() {
     connectionTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    if (source !== 'all') setConnectSource(source)
-    setConnectionNotice(''); setManualFallback(false); setPartialSource(undefined); setError('')
+    setConnectionNotice(''); setError('')
     setConnecting(true)
   }
   async function action(run: () => Promise<void>) {
@@ -152,29 +148,22 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     catch (reason) { setError(errorText(reason)) }
     finally { setBusy(false) }
   }
-  function connected(source: BrowsableSource) {
-    clearSelection(); navigate({ source, query: '', selected: undefined }); setConnecting(false)
+  function connected(sources: BrowsableSource[], warnings: string[]) {
+    clearSelection(); navigate({ source: sources.length === 1 ? sources[0] : 'all', query: '', selected: undefined })
+    setConnectionNotice(warnings.join('；')); setConnecting(false); setReload(value => value + 1)
   }
-  function connect() {
-    if (busy) return
-    setConnectionNotice(''); setManualFallback(false); setPartialSource(undefined)
+  function disconnect(connection: SourceConnection) {
+    clearSelection()
     void action(async () => {
-      const result = await window.staithe.sources.autoConnect(connectSource)
-      setConnectionNotice(result.warnings.join('；'))
-      if (result.connections.length) {
-        if (result.warnings.length) setPartialSource(result.connections[0].source)
-        else connected(result.connections[0].source)
-      } else setManualFallback(true)
+      await window.staithe.sources.disconnect(connection.id)
+      const remaining = page.connections.filter(item => item.id !== connection.id)
+      setPage(previous => ({ ...previous, connections: remaining, items: previous.items.filter(item => item.connectionId !== connection.id) }))
+      if (!remaining.some(item => item.source === connection.source)) {
+        // 最后一个位置撤销后，当前筛选及返回／前进历史都不能再指向已断开的来源。
+        setNavigation(previous => ({ ...previous, editingSearch: false, entries: previous.entries.map(view => view.source === connection.source
+          ? { source: 'all', query: '' } : view) }))
+      }
     })
-  }
-  function connectManually() {
-    if (busy) return
-    // 取消系统选择框不应清掉原来的连接结果与恢复指引。
-    setBusy(true); setChoosingLocation(true)
-    window.staithe.sources.connect(connectSource).then(result => {
-      if (result) { setError(''); setConnectionNotice(''); connected(result.source); setReload(value => value + 1) }
-    }).catch(reason => setError(errorText(reason)))
-      .finally(() => { setBusy(false); setChoosingLocation(false) })
   }
   function refresh(ids = relevant.map(item => item.id)) {
     clearSelection()
@@ -204,21 +193,6 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       onClick={() => setSidebarOpen(value => !value)}><DesignIcon name={sidebarOpen ? 'panel-open' : 'panel-closed'} /></DsButton>
   </nav>
   const separateNavigation = window.staithe.platform === 'darwin' || window.staithe.platform === 'win32'
-  const connectionProblem = error || connectionNotice
-  const firstConnectionUnsupported = connectSource === 'newmax' && manualFallback && !error
-  const connectionFeedback = Boolean(connectionProblem || manualFallback || partialSource)
-  const connectionHeading = busy ? choosingLocation ? '等待选择位置' : `正在连接 ${sourceNames[connectSource]}…`
-    : partialSource ? '部分位置已连接' : firstConnectionUnsupported ? 'NewMax 暂不支持首次自动连接'
-      : connectionFeedback ? '连接未完成' : '连接后，直接浏览会话'
-  const connectionDescription = busy ? choosingLocation ? '在系统窗口中选择位置；取消后可返回这里。' : '正在查找本机会话或复用已有连接，请稍候。'
-    : partialSource ? '部分位置未能连接。你可以先查看已连接位置的会话，其他原因见详情。'
-      : firstConnectionUnsupported ? '可以先连接其他 App；已有连接可在「管理连接」中查看。'
-        : connectionFeedback ? '请确认该 App 已有本机会话且允许读取，然后重试；也可以选择其他 App。'
-          : connectSource === 'newmax' ? '将尝试复用已有连接；首次自动定位暂未支持。'
-            : connectSource === 'cindy' ? '自动查找本机会话；目前仅支持部分数据库的列表，正文暂不可读。'
-              : 'Pinekin 自动查找本机会话，无需导出或导入。'
-  const connectionAction = busy ? choosingLocation ? '等待选择…' : '正在连接…' : partialSource ? '查看已连接会话'
-    : firstConnectionUnsupported ? '选择其他 App' : connectionFeedback ? '重试连接' : '连接'
 
   return <div className="shell" data-platform={window.staithe.platform}>
     {separateNavigation && <div className="window-toolbar">{window.staithe.platform === 'darwin' && <div className="window-controls-space" aria-hidden="true" />}{toolbar}</div>}
@@ -232,7 +206,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
           <button className="nav-item" aria-haspopup="dialog" disabled={busy || !loaded} onClick={openConnections}><span><DesignIcon name="plus" /><FadeText text="连接 App" /></span></button>
           <div className="nav-label sources-label">会话来源</div>
           <button className={`nav-item ${source === 'all' ? 'active' : ''}`} aria-pressed={source === 'all'} onClick={() => navigate({ source: 'all', selected: undefined })}><span><DesignIcon name="archive" /><FadeText text="所有会话" /></span><span className="count">{countLabel(page.connections)}</span></button>
-          {displaySources.map(id => <button key={id} className={`nav-item ${source === id ? 'active' : ''}`} aria-pressed={source === id} onClick={() => navigate({ source: id, selected: undefined })}>
+          {connectedSources.map(id => <button key={id} className={`nav-item ${source === id ? 'active' : ''}`} aria-pressed={source === id} onClick={() => navigate({ source: id, selected: undefined })}>
             <span><SourceIcon source={id} /><FadeText text={sourceNames[id]} /></span><span className="count">{countLabel(page.connections.filter(item => item.source === id))}</span></button>)}
         </ScrollArea>
         <div className="sidebar-bottom"><section className="storage-note" aria-label="本地存储与隐私">
@@ -294,41 +268,16 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
         {(listError || error) && !emptyKind && <p role="alert" className="dialog-status">{listError || error}</p>}
       </ScrollArea>
     </DsDialog>}
-    {connecting && <DsDialog titleId="connect-title" busy={busy} onDismiss={() => setConnecting(false)} returnFocus={connectionTrigger.current}>
-      <DsDialogHeader titleId="connect-title" title="连接来源 App" className="connection-header" closeLabel="关闭连接面板" busy={busy} onDismiss={() => setConnecting(false)} />
-      <ScrollArea className="dialog-content connection-content">
-        <div className="connection-field">
-          <label htmlFor="connect-source">来源 App</label>
-          <DsSelect id="connect-source" aria-label="来源 App" aria-describedby="connect-source-description" value={connectSource} disabled={busy}
-            options={browsableSources.map(id => ({ value: id, label: sourceNames[id] }))}
-            onChange={value => { setConnectSource(value as BrowsableSource); setError(''); setConnectionNotice(''); setManualFallback(false); setPartialSource(undefined) }} />
-        </div>
-        <section className="connection-card" aria-label="连接说明" data-state={busy ? 'connecting' : connectionFeedback ? 'attention' : 'idle'}>
-          <div className="connection-card-message" role={busy ? 'status' : connectionFeedback ? 'alert' : undefined} aria-atomic="true">
-            <h3>{connectionHeading}</h3><p id="connect-source-description">{connectionDescription}</p>
-          </div>
-          <p className="connection-card-privacy"><DesignIcon name="shield" size={14} />只读访问 · 不保存正文 · 不修改来源</p>
-          <details key={connectSource} className="format-help connection-help">
-            <summary><DesignIcon name="chevron" size={14} />{connectionFeedback ? '查看详情与其他方式' : '支持范围与隐私说明'}</summary>
-            {connectionProblem && <p className="connection-card-reason">{connectionProblem}</p>}
-            <p>仅访问此 App 的默认或已授权位置，包含隐私会话标题；不搜索整盘、不读取凭据。只保存连接位置，重启后需刷新。{connectSource === 'codex' && '当前会话与历史归档会一并连接。'}</p>
-            <p>{sourceLocations[connectSource]}</p>
-            <DsButton variant="tertiary" size="small" disabled={busy} onClick={connectManually}>使用自定义位置…</DsButton>
-          </details>
-        </section>
-      </ScrollArea><div className="dialog-footer"><div className="export-actions"><DsButton variant="ghost" disabled={busy} onClick={() => { setConnecting(false); setManaging(true) }}>管理连接</DsButton><DsButton variant="ghost" disabled={busy} onClick={onArchives}>已有档案</DsButton></div><DsButton variant="primary" disabled={busy} onClick={() => {
-        if (partialSource) connected(partialSource)
-        else if (firstConnectionUnsupported) document.getElementById('connect-source')?.focus()
-        else connect()
-      }}>{connectionAction}</DsButton></div>
-    </DsDialog>}
+    {connecting && <ConnectSourcesDialog connections={page.connections} returnFocus={connectionTrigger.current}
+      onConnected={connected} onChanged={() => setReload(value => value + 1)} onBusyChange={setBusy}
+      onDismiss={() => setConnecting(false)} onManage={() => { setConnecting(false); setManaging(true) }} onArchives={onArchives} />}
     {managing && <DsDialog titleId="connections-title" busy={busy} onDismiss={() => setManaging(false)} returnFocus={connectionTrigger.current}>
       <DsDialogHeader titleId="connections-title" title="管理连接" eyebrow="位置授权" closeLabel="关闭连接管理" busy={busy} onDismiss={() => setManaging(false)} />
       <ScrollArea className="dialog-content"><p className="dialog-description">断开只撤销 Pinekin 的读取入口，不删除来源会话或已有档案。</p>{page.connections.map(connection => <section key={connection.id} className="import-report">
         <h3><SourceIcon source={connection.source} /> {sourceNames[connection.source]} · {connection.label}</h3><p className="privacy-note">{statusNames[connection.status]} · 已发现 {connection.discovered} 条{connection.total === null ? ' · 总数未确定' : ` · 共 ${connection.total} 条`}</p>
         {connection.error && <p role="alert" className="dialog-status">{connection.error}</p>}<p className="privacy-note">不可访问目录 {connection.issues} · 跳过符号链接 {connection.ignoredLinks}</p>
         <div className="export-actions">{connection.status === 'scanning' ? <DsButton disabled={busy} onClick={() => void action(() => window.staithe.sources.cancel(connection.id))}>暂停统计</DsButton> : <DsButton disabled={busy} onClick={() => refresh([connection.id])}>刷新连接</DsButton>}
-          <DsButton variant="ghost" disabled={busy} onClick={() => { clearSelection(); void action(() => window.staithe.sources.disconnect(connection.id)) }}>断开连接</DsButton></div>
+          <DsButton variant="ghost" disabled={busy} onClick={() => disconnect(connection)}>断开连接</DsButton></div>
       </section>)}{!page.connections.length && <EmptyState kind="connections-empty" action={emptyAction('connections-empty')} />}{error && <p role="alert" className="dialog-status">{error}</p>}</ScrollArea>
     </DsDialog>}
     {handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>

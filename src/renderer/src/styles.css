@@ -211,12 +211,22 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 .dialog-header h2 { font-size: var(--ds-text-title); letter-spacing: -0.6px; line-height: 1.4; }
 .dialog-content { padding: 0 24px 24px; overflow: auto; min-height: 0; }
 .dialog-description { font-size: var(--ds-text-base); color: var(--ds-text-secondary); line-height: 1.8; }
-/* 连接弹窗沿用 NewMax DsDialog 的纯标题栏和紧凑表单节奏，不影响其他弹窗。 */
+/* 连接弹窗沿用纯标题栏和紧凑列表节奏，不影响其他弹窗。 */
 .connection-header { padding: 18px 24px 12px; min-height: 66px; }
 .connection-header > .ds-button { align-self: center; }
 .connection-content { padding-top: 4px; }
-.connection-field { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 4px 0; }
-.connection-field > label { font-size: var(--ds-text-dense); font-weight: 500; line-height: 20px; }
+.connection-intro { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.7; }
+.connection-app-list { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 4px; }
+.connection-app { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: var(--ds-radius-md); background: transparent; color: var(--ds-text-primary); text-align: left; cursor: pointer; }
+.connection-app:hover:not([data-disabled="true"]), .connection-app:has([role="checkbox"][aria-checked="true"]) { background: var(--ds-surface-300); }
+.connection-app[data-disabled="true"] { cursor: not-allowed; }
+.connection-app[data-disabled="true"] > :not(.ds-checkbox) { opacity: .4; }
+.connection-app-copy { display: grid; gap: 3px; flex: 1; min-width: 0; font-size: var(--ds-text-base); }
+.connection-app-copy small { color: var(--ds-text-secondary); font-size: var(--ds-text-xs); line-height: 1.5; }
+.connection-progress { margin-top: 12px; font-size: var(--ds-text-sm); color: var(--ds-text-secondary); }
+.connection-footer { flex-wrap: wrap; justify-content: space-between; }
+.connection-app-list .connection-card { margin: 4px 0 8px; }
+.connection-app-list .connection-card-message { min-height: 0; }
 /* 说明与连接结果共用同一张卡片，状态变化不向外堆叠提示或操作。 */
 .connection-card { margin-top: 16px; padding: 16px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-300); font-size: var(--ds-text-sm); line-height: 1.7; overflow-wrap: anywhere; }
 .connection-card-message { min-height: 64px; }

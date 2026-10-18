@@ -184,15 +184,27 @@ describe('来源直读：发现与正文读取分离', () => {
       expect(read).not.toHaveBeenCalled()
     } finally { open.mockRestore(); read.mockRestore(); await externalHandle.close() }
   })
-  it('WAL 数据库不能借 readOnly 名义创建副文件，未具备无副作用读法时明确拒绝', async () => {
+  it('已 checkpoint 的 WAL 数据库可只读列出和读取正文，不创建副文件', async () => {
     const { input, browser } = await setup(), path = join(input, 'wal.db')
     seedDatabase(path)
     const database = new DatabaseSync(path); database.exec('PRAGMA journal_mode=WAL'); database.close()
-    const before = await readdir(input)
+    const before = await readdir(input), bytes = await readFile(path)
     const connection = await browser.connect('newmax', path), page = await settle(browser, connection.id)
-    expect(page.connections[0]).toMatchObject({ status: 'error', total: null })
-    expect(page.connections[0].error).toMatch(/WAL/)
+    expect(page.connections[0]).toMatchObject({ status: 'ready', total: 125 })
+    const ordinary = (await browser.page({ connectionId: connection.id, query: 's0' })).items[0]
+    expect((await browser.read(ordinary.id)).session.messages[0].content).toBe('正文不应缓存')
     expect(await readdir(input)).toEqual(before)
+    expect(await readFile(path)).toEqual(bytes)
+  })
+  it('Cindy 活跃 WAL 连接后不再报错，已提交会话可列出，未验证的正文仍明确标记', async () => {
+    const { input, browser } = await setup(), path = join(input, 'cindy.db'), writer = new DatabaseSync(path)
+    try {
+      writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('one','Cindy 合成会话',2000)")
+      const connection = await browser.connect('cindy', path), page = await settle(browser, connection.id)
+      expect(page.connections[0]).toMatchObject({ status: 'ready', total: 1 })
+      expect(page.items[0]).toMatchObject({ title: 'Cindy 合成会话', availability: 'unsupported' })
+      expect(page.items[0].reason).toMatch(/正文直读/)
+    } finally { writer.close() }
   })
   it('重复数据库 ID 不能静默覆盖后宣称完整总数，Cindy 正常目录仍可显示', async () => {
     const { input, browser } = await setup(), path = join(input, 'cindy.db')

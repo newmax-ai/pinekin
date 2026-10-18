@@ -1,5 +1,16 @@
 # 桌面会话工作台与设计系统
 
+## 选择控件统一为 NewMax DsCheckbox（2026-10-18，当前）
+
+- 来源多选列表使用本地 `components/DsCheckbox.tsx` / `DsCheckbox.css`，不再渲染系统 `input[type=checkbox]`。只读参考 NewMax 的 `src/components/ui/DsCheckbox.tsx`、`src/design-system/pages/CheckboxPage.tsx` 与 `DesignIcon`；没有修改 NewMax，也不跨仓库 import 或引入宿主运行时。
+- 遵循圆形选框、主题填充和加粗对勾契约。默认 20px 选框／12px 图标／2px 边框；另保留 mini 14/9/1.5、small 16/10/1.5、large 24/14/2 尺度。通过 `data-ds-round-control` 保持正圆，不受全局连续圆角补偿影响；`check-bold` 和 `minus` 使用已核对的 NewMax 图标定义，其他 UI 图标仍用 Lucide。
+- 按用户要求，选中／半选填充、边框、悬浮和焦点高亮统一使用黑白操作色 `--ds-action-primary` / `--ds-action-primary-text`：浅色黑底白勾，深色白底黑勾。未选边框仍用 `--ds-text-tertiary`，不改全局蓝色品牌 token。悬浮外圈 3px／操作色 6%，按压缩放 0.85，禁用透明度 0.4，过渡用 `--ds-motion-spring`；减少动画时立即取消过渡，不依赖动画事件提交状态。
+- 原生 button 提供 `role=checkbox`、`aria-checked`、disabled 和键盘行为，支持受控、默认勾选与 mixed 状态。整行标签仍可点击且只通知一次，组件不再自带外层 label，避免嵌套标签和重复切换；多选、批量提交、失败重试逻辑不变。
+- 连接主按钮不显示选择数量，固定为「连接所选 App」或「重试所选 App」；勾选数量变化不改变按钮文案、宽度或位置。未选择时仍禁用，处理中仍显示「正在连接…」，不改变连接操作本身。
+- 连接弹窗以现有 `data-dialog-initial-focus` 标记选择控件，打开时仍聚焦第一项，关闭焦点返回不变。测试覆盖组件尺寸／状态、整行点击、Tab／Space／Enter、浅深主题、正圆、悬浮／按压、忙碌禁用和运行中切换减少动画。
+- 验证：先复现组件缺失及原生 INPUT 断言失败，90 项相关测试与类型检查通过；共享完整覆盖率 36 文件、513 项通过（行 98.53%、分支 89.28%），DsCheckbox 行 100%、分支 95.83%。构建通过；来源桌面首跑 15/16 通过，仅圆角计算值断言需沿用既有 `round | superellipse(1)` 等价处理，适配后定向 1/1 通过，未重复全套。全部使用后台隐藏窗口与合成数据，无真实会话读取。
+- 已验收的浅深主题截图：`test-results/pinekin-checkbox-light.png`、`test-results/pinekin-checkbox-dark.png`（不提交）。
+
 ## 弹窗标题统一去除装饰图标（2026-10-18，当前）
 
 - 连接来源、管理连接、来源接续、档案导入与档案交接的标题栏全部使用共享 `DsDialogHeader`，不再由页面拼装；组件只接收文字标题、可选眉题和关闭行为，不提供图标插槽。删除无用 `.dialog-icon` 样式，后续标题调整在组件层维护。

@@ -113,6 +113,7 @@ describe('自动定位与只读连接', () => {
     await directory(join(domestic, 'nested', 'cindy-nested.db'))
     await writeFile(join(global, 'cindy-three.db'), 'synthetic')
     // 这里仅验证文件名发现，不让模拟数据库内容进入真实 SQLite 解析。
+    vi.spyOn(browser, 'waitForScan').mockResolvedValue()
     const connect = vi.spyOn(browser, 'connect').mockImplementation(async (source, path) => ({
       id: path, source, label: path, status: 'scanning', discovered: 0, total: null, issues: 0, ignoredLinks: 0,
     }))
@@ -122,14 +123,31 @@ describe('自动定位与只读连接', () => {
       join(domestic, 'cindy-one.db'), join(domestic, 'cindy-two.db'), join(global, 'cindy-three.db'),
     ].sort())
   })
-  it('Cindy 根目录链接被拒绝，未知 NewMax 路径明确未验证而非猜测扫描', async () => {
+  it('Cindy 根目录链接被拒绝，NewMax 仅检查源码确认的固定数据库路径', async () => {
     const { browser, context, root } = await setup()
     await symlink(await directory(join(root, 'outside')), join(context.appData, 'Cindy'))
     expect((await autoConnectSource(browser, 'cindy', context)).warnings.join('')).toContain('符号链接')
     const result = await autoConnectSource(browser, 'newmax', context)
     expect(result.connections).toEqual([])
-    expect(result.warnings.join('')).toContain('尚未验证')
-    expect(sourceCandidates('newmax', context)).toEqual([])
+    expect(result.warnings.join('')).toContain('未找到 NewMax')
+    expect(sourceCandidates('newmax', context)).toEqual([join(context.home, '.newmax', 'newmax.db')])
+    context.env.NEWMAX_USER_DATA_DIR = join(root, 'custom')
+    expect(sourceCandidates('newmax', context)).toEqual([join(root, 'custom', 'newmax.db')])
+    context.env.NEWMAX_USER_DATA_DIR = ''
+    expect(sourceCandidates('newmax', context)).toEqual([join(context.home, '.newmax', 'newmax.db')])
+    for (const value of ['relative', '~/custom', '  ']) {
+      context.env.NEWMAX_USER_DATA_DIR = value
+      expect(() => sourceCandidates('newmax', context)).toThrow('绝对路径')
+    }
+  })
+  it('NewMax 首次自动发现固定数据库，扫描失败作为该 App 的失败原因返回而不是成功', async () => {
+    const { browser, context } = await setup()
+    await directory(join(context.home, '.newmax'))
+    await writeFile(join(context.home, '.newmax', 'newmax.db'), 'broken sqlite')
+    const result = await autoConnectSource(browser, 'newmax', context)
+    expect(result.connections).toHaveLength(1)
+    expect(result.connections[0].status).toBe('error')
+    expect(result.warnings.join('')).toMatch(/数据库|SQLite/)
   })
   it('已授权自定义位置在重启后自动复用，无需重复选位置', async () => {
     const { browser, context, root, data } = await setup()
@@ -148,6 +166,7 @@ describe('自动定位与只读连接', () => {
     const { browser, context } = await setup()
     vi.spyOn(browser, 'connections').mockResolvedValue([{ id: 'saved', source: 'newmax', label: 'newmax.db', status: 'idle', total: null, discovered: 0, issues: 0, ignoredLinks: 0 }])
     const refresh = vi.spyOn(browser, 'refresh').mockResolvedValue()
+    vi.spyOn(browser, 'waitForScan').mockResolvedValue()
     const result = await autoConnectSource(browser, 'newmax', context)
     expect(result.connections).toHaveLength(1); expect(result.warnings).toEqual([])
     expect(refresh).toHaveBeenCalledWith('saved')

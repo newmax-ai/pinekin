@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readlink, readdir, realpath, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
 let app: ElectronApplication, page: Page, root: string, data: string, source: string
-async function launch() {
+async function launch(newmaxDataDirectory?: string) {
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard } = require('electron');
     app.setPath('home', ${JSON.stringify(root)});
@@ -23,8 +23,9 @@ async function launch() {
     clipboard.writeText = () => { throw new Error('来源浏览不得使用剪贴板'); };
     import(${JSON.stringify(pathToFileURL(resolve('out/main/index.js')).href)});`)
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined &&
-    !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'].includes(entry[0])))
-  app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
+    !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
+  app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1',
+    ...(newmaxDataDirectory ? { NEWMAX_USER_DATA_DIR: newmaxDataDirectory } : {}) } })
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.getByRole('button', { name: '连接 App', exact: true })).toBeEnabled()
@@ -37,15 +38,15 @@ async function background() {
   expect(state.windows.every(window => !window.visible && !window.focused)).toBe(true)
 }
 async function selectSource(sourceId: BrowsableSource) {
-  await page.getByRole('combobox', { name: '来源 App', exact: true }).click()
-  await page.getByRole('option', { name: sourceNames[sourceId], exact: true }).click()
+  await page.getByRole('checkbox', { name: `选择 ${sourceNames[sourceId]}`, exact: true }).check()
 }
-async function connect(sourceId: BrowsableSource = 'claude-code') {
+async function submit() { await page.getByRole('button', { name: /^(连接|重试)所选 App/ }).click() }
+async function connect(sourceId: BrowsableSource = 'claude-code', manual = false) {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await selectSource(sourceId)
-  if (sourceId === 'claude-code' || sourceId === 'codex') await page.getByRole('button', { name: '连接', exact: true }).click()
-  else {
-    await page.getByText('支持范围与隐私说明', { exact: true }).click()
+  await selectSource(sourceId); await submit()
+  if (manual) {
+    await expect(page.getByRole('alert')).toBeVisible()
+    await page.getByText('查看详情与其他方式', { exact: true }).click()
     await page.getByRole('button', { name: '使用自定义位置…' }).click()
   }
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -64,6 +65,20 @@ async function manageConnections() {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   await page.getByRole('button', { name: '管理连接', exact: true }).click()
 }
+function seedNewMax(db: DatabaseSync) {
+  db.exec(`CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT, source TEXT, created_at INTEGER, updated_at INTEGER,
+    forked_from_id TEXT, is_private INTEGER, message_count INTEGER);
+    CREATE TABLE messages (seq INTEGER, id TEXT, conversation_id TEXT, role TEXT, content TEXT, timestamp INTEGER, data TEXT);
+    INSERT INTO conversations VALUES ('one','数据库合成会话','app',1000,2000,NULL,0,1);`)
+  const message = { id: 'm1', role: 'user', content: '仅合成数据库正文', timestamp: 2000 }
+  db.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?)').run(0, message.id, 'one', message.role, message.content, 2000, JSON.stringify(message))
+}
+async function snapshot(directory: string) {
+  return Promise.all((await readdir(directory)).sort().map(async name => {
+    const path = join(directory, name), info = await stat(path)
+    return { name, bytes: await readFile(path), mtimeMs: info.mtimeMs }
+  }))
+}
 test.beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-sources-e2e-')))
   data = join(root, 'pinekin'); source = join(root, '.claude', 'projects')
@@ -77,7 +92,109 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
-test('连接面板精简指引，关闭按钮不默认聚焦或闪出提示，键盘关闭仍可用', async () => {
+test('选择控件对齐 NewMax 圆形 DsCheckbox，浅深主题、整行点击、键盘与禁用反馈一致', async () => {
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+  const checkbox = dialog.getByRole('checkbox', { name: '选择 NewMax', exact: true })
+  const row = dialog.locator('.connection-app').filter({ has: page.getByRole('checkbox', { name: '选择 NewMax', exact: true }) })
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await checkbox.uncheck()
+    expect(await checkbox.evaluate(element => element.tagName)).toBe('BUTTON')
+    await expect(dialog.locator('input[type="checkbox"]')).toHaveCount(0)
+    await expect(checkbox).toHaveCSS('width', '20px')
+    await expect(checkbox).toHaveCSS('height', '20px')
+    await expect(checkbox).toHaveCSS('border-width', '2px')
+    await expect(checkbox).toHaveCSS('border-radius', '9999px')
+    await expect(checkbox).toHaveCSS('corner-shape', /^(?:round|superellipse\(1\))$/)
+    await expect(checkbox).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await row.getByText('NewMax', { exact: true }).click()
+    await expect(checkbox).toBeChecked()
+    await expect(dialog.getByRole('button', { name: '连接所选 App', exact: true })).toBeEnabled()
+    const colors = await checkbox.evaluate(element => {
+      const probe = document.createElement('span'); element.appendChild(probe)
+      probe.style.color = 'var(--ds-action-primary)'; const primary = getComputedStyle(probe).color
+      probe.style.color = 'var(--ds-action-primary-text)'; const text = getComputedStyle(probe).color
+      probe.style.color = 'color-mix(in srgb, var(--ds-action-primary) 6%, transparent)'; const hover = getComputedStyle(probe).color
+      probe.remove(); return { primary, text, hover }
+    })
+    expect(colors.primary).toBe(colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)')
+    expect(colors.text).toBe(colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(23, 23, 23)')
+    await expect(checkbox).toHaveCSS('background-color', colors.primary)
+    await expect(checkbox).toHaveCSS('border-color', colors.primary)
+    await expect(checkbox.locator('svg')).toHaveCSS('color', colors.text)
+    await expect(checkbox.locator('svg')).toHaveAttribute('width', '12')
+    await expect(checkbox.locator('path')).toHaveAttribute('d', 'M5 11L10.5 16.5L21 6')
+    await checkbox.hover(); await expect(checkbox).toHaveCSS('outline-width', '3px')
+    await expect(checkbox).toHaveCSS('outline-color', colors.hover)
+    await page.mouse.down(); await expect(checkbox).toHaveCSS('transform', 'matrix(0.85, 0, 0, 0.85, 0, 0)')
+    await page.mouse.up(); await expect(checkbox).not.toBeChecked()
+    await checkbox.focus(); await page.keyboard.press('Enter'); await expect(checkbox).toBeChecked()
+    await expect(checkbox).toHaveCSS('outline-width', '2px')
+    await expect(checkbox).toHaveCSS('outline-color', colors.primary)
+    await page.keyboard.press('Space'); await expect(checkbox).not.toBeChecked()
+    await checkbox.check(); await dialog.getByRole('heading').hover()
+    await dialog.getByRole('list', { name: '可连接的 App' }).screenshot({ path: `test-results/pinekin-checkbox-${colorScheme}.png`, scale: 'css' })
+  }
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect(checkbox).not.toHaveCSS('transition-duration', '0s')
+  await checkbox.hover()
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(checkbox).toHaveCSS('transition-duration', '0s')
+  expect(await readdir(data)).not.toContain('connections.json')
+  // 只替换本用例的隔离 IPC 返回，以便稳定观察忙碌禁用态。
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('pinekin:sources-auto-connect')
+    ipcMain.handle('pinekin:sources-auto-connect', () => new Promise(resolve => {
+      (globalThis as unknown as { finishCheckboxTest: () => void }).finishCheckboxTest = () => resolve({ connections: [], warnings: ['合成连接失败'] })
+    }))
+  })
+  await submit()
+  await expect(checkbox).toBeDisabled()
+  await expect(checkbox).toHaveCSS('opacity', '0.4')
+  await page.keyboard.press('Escape'); await expect(dialog).toBeVisible()
+  await app.evaluate(() => (globalThis as unknown as { finishCheckboxTest: () => void }).finishCheckboxTest())
+  await expect(checkbox).toBeEnabled()
+  await expect(dialog.getByRole('alert')).toContainText('合成连接失败')
+  await background()
+})
+
+test('选择数量变化不改变连接或重试按钮的文案和尺寸', async () => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
+    await page.getByRole('button', { name: '连接 App', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+    const button = dialog.getByRole('button', { name: '连接所选 App', exact: true })
+    await expect(button).toBeDisabled()
+    const initial = await button.boundingBox()
+    expect(initial!.width).toBeGreaterThan(0)
+    const checkboxes = await dialog.getByRole('checkbox').all()
+    for (const checkbox of checkboxes) {
+      await checkbox.check()
+      await expect(button).toHaveText('连接所选 App')
+      await expect(button).toBeEnabled()
+      expect(await button.boundingBox()).toEqual(initial)
+    }
+    for (const checkbox of checkboxes) {
+      await checkbox.uncheck()
+      await expect(button).toHaveText('连接所选 App')
+      expect(await button.boundingBox()).toEqual(initial)
+    }
+    await expect(button).toBeDisabled()
+    expect(await page.evaluate(() => window.staithe.sources.connections())).toEqual([])
+    await selectSource('newmax'); await selectSource('codex'); await submit()
+    const retry = dialog.getByRole('button', { name: '重试所选 App', exact: true })
+    await expect(retry).toBeEnabled()
+    const retryBounds = await retry.boundingBox()
+    await dialog.getByRole('checkbox', { name: '选择 Codex', exact: true }).uncheck()
+    await expect(retry).toHaveText('重试所选 App')
+    expect(await retry.boundingBox()).toEqual(retryBounds)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+  }
+})
+
+test('多选列表保留原关闭规格，初始不聚焦关闭按钮，键盘关闭与管理入口可用', async () => {
   await page.evaluate(() => {
     const state = window as unknown as { dialogFocusEvents: string[] }
     state.dialogFocusEvents = []
@@ -90,7 +207,7 @@ test('连接面板精简指引，关闭按钮不默认聚焦或闪出提示，�
     await page.evaluate(() => { (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents = [] })
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await expect(page.getByLabel('来源 App', { exact: true })).toBeFocused()
+    await expect(dialog.getByRole('checkbox', { name: '选择 NewMax', exact: true })).toBeFocused()
     await expect(page.getByRole('tooltip')).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents)).not.toContain('关闭连接面板')
     await expect(dialog.locator('.notice')).toHaveCount(0)
@@ -99,19 +216,12 @@ test('连接面板精简指引，关闭按钮不默认聚焦或闪出提示，�
     await expect(dialog.locator('.ds-dialog-close')).toHaveCSS('height', '32px')
     await expect(dialog.locator('.ds-dialog-close')).toHaveCSS('width', '42px')
     await expect(dialog.locator('.ds-dialog-close svg')).toHaveCSS('width', '18px')
-    await expect(dialog.locator('.dialog-content > p')).toHaveCount(0)
-    await expect(dialog.getByRole('region', { name: '连接说明' })).toHaveCount(1)
-    await expect(dialog.locator('.connection-card-message h3')).toHaveText('连接后，直接浏览会话')
-    await expect(dialog.locator('.connection-card-message p')).toHaveText('将尝试复用已有连接；首次自动定位暂未支持。')
+    await expect(dialog.getByRole('list', { name: '可连接的 App' }).getByRole('checkbox')).toHaveCount(5)
+    await expect(dialog.locator('.connection-card')).toHaveCount(0)
     await expect(dialog.locator('.connection-card-privacy')).toHaveText('只读访问 · 不保存正文 · 不修改来源')
-    await expect(dialog.locator('.connection-card details')).toHaveCount(1)
     await expect(dialog.locator('select')).toHaveCount(0)
-    await expect(dialog.getByRole('combobox')).toHaveCSS('height', '32px')
-    expect((await dialog.boundingBox())!.height).toBeLessThan(420)
-    await expect(dialog.getByRole('button', { name: '连接', exact: true })).toBeVisible()
-    await expect(dialog.locator('details')).not.toHaveAttribute('open')
-    await expect(dialog.locator('details p').first()).toBeHidden()
-    if (colorScheme === 'light') await dialog.screenshot({ path: 'test-results/pinekin-connect-card.png', scale: 'css' })
+    await expect(dialog.getByRole('combobox')).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '连接所选 App', exact: true })).toBeDisabled()
     await page.keyboard.press('Shift+Tab')
     await expect(page.getByRole('button', { name: '关闭连接面板' })).toBeFocused()
     await expect(page.getByRole('tooltip')).toHaveText('关闭连接面板')
@@ -136,78 +246,140 @@ test('连接面板精简指引，关闭按钮不默认聚焦或闪出提示，�
   }
 })
 
-test('来源选择复用 DS 菜单，弹窗内不裁切，键盘关闭只收起菜单且不闪 Tooltip', async () => {
+test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Enter 提交，成功只显示已连接来源', async () => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
+    await expect(page.locator('.sidebar-section .nav-item')).toHaveText(['连接 App', '所有会话'])
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    const trigger = page.getByRole('combobox', { name: '来源 App' })
-    await expect(trigger).toBeFocused()
-    await page.keyboard.press('ArrowDown')
-    const menu = page.getByRole('listbox', { name: '来源 App' })
-    await expect(menu).toBeVisible()
-    expect(await menu.evaluate(element => element.matches(':popover-open'))).toBe(true)
-    expect(await menu.evaluate(element => element.closest('dialog') !== null)).toBe(true)
-    await expect(page.getByRole('option')).toHaveCount(5)
-    await expect(page.getByRole('option').first()).toHaveCSS('min-height', '32px')
-    const box = (await menu.boundingBox())!, viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    await expect(dialog.getByRole('checkbox', { name: '选择 NewMax', exact: true })).toBeFocused()
+    const list = dialog.getByRole('list', { name: '可连接的 App' })
+    await expect(list.getByRole('checkbox')).toHaveCount(5)
+    const box = (await dialog.boundingBox())!, viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
     expect(box.x).toBeGreaterThanOrEqual(8); expect(box.y).toBeGreaterThanOrEqual(8)
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8)
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height - 8)
-    await page.keyboard.press('Escape')
-    await expect(menu).toHaveCount(0)
-    await expect(dialog).toBeVisible()
-    await expect(trigger).toBeFocused()
-    await expect(page.getByRole('tooltip')).toHaveCount(0)
-    await trigger.click()
-    await page.getByRole('option', { name: 'DeepSeek Harness', exact: true }).click()
-    await expect(trigger).toHaveText('DeepSeek Harness')
-    await expect(dialog.locator('.connection-card-message p')).toHaveText('Pinekin 自动查找本机会话，无需导出或导入。')
-    await expect(menu).toHaveCount(0)
-    await trigger.click()
-    await page.keyboard.press('Home')
-    await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('Enter')
-    await expect(trigger).toHaveText('Claude Code')
-    await trigger.click()
-    await dialog.getByRole('heading', { name: '连接来源 App', exact: true }).click()
-    await expect(menu).toHaveCount(0)
-    await trigger.focus()
-    await page.keyboard.press('ArrowDown')
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     await page.keyboard.press('Tab')
-    await expect(menu).toHaveCount(0)
-    await expect(dialog.locator('summary')).toBeFocused()
-    await trigger.click()
-    // 弹窗卸载时同时清理原生 top layer，不留下阻挡后续操作的菜单。
-    await page.getByRole('button', { name: '关闭连接面板' }).click()
+    await expect(page.getByRole('checkbox', { name: '选择 Claude Code', exact: true })).toBeFocused()
+    await page.keyboard.press('Space')
+    await expect(page.getByRole('checkbox', { name: '选择 Claude Code', exact: true })).toBeChecked()
+    expect(await page.evaluate(() => window.staithe.sources.connections())).toEqual([])
+    await page.getByRole('button', { name: '连接所选 App', exact: true }).focus()
+    await page.keyboard.press('Enter')
     await expect(dialog).toHaveCount(0)
-    expect(await page.locator(':popover-open').count()).toBe(0)
+    await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: '连接 App', exact: true }).click()
+    await expect(list.getByRole('checkbox')).toHaveCount(4)
+    await expect(list.getByRole('checkbox', { name: '选择 Claude Code', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: '管理连接', exact: true }).click()
+    await page.getByRole('button', { name: '断开连接', exact: true }).click()
+    await expect(page.getByText('尚未保存连接', { exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: '所有会话', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: '返回', exact: true }).click()
+    await page.getByRole('button', { name: '前进', exact: true }).click()
+    await expect(page.getByRole('button', { name: '所有会话', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await background()
   }
 })
 
-test('UI 文字不可选中，菜单可操作，输入、正文与代码仍可选择', async () => {
+test('NewMax 开发副本共享数据库链接可直接连接，固定真实路径并在重启后保持授权目标', async () => {
+  await background(); await app.close()
+  const canonical = join(root, '.newmax'), replica = join(root, '.newmax-clean')
+  await mkdir(canonical); await mkdir(replica)
+  const target = join(canonical, 'newmax.db'), alias = join(replica, 'newmax.db')
+  const writer = new DatabaseSync(target)
+  try {
+    writer.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;'); seedNewMax(writer)
+    await symlink('../.newmax/newmax.db', alias)
+    const before = await snapshot(canonical), originalLink = await readlink(alias)
+    await launch(replica)
+    await connect('newmax')
+    await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
+    await page.locator('.session-card').click()
+    await expect(page.getByRole('region', { name: '会话消息' })).toContainText('仅合成数据库正文')
+    expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+    const config = JSON.parse(await readFile(join(data, 'connections.json'), 'utf8'))
+    expect(config.connections).toMatchObject([{ source: 'newmax', path: target }])
+    expect(config.connections).toHaveLength(1)
+    expect(await readlink(alias)).toBe(originalLink)
+    expect(await snapshot(canonical)).toEqual(before)
+    // 连接后改动副本链接，既有授权不应被静默重定向。
+    const outside = join(root, 'outside'); await mkdir(outside)
+    const other = new DatabaseSync(join(outside, 'newmax.db')); seedNewMax(other)
+    other.exec("UPDATE conversations SET title='不应读取的新目标'"); other.close()
+    await rm(alias); await symlink(join(outside, 'newmax.db'), alias)
+    await background(); await app.close(); await launch(replica)
+    await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^数据库合成会话/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^不应读取的新目标/ })).toHaveCount(0)
+    expect(await snapshot(canonical)).toEqual(before)
+  } finally { writer.close() }
+})
+
+test('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框，来源及副文件无写入', async () => {
+  const newmaxRoot = join(root, '.newmax'), cindyRoot = join(root, 'appData', 'Cindy')
+  await mkdir(newmaxRoot); await mkdir(cindyRoot)
+  const newmax = new DatabaseSync(join(newmaxRoot, 'newmax.db')), cindy = new DatabaseSync(join(cindyRoot, 'cindy-synthetic.db'))
+  try {
+    newmax.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;'); seedNewMax(newmax)
+    cindy.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('cindy-one','Cindy 活跃会话',3000)")
+    const beforeNewMax = await snapshot(newmaxRoot), beforeCindy = await snapshot(cindyRoot)
+    await page.getByRole('button', { name: '连接 App', exact: true }).click()
+    await selectSource('newmax'); await selectSource('cindy')
+    await expect(page.getByRole('button', { name: '连接所选 App', exact: true })).toBeEnabled()
+    await page.getByRole('dialog').screenshot({ path: 'test-results/pinekin-connect-multi.png', scale: 'css' })
+    expect(await readdir(data)).not.toContain('connections.json')
+    await submit()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Cindy\s*1$/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /^所有会话\s*2$/ })).toHaveAttribute('aria-pressed', 'true')
+    await page.getByRole('button', { name: /^数据库合成会话/ }).click()
+    await expect(page.getByRole('region', { name: '会话消息' })).toContainText('仅合成数据库正文')
+    await page.getByRole('button', { name: /^Cindy 活跃会话/ }).click()
+    await expect(page.getByRole('alert')).toContainText('正文直读')
+    expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+    expect(await snapshot(newmaxRoot)).toEqual(beforeNewMax)
+    expect(await snapshot(cindyRoot)).toEqual(beforeCindy)
+    expect(await readdir(data)).not.toContain('imports')
+  } finally { newmax.close(); cindy.close() }
+})
+
+test('批量添加一项数据库失败不影响另一项，错误逐项显示且不冒充连接成功', async () => {
+  const cindyRoot = join(root, 'appData', 'Cindy'); await mkdir(cindyRoot)
+  await writeFile(join(cindyRoot, 'cindy-broken.db'), 'not sqlite')
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await selectSource('claude-code'); await selectSource('cindy'); await submit()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('alert')).toContainText('Cindy · 连接未完成')
+  await expect(dialog.getByRole('alert')).toContainText('数据库结构未支持')
+  await expect(dialog.getByRole('checkbox', { name: '选择 Claude Code', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: '重试所选 App', exact: true })).toBeEnabled()
+  await dialog.getByRole('button', { name: '查看已连接会话' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: /^Cindy\s*读取失败$/ })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Cindy')
+})
+
+test('UI 文字不可选中，输入、正文与代码仍可选择', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })
   await expect(dialog.getByRole('heading', { name: '连接来源 App', exact: true })).toHaveCSS('user-select', 'none')
-  await expect(dialog.locator('.connection-card-message p')).toHaveCSS('user-select', 'none')
-  const trigger = page.getByRole('combobox', { name: '来源 App' })
-  await expect(trigger).toHaveCSS('user-select', 'none')
-  await trigger.click()
-  const menu = page.getByRole('listbox', { name: '来源 App' })
-  await expect(menu).toHaveCSS('user-select', 'none')
-  for (const option of await menu.getByRole('option').all()) {
-    await expect(option).toHaveCSS('user-select', 'none')
-    await expect(option.locator('span').last()).toHaveCSS('user-select', 'none')
+  await expect(dialog.locator('.connection-intro')).toHaveCSS('user-select', 'none')
+  const list = page.getByRole('list', { name: '可连接的 App' })
+  await expect(list).toHaveCSS('user-select', 'none')
+  for (const label of await list.locator('label').all()) {
+    await expect(label).toHaveCSS('user-select', 'none')
+    await expect(label.locator('.connection-app-copy')).toHaveCSS('user-select', 'none')
   }
   const selectAll = process.platform === 'darwin' ? 'Meta+a' : 'Control+a'
   await page.keyboard.press(selectAll)
   expect(await page.evaluate(() => window.getSelection()?.toString())).toBe('')
-  await page.getByRole('option', { name: 'Claude Code', exact: true }).click()
-  await expect(trigger).toHaveText('Claude Code')
   await page.getByRole('button', { name: '关闭连接面板' }).click()
-
   const records = claudeRecords()
   records[4].message = { id: 'msg_synthetic', role: 'assistant', content: [{ type: 'text', text: '合成答复：正文仍可复制。\n```ts\nconst synthetic = true\n```' }] }
   await writeFile(join(source, 'synthetic-0.jsonl'), claudeFixture(records))
@@ -262,9 +434,9 @@ test('来源主界面沿用原布局、插画、紧凑卡片和弹窗搜索，�
   }
 })
 
-test('空档案库直接连接、完整计数、分页搜索、按需正文，重启只保留位置授权', async () => {
+test('空档案库直接连接、完整计数、分页搜索、按需正文，重启自动加载已授权来源', async () => {
   await expect(page.getByRole('heading', { name: '尚未连接会话来源' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Claude Code\s*未连接$/ })).toBeVisible()
+  await expect(page.locator('.sidebar-section').getByRole('button', { name: /^Claude Code/ })).toHaveCount(0)
   await connect()
   await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toBeVisible()
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
@@ -286,11 +458,49 @@ test('空档案库直接连接、完整计数、分页搜索、按需正文，�
   await expect(page.locator('.dialog-header svg')).toHaveCount(1)
   await expect(page.getByRole('button', { name: '自动接续暂未支持', exact: true })).toBeDisabled()
   await page.getByRole('button', { name: '返回会话', exact: true }).click()
-  await background(); await app.close(); await launch()
-  await expect(page.getByRole('button', { name: /^Claude Code\s*待刷新$/ })).toBeVisible()
-  await expect(page.locator('.session-card')).toHaveCount(0)
-  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await background(); await app.close()
+  // 即使其他默认位置存在会话，启动也不能为尚未授权的 App 自动连接。
+  const unconnected = join(root, '.codex', 'sessions'); await mkdir(unconnected, { recursive: true })
+  await writeFile(join(unconnected, 'unconnected.jsonl'), JSON.stringify({ type: 'session_meta', payload: { id: 'unconnected' } }))
+  await launch()
   await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(50)
+  await expect(page.getByText('50 / 66 条已加载')).toBeVisible()
+  await expect(page.getByRole('button', { name: /待刷新/ })).toHaveCount(0)
+  expect(await page.evaluate(async () => (await window.staithe.sources.connections()).map(item => item.source))).toEqual(['claude-code'])
+  expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+})
+
+test('重启自动刷新时单个来源失败不阻塞其他来源，手动刷新仍可修复', async () => {
+  const codex = join(root, '.codex', 'sessions')
+  await mkdir(codex, { recursive: true })
+  await writeFile(join(codex, 'one.jsonl'), JSON.stringify({ type: 'session_meta', payload: { id: 'one' } }))
+  await connect('claude-code'); await connect('codex')
+  await background(); await app.close()
+  await rm(codex, { recursive: true })
+  await writeFile(join(source, 'added-before-restart.jsonl'), claudeFixture())
+  await launch()
+  await expect(page.getByRole('button', { name: /^Claude Code\s*67$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Codex\s*读取失败$/ })).toBeVisible()
+  await mkdir(codex); await writeFile(join(codex, 'repaired.jsonl'), JSON.stringify({ type: 'session_meta', payload: { id: 'repaired' } }))
+  await manageConnections()
+  const section = page.locator('.import-report').filter({ has: page.getByRole('heading', { name: /^Codex/ }) })
+  await expect(section.getByRole('alert')).toContainText('来源已移动或删除')
+  await section.getByRole('button', { name: '刷新连接', exact: true }).click()
+  await expect(section.getByRole('alert')).toHaveCount(0)
+  await page.getByRole('button', { name: '关闭连接管理' }).click()
+  await expect(page.getByRole('button', { name: /^Codex\s*1$/ })).toBeVisible()
+})
+
+test('启动遇到损坏授权配置仍显示窗口与真实错误，不覆盖配置或发现新来源', async () => {
+  await background(); await app.close()
+  const path = join(data, 'connections.json'); await writeFile(path, 'broken')
+  await launch()
+  await expect(page.getByRole('heading', { name: '暂时无法读取会话列表' })).toBeVisible()
+  await expect(page.locator('.detail').getByRole('alert')).toContainText('连接配置损坏')
+  expect(await readFile(path, 'utf8')).toBe('broken')
+  expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+  await expect(page.locator('.sidebar-section').getByRole('button', { name: /^Claude Code/ })).toHaveCount(0)
 })
 
 test('损坏日志保留且失败有原因，刷新发现增删，断开撤销授权但不删除来源', async () => {
@@ -311,25 +521,18 @@ test('损坏日志保留且失败有原因，刷新发现增删，断开撤销�
   await page.getByRole('button', { name: '断开连接', exact: true }).click()
   await expect(page.getByText('尚未保存连接', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '关闭连接管理' }).click()
-  await expect(page.getByRole('button', { name: /^Claude Code\s*未连接$/ })).toBeVisible()
+  await expect(page.locator('.sidebar-section').getByRole('button', { name: /^Claude Code/ })).toHaveCount(0)
   expect(await readdir(source)).toHaveLength(67)
   expect(JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections).toEqual([])
 })
 
-test('Electron SQLite 使用固定只读句柄，不创建副文件，WAL 明确拒绝而非显示零条', async () => {
+test('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍可读且不创建副文件', async () => {
   await app.close()
-  source = join(root, 'newmax.db')
-  const db = new DatabaseSync(source)
-  db.exec(`CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT, source TEXT, created_at INTEGER, updated_at INTEGER,
-    forked_from_id TEXT, is_private INTEGER, message_count INTEGER);
-    CREATE TABLE messages (seq INTEGER, id TEXT, conversation_id TEXT, role TEXT, content TEXT, timestamp INTEGER, data TEXT);
-    INSERT INTO conversations VALUES ('one','数据库合成会话','app',1000,2000,NULL,0,1);`)
-  const message = { id: 'm1', role: 'user', content: '仅合成数据库正文', timestamp: 2000 }
-  db.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?)').run(0, message.id, 'one', message.role, message.content, 2000, JSON.stringify(message))
-  db.close()
+  source = join(root, 'custom-newmax.db')
+  const db = new DatabaseSync(source); seedNewMax(db); db.close()
   await launch()
   const before = await readFile(source), files = await readdir(root)
-  await connect('newmax')
+  await connect('newmax', true)
   await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
   await page.locator('.session-card').click()
   await expect(page.getByRole('region', { name: '会话消息' })).toContainText('仅合成数据库正文')
@@ -338,9 +541,9 @@ test('Electron SQLite 使用固定只读句柄，不创建副文件，WAL 明确
   const update = new DatabaseSync(source); update.exec('PRAGMA journal_mode=WAL'); update.close()
   const walFiles = await readdir(root)
   await page.getByRole('button', { name: '刷新来源', exact: true }).click()
-  await expect(page.getByRole('button', { name: /^NewMax\s*读取失败$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^NewMax\s*1$/ })).toBeVisible()
   await manageConnections()
-  await expect(page.getByRole('alert')).toContainText('WAL')
+  await expect(page.getByRole('alert')).toHaveCount(0)
   expect(await readdir(root)).toEqual(walFiles)
 })
 
@@ -352,63 +555,50 @@ test('Codex 一次连接当前与归档会话，不弹文件选择器，重复�
   }
   await connect('codex')
   await expect(page.getByRole('button', { name: /^Codex\s*2$/ })).toBeVisible()
-  await connect('codex')
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await expect(page.getByRole('checkbox', { name: '选择 Codex', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '关闭连接面板' }).click()
+  await page.evaluate(() => window.staithe.sources.autoConnect('codex'))
   await expect(page.getByRole('button', { name: /^Codex\s*2$/ })).toBeVisible()
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
-  const connections = JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections
-  expect(connections).toHaveLength(2)
+  expect(JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections).toHaveLength(2)
 })
 
-test('自动定位未找到后给出重试与手动入口，不擅自打开系统选择器', async () => {
+test('未找到来源可改选其他 App，保留失败原因，不擅自打开系统选择器', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await selectSource('codex')
-  await page.getByRole('button', { name: '连接', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('连接未完成')
-  await expect(page.getByRole('button', { name: '重试连接' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '手动指定位置' })).toHaveCount(0)
+  await selectSource('codex'); await submit()
+  await expect(page.getByRole('alert')).toContainText('未找到 Codex')
+  await expect(page.getByRole('button', { name: '重试所选 App', exact: true })).toBeVisible()
   await page.getByText('查看详情与其他方式', { exact: true }).click()
-  await expect(page.locator('.connection-card-reason')).toContainText('未找到 Codex')
   await expect(page.getByRole('button', { name: '使用自定义位置…' })).toBeVisible()
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
   expect(await readdir(data)).not.toContain('connections.json')
-  await selectSource('claude-code')
-  await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '手动指定位置' })).toHaveCount(0)
-  await page.getByRole('button', { name: '连接', exact: true }).click()
+  await page.getByRole('checkbox', { name: '选择 Codex', exact: true }).uncheck()
+  await selectSource('claude-code'); await submit()
+  await expect(page.getByRole('button', { name: '查看已连接会话' })).toBeEnabled()
+  await page.getByRole('button', { name: '查看已连接会话' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toBeVisible()
 })
 
-test('连接结果在原卡片内替换，未知默认位置不诱导无效重试，详情与底部操作不溢出', async () => {
+test('多项失败结果保留具体原因，浅深主题下详情与底部操作不溢出', async () => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    const card = dialog.getByRole('region', { name: '连接说明' })
-    await selectSource('newmax')
-    const before = (await dialog.boundingBox())!
-    await dialog.getByRole('button', { name: '连接', exact: true }).click()
-    await expect(card.getByRole('alert')).toContainText('NewMax 暂不支持首次自动连接')
-    await expect(dialog.locator('.connection-card')).toHaveCount(1)
-    await expect(dialog.locator('.dialog-status')).toHaveCount(0)
-    await expect(dialog.getByRole('button', { name: '重试连接' })).toHaveCount(0)
-    await expect(card.locator('details')).not.toHaveAttribute('open')
-    expect(Math.abs((await dialog.boundingBox())!.height - before.height)).toBeLessThan(24)
-    await dialog.getByRole('button', { name: '选择其他 App' }).click()
-    await expect(dialog.getByRole('combobox')).toBeFocused()
-    await expect(page.getByRole('tooltip')).toHaveCount(0)
-    await dialog.screenshot({ path: `test-results/pinekin-connect-card-result-${colorScheme}.png`, scale: 'css' })
-    await card.getByText('查看详情与其他方式', { exact: true }).click()
-    await expect(card.locator('.connection-card-reason')).toContainText('暂不能自动定位')
-    await expect(card.getByRole('button', { name: '使用自定义位置…' })).toBeVisible()
+    await selectSource('newmax'); await selectSource('codex'); await submit()
+    await expect(dialog.getByRole('alert')).toHaveCount(2)
+    await expect(dialog.getByRole('button', { name: '重试所选 App', exact: true })).toBeEnabled()
+    for (const card of await dialog.locator('.connection-card').all()) {
+      await expect(card.locator('details')).not.toHaveAttribute('open')
+      await card.getByText('查看详情与其他方式', { exact: true }).click()
+      await expect(card.getByRole('button', { name: '使用自定义位置…' })).toBeVisible()
+    }
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     const footer = (await dialog.locator('.dialog-footer').boundingBox())!
     expect(footer.y + footer.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight))
     expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
-    await selectSource('claude-code')
-    await expect(card.locator('details')).not.toHaveAttribute('open')
-    await expect(card.getByRole('alert')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     await background()
@@ -428,5 +618,5 @@ test('preload 仅暴露具名来源 API，IPC 拒绝非法来源、路径读取�
   })
   expect(Object.values(results).every(Boolean)).toBe(true)
   expect(await readdir(data)).not.toContain('connections.json')
-  await expect(page.getByRole('button', { name: /^NewMax\s*未连接$/ })).toBeVisible()
+  await expect(page.locator('.sidebar-section').getByRole('button', { name: /^NewMax/ })).toHaveCount(0)
 })
