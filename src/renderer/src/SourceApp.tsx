@@ -128,8 +128,13 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
         setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === selected.id
           ? { ...item, title: result.session.title, availability: 'readable', reason: undefined } : item) }))
       }
-    }).catch(reason => {
-      if (request === readRequest.current) setReadError(errorText(reason))
+    }).catch(async reason => {
+      if (request === readRequest.current) {
+        // 正文读取已经结束，不能让后续来源检查延长加载态并与失败占位叠加。
+        setReading(false); setReadError(errorText(reason))
+        // 用主进程的能力状态区分不支持与暂时失败，不靠错误文案猜测或删除条目。
+        await checkSources('manual', [selected.connectionId])
+      }
     }).finally(() => { if (request === readRequest.current) setReading(false) })
     return () => { readRequest.current += 1 }
   }, [selected?.id, readAttempt])
