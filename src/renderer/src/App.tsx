@@ -6,6 +6,7 @@ import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { Sidebar } from './components/Sidebar'
+import { SessionPane } from './components/SessionPane'
 import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
@@ -205,7 +206,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
     </Sidebar>
     <main className="workspace-card">
       <div className="workspace">
-        <section className="session-pane" aria-label="会话列表">
+        <SessionPane label="会话列表">
           {!separateNavigation && <header className="topbar">{navigationButtons}</header>}
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{loadError ? '读取失败' : !loaded && !sessions.length ? '正在读取…' : `${visible.length} 段会话`}</span></div>
           <ScrollArea className="session-list" aria-busy={!loaded && !loadError}>
@@ -216,7 +217,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
             </button>)}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" />}
           </ScrollArea>
-        </section>
+        </SessionPane>
         <section className="detail" aria-label="会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
             <div className="detail-header">

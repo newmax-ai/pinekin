@@ -98,6 +98,10 @@ h1, h2, h3, strong { font-weight: 500; }
 .workspace { display: flex; flex: 1; min-height: 0; }
 .session-pane { width: var(--list-width); flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; background: var(--ds-surface-200); border-right: 1px solid var(--ds-divider); }
 .session-pane { position: relative; }
+/* 会话栏位于卡片内部，沿用侧栏渐隐高亮，不再额外扣除卡片外边距。 */
+.session-resize-handle { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; z-index: 5; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
+.session-resize-handle::after { content: ''; position: absolute; top: var(--ds-radius-lg); bottom: var(--ds-radius-lg); left: 2px; width: 2px; border-radius: var(--ds-radius-pill); background: linear-gradient(to bottom, transparent, var(--ds-text-tertiary) 16px, var(--ds-text-tertiary) calc(100% - 16px), transparent); opacity: 0; }
+.session-resize-handle:hover::after, .session-resize-handle:focus-visible::after, .session-pane[data-resizing='true'] .session-resize-handle::after { opacity: 1; }
 .list-heading { padding: 16px 20px 12px; display: flex; gap: 8px; align-items: center; min-height: 48px; }
 .list-heading h2 { flex: 1; min-width: 0; font-size: var(--ds-text-dense); line-height: 20px; }
 .list-heading > span { font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }

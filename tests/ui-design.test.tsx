@@ -269,6 +269,18 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(highlight).toContain('opacity: 0;')
     expect(styles).toMatch(/\.sidebar-resize-handle:hover::after, \.sidebar-resize-handle:focus-visible::after, \.sidebar\[data-resizing='true'\] \.sidebar-resize-handle::after\s*\{[^}]*opacity: 1;/)
   })
+  it('会话栏有独立的全高拖拽区域，渐隐高亮避开圆角且拖拽时持续显示', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const handle = /\.session-resize-handle\s*\{([^}]*)\}/.exec(styles)?.[1]
+    const highlight = /\.session-resize-handle::after\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(handle).toContain('width: 6px;')
+    expect(handle).toContain('touch-action: none;')
+    expect(handle).toContain('-webkit-app-region: no-drag;')
+    expect(highlight).toContain('top: var(--ds-radius-lg);')
+    expect(highlight).toContain('bottom: var(--ds-radius-lg);')
+    expect(highlight).toContain('linear-gradient(to bottom, transparent, var(--ds-text-tertiary) 16px, var(--ds-text-tertiary) calc(100% - 16px), transparent)')
+    expect(styles).toMatch(/\.session-pane\[data-resizing='true'\] \.session-resize-handle::after\s*\{[^}]*opacity: 1;/)
+  })
   it('UI 文案默认不可选中，仅正文、代码、交接预览及编辑区域允许选择', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/body\s*\{[^}]*-webkit-user-select: none;[^}]*user-select: none;/)

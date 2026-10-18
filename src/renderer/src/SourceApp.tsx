@@ -3,6 +3,7 @@ import { browsableSources, sourceNames, type BrowsableSource, type SourceConnect
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { Sidebar } from './components/Sidebar'
+import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
@@ -330,7 +331,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
         </section></div>
       </Sidebar>
       <main className="workspace-card"><div className="workspace">
-        <section className="session-pane" aria-label="来源会话列表">
+        <SessionPane label="来源会话列表">
           {!separateNavigation && <header className="topbar">{toolbar}</header>}
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status">{count}</span>
             <DsButton variant="ghost" size="small" aria-label="刷新当前来源" disabled={!loaded || busy || checking || scanning || !relevant.length} onClick={() => refresh()}>{checking ? '检查中…' : '刷新'}</DsButton>
@@ -344,7 +345,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
             {page.hasMore && <DsButton disabled={scanning || loadingMore || checking || pendingList || !loaded} onClick={() => void more()}>{loadingMore ? '正在加载…' : '加载更多'}</DsButton>}
           </ScrollArea>
           {pendingList && <DsButton className="source-list-update" size="small" aria-label="列表有更新，点击查看" disabled={checking || loadingMore} onClick={() => void showListUpdates()}>列表有更新，点击查看</DsButton>}
-        </section>
+        </SessionPane>
         <section className="detail" aria-label="来源会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
             <div className="detail-header">

@@ -442,7 +442,8 @@ describe('档案界面', () => {
     fireEvent.click(text)
     expect(source.getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '收起侧栏' }))
-    expect(screen.queryByRole('separator')).toBeNull()
+    expect(screen.queryByRole('separator', { name: '调整侧栏宽度' })).toBeNull()
+    expect(screen.getByRole('separator', { name: '调整会话栏宽度' })).toBeTruthy()
   })
   it('品牌只显示文字，来源用本地客户端图标而非圆点', async () => {
     await open()
