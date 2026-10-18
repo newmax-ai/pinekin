@@ -263,7 +263,7 @@ test('来源主界面沿用原布局、插画、紧凑卡片和弹窗搜索，�
 })
 
 test('空档案库直接连接、完整计数、分页搜索、按需正文，重启只保留位置授权', async () => {
-  await expect(page.getByRole('heading', { name: '让第一段思考，在这里停靠' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '尚未连接会话来源' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Claude Code\s*未连接$/ })).toBeVisible()
   await connect()
   await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toBeVisible()
@@ -297,7 +297,7 @@ test('损坏日志保留且失败有原因，刷新发现增删，断开撤销�
   await connect()
   await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toBeVisible()
   await openMatchingSession('broken')
-  await expect(page.getByRole('heading', { name: '会话已发现，正文暂不可用' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '暂时无法读取这段会话' })).toBeVisible()
   await expect(page.getByRole('alert')).toContainText('格式')
   await writeFile(join(source, 'new-one.jsonl'), claudeFixture())
   await searchFor('')

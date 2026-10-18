@@ -7,27 +7,38 @@ import { DesignIcon, DsButton } from '../src/renderer/src/components/ui'
 
 afterEach(cleanup)
 const themes = readFileSync(resolve('src/renderer/src/tokens.css'), 'utf8').split('@media (prefers-color-scheme: dark)')
-function color(theme: string, name: string) {
-  const match = new RegExp(`--ds-${name}:\\s*(#[0-9a-f]{6});`, 'i').exec(theme)
-  expect(match, `${name} 应有明确的六位颜色值`).not.toBeNull()
-  return match![1].toLowerCase()
+function declaration(theme: string, name: string) {
+  const pattern = new RegExp(`--ds-${name}:\\s*([^;]+);`, 'i')
+  const match = pattern.exec(theme) ?? pattern.exec(themes[0])
+  expect(match, `${name} 应有明确的主题定义`).not.toBeNull()
+  return match![1].trim()
 }
-function luminance(hex: string) {
-  const rgb = [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16) / 255)
+function color(theme: string, name: string) {
+  return declaration(theme, name).replace(/var\(--ds-text-rgb\)/g, () => declaration(theme, 'text-rgb')).toLowerCase()
+}
+function channels(value: string) {
+  if (/^#[0-9a-f]{6}$/i.test(value)) return [...[1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16)), 1]
+  expect(value).toMatch(/^rgba\([\d.,\s]+\)$/)
+  return value.match(/[\d.]+/g)!.map(Number)
+}
+function luminance(channels: number[]) {
+  const rgb = channels.slice(0, 3).map(value => value / 255)
     .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
   return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
 }
 function contrast(a: string, b: string) {
-  const values = [luminance(a), luminance(b)].sort((a, b) => b - a)
+  const foreground = channels(a), background = channels(b)
+  const composite = foreground.slice(0, 3).map((value, index) => value * foreground[3] + background[index] * (1 - foreground[3]))
+  const values = [luminance(composite), luminance(background)].sort((a, b) => b - a)
   return (values[0] + 0.05) / (values[1] + 0.05)
 }
 
 describe('Staithe 中性主题与图标契约', () => {
   it.each(themes.map((css, index) => ({ css, name: index ? '深色' : '浅色' })))('$name 的表面和常规文字均为中性灰', ({ css }) => {
     for (const token of ['surface-100', 'surface-200', 'surface-300', 'surface-400', 'text-primary', 'text-secondary', 'text-tertiary', 'icon']) {
-      const value = color(css, token)
-      expect(value.slice(1, 3), token).toBe(value.slice(3, 5))
-      expect(value.slice(3, 5), token).toBe(value.slice(5, 7))
+      const value = channels(color(css, token))
+      expect(value[0], token).toBe(value[1])
+      expect(value[1], token).toBe(value[2])
     }
   })
   it('主按钮浅色黑底白字、深色白底黑字，不改变品牌强调色', () => {
@@ -40,9 +51,22 @@ describe('Staithe 中性主题与图标契约', () => {
   })
   it.each(themes.map((css, index) => ({ css, name: index ? '深色' : '浅色' })))('$name 的主按钮及小字保持可读对比度', ({ css }) => {
     expect(contrast(color(css, 'action-primary'), color(css, 'action-primary-text'))).toBeGreaterThanOrEqual(4.5)
-    for (const token of ['text-primary', 'text-secondary', 'text-tertiary']) {
+    for (const token of ['text-primary', 'text-secondary']) {
       expect(contrast(color(css, token), color(css, 'surface-300')), token).toBeGreaterThanOrEqual(4.5)
     }
+  })
+  it('三档文字共用主题基色，仅以 88%／65%／40% 的 alpha 区分，不改按钮与语义颜色', () => {
+    for (const [index, theme] of themes.entries()) {
+      const base = index ? '255, 255, 255' : '0, 0, 0'
+      expect(declaration(theme, 'text-rgb')).toBe(base)
+      for (const [level, alpha] of [['primary', 0.88], ['secondary', 0.65], ['tertiary', 0.4]] as const) {
+        expect(declaration(theme, `text-${level}`)).toBe(`rgba(var(--ds-text-rgb), ${alpha})`)
+        expect(color(theme, `text-${level}`)).toBe(`rgba(${base}, ${alpha})`)
+      }
+    }
+    expect(themes[1]).not.toMatch(/--ds-text-(?:primary|secondary|tertiary):/)
+    expect(color(themes[0], 'danger')).toBe('#b64a34')
+    expect(color(themes[1], 'danger')).toBe('#e56555')
   })
   it('操作按钮显式标记胶囊，不依赖 iconOnly 推断是否为圆', () => {
     const { container } = render(<><DsButton>普通操作</DsButton><DsButton iconOnly aria-label="图标操作"><DesignIcon name="search" /></DsButton></>)
@@ -126,6 +150,69 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(footer).toContain('gap: 12px;')
     expect(styles).toMatch(/\.dialog-footer\s*\{[^}]*border-top: 1px solid var\(--ds-divider\);/)
     expect(styles).toMatch(/\.session-pane\s*\{[^}]*border-right: 1px solid var\(--ds-divider\);/)
+  })
+  it('空占位直接使用全局 tertiary，不叠加局部透明度或场景色阶', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const base = /\.empty-state\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(base).toContain('color: var(--ds-text-tertiary);')
+    expect(base).toContain('font-weight: 400;')
+    expect(base).not.toMatch(/opacity:|filter:/)
+    expect(styles).not.toMatch(/--empty-(?:title|description)-color|data-empty-tone/)
+    for (const selector of ['.empty-state h3', '.empty-state-hero h2']) {
+      const rule = styles.slice(styles.indexOf(`${selector} {`)).split('}')[0]
+      expect(rule).toContain('color: var(--ds-text-tertiary);')
+      expect(rule).toContain('font-weight: 400;')
+      expect(rule).not.toContain('var(--ds-text-primary)')
+    }
+    const description = /\.empty-description\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(description).toContain('color: var(--ds-text-tertiary);')
+    const action = /\.empty-state > \.ds-button\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(action).not.toMatch(/color:|background:/)
+    expect(action).toContain('font-weight: 400;')
+    expect(action).not.toMatch(/opacity:|filter:|outline:/)
+  })
+  it('空占位在所属区域居中，仅空容器参与弹性布局并保留溢出滚动', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.empty-state\s*\{[^}]*flex-shrink: 0;/)
+    expect(styles).toContain('.detail > .empty-state { margin: auto; }')
+    expect(styles).toContain('.detail:has(> .empty-state) { overflow-y: auto; }')
+    expect(styles).toContain('.session-list:has(> .empty-state:only-child)')
+    expect(styles).toContain('.messages:has(> .message-column > .empty-state:only-child)')
+    expect(styles).toMatch(/\.session-list > \.empty-state:only-child,[^{]*\.message-column:has\(> \.empty-state:only-child\)\s*\{[^}]*margin-block: auto;/)
+    expect(styles).toContain('.dialog-content:has(> .empty-state:only-child)')
+    expect(styles).toContain('.search-content:has(> .empty-state)')
+    expect(styles).toContain('.dialog-content > .empty-state { margin: auto; }')
+    expect(styles).not.toMatch(/\.empty-state(?:-hero|-quiet)?\s*\{[^}]*(?:position: absolute|height: 100vh|justify-content: center)/)
+  })
+  it('大占位插画与标题小幅缩小，保留弱对比度、描述及其他插画尺寸', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const illustration = /\.empty-illustration\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(illustration).toContain('opacity: 0.5;')
+    expect(illustration).toContain('filter: saturate(0.4);')
+    expect(illustration).toContain('width: 120px;')
+    expect(styles).toMatch(/\.empty-state-hero \.empty-illustration\s*\{[^}]*width: 184px;/)
+    expect(styles).toMatch(/@media \(max-height: 700px\)\s*\{\s*\.empty-state-hero \.empty-illustration\s*\{[^}]*width: 144px;/)
+    expect(styles).toMatch(/\.empty-state-hero h2\s*\{[^}]*font-size: 16px;/)
+    expect(styles).toMatch(/\.empty-description\s*\{[^}]*font-size: var\(--ds-text-sm\);/)
+    expect(styles).not.toMatch(/\.empty-state[^}]*pointer-events: none;/)
+  })
+  it('空占位标题与描述紧凑为 4px，不改变插画和行动间距', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.empty-state\s*\{[^}]*gap: 10px;/)
+    expect(styles).toMatch(/\.empty-state-hero\s*\{[^}]*gap: 12px;/)
+    expect(styles).toMatch(/\.empty-state h3 \+ \.empty-description\s*\{[^}]*margin-top: -6px;/)
+    expect(styles).toMatch(/\.empty-state-hero h2 \+ \.empty-description\s*\{[^}]*margin-top: -8px;/)
+    expect(styles).toMatch(/\.empty-state > \.ds-button\s*\{[^}]*margin-top: 6px;/)
+  })
+  it.each(themes.map((css, index) => ({ css, name: index ? '深色' : '浅色' })))('$name 全局 tertiary 作为弱辅助色，与正文和次要文字明确分级', ({ css }) => {
+    for (const surface of ['surface-100', 'surface-200', 'surface-300']) {
+      const background = color(css, surface)
+      const muted = contrast(color(css, 'text-tertiary'), background)
+      expect(muted, surface).toBeGreaterThanOrEqual(2.5)
+      expect(muted, surface).toBeLessThan(4.5)
+      expect(muted, surface).toBeLessThan(contrast(color(css, 'text-secondary'), background))
+      expect(muted, surface).toBeLessThan(contrast(color(css, 'text-primary'), background))
+    }
   })
   it('档案末尾文字和短线共用淡化至 60% 的 tertiary，不改变间距或全局颜色', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')

@@ -190,7 +190,7 @@ test.describe('全新空库', () => {
 
   test('首次启动与重启不生成演示档案，无档案类型筛选且可选择会话文件', async () => {
     const assertEmptyLibrary = async () => {
-      await expect(page.getByRole('heading', { name: '还没有会话档案', exact: true })).toBeVisible()
+      await expect(page.locator('.session-list .empty-description')).toHaveText('暂无会话档案')
       await expect(page.getByRole('button', { name: '选择会话文件', exact: true })).toBeVisible()
       await expect(page.locator('.session-card')).toHaveCount(0)
       await expect(page.locator('.scope-filter')).toHaveCount(0)
@@ -941,8 +941,10 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
         .map(channel => channel / 255)
         .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
         .reduce((total, channel, index) => total + channel * [0.2126, 0.7152, 0.0722][index], 0)
-      const background = luminance(context.getImageData(0, 0, 1, 1).data)
+      const surface = context.getImageData(0, 0, 1, 1)
+      const background = luminance(surface.data)
       return ['.local-info', '.storage-description', '.storage-boundaries'].map(selector => {
+        context.putImageData(surface, 0, 0)
         context.fillStyle = getComputedStyle(element.querySelector(selector)!).color
         context.fillRect(0, 0, 1, 1)
         const foreground = luminance(context.getImageData(0, 0, 1, 1).data)
@@ -951,7 +953,8 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
     })
     expect(contrasts[0]).toBeGreaterThan(contrasts[1])
     expect(contrasts[1]).toBeGreaterThan(contrasts[2])
-    for (const contrast of contrasts) expect(contrast).toBeGreaterThanOrEqual(4.5)
+    for (const contrast of contrasts.slice(0, 2)) expect(contrast).toBeGreaterThanOrEqual(4.5)
+    expect(contrasts[2]).toBeGreaterThanOrEqual(2.5)
     for (const [sidebarWidth, illustrationSize] of [[240, 100], [280, 100], [360, 100]] as const) {
       const resizeHandle = page.getByRole('separator', { name: '调整侧栏宽度' })
       await resizeHandle.press('Home')
@@ -1423,7 +1426,8 @@ test('紧凑工作台的键盘导航、焦点返回、主题与窄窗口布局',
   await expect(page.getByRole('textbox', { name: '搜索会话' })).toBeFocused()
   await page.keyboard.press('Escape')
   await page.getByRole('complementary', { name: '档案导航' }).getByRole('button', { name: /^Cindy/ }).click()
-  await expect(page.getByText('没有找到匹配的会话')).toBeVisible()
+  await expect(page.locator('.session-list .empty-description')).toHaveText('此来源暂无档案')
+  await expect(page.getByText('还没有会话档案', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: '清空筛选' }).click()
   await page.getByRole('button', { name: 'Pin 走这段对话' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()

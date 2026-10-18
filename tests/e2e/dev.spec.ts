@@ -32,7 +32,7 @@ test('开发入口隔离宿主环境并在后台真正渲染 React', async () =>
     try {
       const context = browser.contexts()[0]
       const page = context.pages()[0] ?? await context.waitForEvent('page')
-      await expect(page.getByRole('heading', { level: 2, name: '让第一段思考，在这里停靠' })).toBeVisible()
+      await expect(page.getByRole('heading', { level: 2, name: '尚未连接会话来源' })).toBeVisible()
       await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeVisible()
       await expect(page.locator('.storage-illustration')).toBeVisible()
     } finally { await browser.close() }

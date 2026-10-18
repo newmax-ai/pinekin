@@ -9,6 +9,7 @@ import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { SourceApp } from './SourceApp'
+import { EmptyState, resolveArchiveEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
 const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
@@ -47,10 +48,11 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const visible = filterSessions(sessions, query, source)
   const selected = visible.find(s => s.id === selectedId) ?? visible[0]
+  const emptyKind = resolveArchiveEmptyState({ loaded, error: loadError, total: sessions.length, count: visible.length, query, filtered: source !== 'all' })
 
   useEffect(() => {
     let active = true
-    setLoadError('')
+    setLoaded(false); setLoadError('')
     window.staithe.list().then(data => { if (active) { setSessions(data); setLoaded(true) } })
       .catch(error => { if (active) setLoadError(error instanceof Error ? error.message : String(error)) })
     return () => { active = false }
@@ -153,6 +155,11 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
     void perform(async () => { await window.staithe.copy(text); setStatus(message) })
   }
 
+  function emptyAction(kind: EmptyStateKind): EmptyStateAction | undefined {
+    if (kind === 'archive-error') return { label: '重新加载', disabled: busy, onClick: () => setLoadAttempt(value => value + 1) }
+    if (kind === 'archives-empty') return { label: '选择会话文件', disabled: busy || !loaded, onClick: previewImport }
+    if (kind === 'no-results' || kind === 'source-empty') return { label: '清空筛选', onClick: () => { resetFilters(); search.current?.focus() } }
+  }
   const navigationButtons = <nav className="header-navigation" aria-label="浏览导航">
     <DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="返回" disabled={!loaded || busy || navigation.index === 0} onClick={() => travel(-1)}><DesignIcon name="back" /></DsButton>
     <DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="前进" disabled={!loaded || busy || navigation.index === navigation.entries.length - 1} onClick={() => travel(1)}><DesignIcon name="arrow" /></DsButton>
@@ -198,15 +205,14 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
       <div className="workspace">
         <section className="session-pane" aria-label="会话列表">
           {!separateNavigation && <header className="topbar">{navigationButtons}</header>}
-          <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{visible.length} 段会话</span></div>
+          <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{loadError ? '读取失败' : !loaded && !sessions.length ? '正在读取…' : `${visible.length} 段会话`}</span></div>
           <ScrollArea className="session-list" aria-busy={!loaded && !loadError}>
-            {!loaded && !loadError && <div className="empty" role="status"><DesignIcon name="archive" size={24} /><p>正在读取本地档案…</p></div>}
-            {loadError && <div className="empty"><DesignIcon name="info" size={24} /><h3>暂时无法读取档案</h3><p role="alert">{loadError}</p><DsButton onClick={() => setLoadAttempt(value => value + 1)}>重新加载</DsButton></div>}
+            {loadError && visible.length > 0 && <EmptyState kind="archive-error" layout="quiet" description={loadError} action={emptyAction('archive-error')} />}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
               <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><time dateTime={s.updatedAt}>{s.updatedAt.slice(5, 10).replace('-', '.')}</time></div>
               <h3>{s.title}</h3>
             </button>)}
-            {loaded && !visible.length && <div className="empty"><DesignIcon name="search" size={24} /><h3>{sessions.length ? '没有找到匹配的会话' : '还没有会话档案'}</h3><p>{sessions.length ? '试试其他关键词，或清空当前筛选。' : '导入后，你的会话会出现在这里。'}</p>{sessions.length > 0 && <DsButton onClick={resetFilters}>清空筛选</DsButton>}</div>}
+            {emptyKind && <EmptyState kind={emptyKind} layout="quiet" />}
           </ScrollArea>
         </section>
         <section className="detail" aria-label="会话详情" key={selected?.id ?? 'empty'}>
@@ -224,10 +230,12 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
                 {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
                 <MessageContent content={message.content} />
               </div>
-            </article>) : <div className="empty"><p>这段会话暂时没有消息</p></div>}<div className="conversation-end"><span />档案到这里，思考可以继续<span /></div></div></ScrollArea>
+            </article>) : <EmptyState kind="messages" />}{selected.messages.length > 0 && <div className="conversation-end"><span />档案到这里，思考可以继续<span /></div>}</div></ScrollArea>
             <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton>
               <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
-          </> : <div className="empty detail-empty"><div className="empty-mark"><DesignIcon name="dock" size={32} /></div><h2>{loaded && !sessions.length ? '让第一段思考，在这里停靠' : '换个地方，继续思考。'}</h2><p>{loaded && !sessions.length ? '选择一份会话文件，预览后保存到本机。' : '收好散落的对话，把上下文留给下一步。'}</p>{loaded && !sessions.length && <DsButton variant="primary" disabled={busy} onClick={previewImport}><DesignIcon name="plus" />选择会话文件</DsButton>}<span className="empty-footnote">本地归档 · 只读浏览 · 文本交接</span></div>}
+          </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
+            description={emptyKind === 'archive-error' ? loadError : undefined}
+            action={emptyKind ? emptyAction(emptyKind) : undefined} />}
         </section>
       </div>
       {!searchOpen && !handoff && !importPreview && status && <div className="toast" role="status"><DesignIcon name="info" /><span>{status}</span><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭提示" onClick={() => setStatus('')}><DesignIcon name="close" /></DsButton></div>}
@@ -248,7 +256,8 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
           onClick={() => { navigate({ selectedId: session.id }); setSearchOpen(false) }}>
           <SourceIcon source={session.source} /><span><strong>{session.title}</strong><small>{names[session.source]}</small></span><DesignIcon name="chevron" size={14} />
         </button>)}</ScrollArea>
-        {!visible.length && <p className="search-empty">没有匹配的档案</p>}
+        {emptyKind && <EmptyState kind={emptyKind} title={emptyKind === 'no-results' ? '没有匹配的档案' : undefined} description={emptyKind === 'archive-error' ? loadError : undefined} action={emptyAction(emptyKind)} />}
+        {loadError && !emptyKind && <p role="alert" className="dialog-status">{loadError}</p>}
       </ScrollArea>
     </DsDialog>}
     {importPreview && <DsDialog titleId="import-title" onDismiss={cancelImport} busy={busy} returnFocus={importTrigger.current}>

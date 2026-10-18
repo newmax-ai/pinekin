@@ -168,13 +168,34 @@ button, input, select, summary, [tabindex] { outline-offset: 3px; }
 .conversation-end span { width: 32px; border-top: 1px solid currentColor; }
 .detail-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 12px 24px; gap: 12px; }
 .detail-footer .ds-button-primary { padding: 0 16px; }
-.empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 36px 16px; text-align: center; color: var(--ds-text-tertiary); line-height: 1.8; overflow-wrap: anywhere; }
-.empty h3 { color: var(--ds-text-secondary); font-size: var(--ds-text-base); }
-.empty > p { font-size: var(--ds-text-sm); }
-.detail-empty { margin: auto; }
-.detail-empty h2 { color: var(--ds-text-primary); font-size: var(--ds-text-title); letter-spacing: -0.6px; }
-.empty-mark { display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 8px; background: var(--ds-surface-300); color: var(--ds-brand-primary); border-radius: var(--ds-radius-lg); }
-.empty-footnote { margin-top: 24px; font-size: var(--ds-text-xs); }
+/* 空占位只替换空区内容，沿用三栏、字体与表面；同屏插画与主行动由阅读区承载。 */
+.empty-state { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 10px; width: 100%; min-width: 0; padding: 28px 16px; text-align: center; color: var(--ds-text-tertiary); font-weight: 400; line-height: 1.7; overflow-wrap: anywhere; }
+.empty-state h3 { color: var(--ds-text-tertiary); font-size: var(--ds-text-base); font-weight: 400; line-height: 1.6; }
+.empty-description { max-width: 34em; color: var(--ds-text-tertiary); font-size: var(--ds-text-sm); text-wrap: pretty; }
+/* 只收紧标题和描述，保留插画与行动原有的呼吸空间。 */
+.empty-state h3 + .empty-description { margin-top: -6px; }
+.empty-state-hero h2 + .empty-description { margin-top: -8px; }
+.empty-illustration { display: block; flex-shrink: 0; width: 120px; max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; opacity: 0.5; filter: saturate(0.4); pointer-events: none; user-select: none; }
+.empty-state-hero { flex-shrink: 0; width: min(100%, 460px); margin: auto; padding: 32px 28px; gap: 12px; }
+.empty-state-hero h2 { color: var(--ds-text-tertiary); font-size: 16px; font-weight: 400; line-height: 1.5; letter-spacing: -0.6px; text-wrap: balance; }
+.empty-state-hero .empty-illustration { width: 184px; margin-bottom: 4px; }
+.empty-state > .ds-button { margin-top: 6px; font-weight: 400; }
+.empty-state-quiet { padding: 36px 16px; }
+/* 只在当前区域为空时使用弹性留白；内容过高时 auto margin 归零，仍可从顶部滚动。 */
+.detail > .empty-state { margin: auto; }
+.detail:has(> .empty-state) { overflow-y: auto; }
+.session-list:has(> .empty-state:only-child), .messages:has(> .message-column > .empty-state:only-child) { display: flex; flex-direction: column; scrollbar-gutter: stable both-edges; }
+.session-list:has(> .empty-state:only-child) { padding-block: 12px; }
+.session-list > .empty-state:only-child, .message-column:has(> .empty-state:only-child) { margin-block: auto; }
+.dialog-content:has(> .empty-state:only-child) { display: flex; flex-direction: column; min-height: min(280px, 40dvh); padding-top: 24px; }
+.search-content:has(> .empty-state) { min-height: min(320px, 50dvh); }
+.dialog-content > .empty-state { margin: auto; }
+.empty-progress { display: flex; align-items: center; gap: 5px; height: 24px; color: var(--ds-text-tertiary); }
+.empty-progress i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: empty-progress-pulse 1.4s ease-in-out infinite; }
+.empty-progress i:nth-child(2) { animation-delay: 0.15s; }
+.empty-progress i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes empty-progress-pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+@media (max-height: 700px) { .empty-state-hero .empty-illustration { width: 144px; } .empty-state-hero { padding-top: 24px; padding-bottom: 24px; } }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: min(680px, 90vw); padding: 8px 12px 8px 16px; background: var(--ds-surface-200); border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); box-shadow: var(--ds-elevation-300); z-index: 2; color: var(--ds-text-primary); line-height: 1.7; overflow-wrap: anywhere; }
 
 /* 原生 modal 负责焦点圈定；布局与视觉取自 NewMax DS。 */

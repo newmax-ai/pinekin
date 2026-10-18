@@ -4,9 +4,11 @@
   color-scheme: light dark;
   --ds-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --ds-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  --ds-text-primary: #202020;
-  --ds-text-secondary: #595959;
-  --ds-text-tertiary: #6b6b6b;
+  /* 三档文字只改变颜色 alpha，不降低元素及其子内容的 opacity。 */
+  --ds-text-rgb: 0, 0, 0;
+  --ds-text-primary: rgba(var(--ds-text-rgb), 0.88);
+  --ds-text-secondary: rgba(var(--ds-text-rgb), 0.65);
+  --ds-text-tertiary: rgba(var(--ds-text-rgb), 0.4);
   --ds-brand-primary: #315fca;
   --ds-brand-primary-text: #ffffff;
   --ds-action-primary: #171717;
@@ -57,9 +59,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ds-text-primary: #ededed;
-    --ds-text-secondary: #b3b3b3;
-    --ds-text-tertiary: #969696;
+    --ds-text-rgb: 255, 255, 255;
     --ds-brand-primary: #86a8f8;
     --ds-brand-primary-text: #111b32;
     --ds-action-primary: #ffffff;
