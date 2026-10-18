@@ -221,7 +221,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
         <section className="detail" aria-label="会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
             <div className="detail-header">
-              <div className="detail-title-row"><h2>{selected.title}</h2><div className="reader-state"><span className="archive-badge">本地档案</span><span className="read-only"><DesignIcon name="lock" size={13} />只读</span></div></div>
+              <div className="detail-title-row"><h2>{selected.title}</h2><div className="reader-state"><span className="archive-badge">本地档案</span></div></div>
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{names[selected.source]}</span><span>{selected.messages.length} 条消息</span><time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>仅文本 · 非原生会话</span></div>
             </div>
             {selected.archive && <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>导入报告 · 仅文本档案</span><span className="report-count">{selected.archive.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary>

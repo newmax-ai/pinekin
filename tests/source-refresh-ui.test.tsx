@@ -34,6 +34,12 @@ async function refresh() {
 }
 
 describe('不打断阅读的来源刷新', () => {
+  it('来源详情保留来源直读标签，不显示只读文案和锁图标', async () => {
+    await open()
+    const header = screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-header')!
+    expect(header.querySelector('.reader-state')?.textContent).toBe('来源直读')
+    expect(header.querySelector('.read-only, .reader-state svg')).toBeNull()
+  })
   it('手动刷新保留正文、选择、分页及两个滚动位置；向下翻找时仅提示列表更新', async () => {
     const messages = await open()
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))

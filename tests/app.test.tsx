@@ -473,7 +473,8 @@ describe('档案界面', () => {
     const header = reader.querySelector('.detail-header') as HTMLElement
     expect(within(header).getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeTruthy()
     expect(within(header).getByText('本地档案')).toBeTruthy()
-    expect(within(header).getByText('只读')).toBeTruthy()
+    expect(within(header).queryByText('只读')).toBeNull()
+    expect(header.querySelector('.read-only, .reader-state svg')).toBeNull()
     expect(within(header).getByText('仅文本 · 非原生会话')).toBeTruthy()
     expect(header.querySelector('.detail-meta')?.textContent).toContain(`${demoSessions[0].messages.length} 条消息`)
     expect(header.querySelector('.detail-meta time')?.getAttribute('dateTime')).toBe(demoSessions[0].updatedAt)
