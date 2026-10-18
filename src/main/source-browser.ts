@@ -12,12 +12,21 @@ import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema
 import { parseSourceArchive, type SourceArchive } from './source-reader'
 import { parseNewMaxLocal } from './newmax-local'
 import { codexFirstPrompt, sourceTitle as titleText } from './source-conversation'
+import { isCodexSubagent } from './codex'
+import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
+import { deepseekFirstPrompt } from './deepseek'
+import { decodeCompressedLog } from './codex-zstd'
+import { parseCindyLocal } from './cindy-local'
+import { CINDY_SOURCE_SCHEMA } from './cindy-source-query'
+import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError as UnsupportedContent } from './source-origin'
 
 const configSchema = z.strictObject({ version: z.literal(1), connections: z.array(z.strictObject({
   id: connectionIdSchema, source: sourceSchema, path: z.string().min(1).max(4096),
 })).max(100) })
 type SavedConnection = z.infer<typeof configSchema>['connections'][number]
 type Entry = { summary: SourceEntry; path: string; rowId?: string }
+const visibleEntry = (entry: Entry) => entry.summary.availability !== 'unsupported'
+const visibleCount = (entries: Map<string, Entry>) => [...entries.values()].filter(visibleEntry).length
 type State = { saved: SavedConnection; view: SourceConnection; entries: Map<string, Entry>; generation: number; task?: Promise<void>
   initialized?: boolean; databaseStamp?: string; nextCheck?: number; failures?: number }
 const metadataBytes = 64 * 1024
@@ -239,8 +248,9 @@ export class SourceBrowser {
         if (draft.view.issues) for (const [id, entry] of previous) if (!draft.entries.has(id)) draft.entries.set(id, entry)
         if (!sameEntries(previous, draft.entries)) this.version += 1
         state.entries = draft.entries; state.databaseStamp = draft.databaseStamp; state.initialized = true
+        const count = visibleCount(state.entries)
         state.view = { ...draft.view, status: draft.view.issues ? 'partial' : 'ready', refreshing: false,
-          discovered: state.entries.size, total: draft.view.issues ? null : state.entries.size }
+          discovered: count, total: draft.view.issues ? null : count }
         state.failures = draft.view.issues ? (state.failures ?? 0) + 1 : 0
       } catch (error) {
         if (!active()) return
@@ -254,8 +264,9 @@ export class SourceBrowser {
   }
   private add(state: State, key: string, details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'>, path: string, rowId?: string) {
     const id = createHash('sha256').update(state.saved.id).update('\0').update(key).digest('hex')
+    const previous = state.entries.get(id)
+    state.view.discovered += Number(details.availability !== 'unsupported') - Number(previous !== undefined && visibleEntry(previous))
     state.entries.set(id, { path, rowId, summary: { ...details, id, connectionId: state.saved.id, source: state.saved.source } })
-    state.view.discovered = state.entries.size
   }
   private async scanLogs(state: State, active: () => boolean, previous: Map<string, Entry>) {
     const cached = new Map([...previous.values()].map(entry => [entry.path, entry]))
@@ -278,29 +289,41 @@ export class SourceBrowser {
             const old = cached.get(path)
             if (old?.summary.revision === details.revision && old.summary.availability !== 'unreadable') {
               if (!active()) return
-              state.entries.set(old.summary.id, { ...old, summary: { ...old.summary } }); state.view.discovered = state.entries.size
+              state.entries.set(old.summary.id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old))
               continue
             }
             details.updatedAt = date(stat.mtimeMs)
             if (stat.size > MAX_BYTES) { details.availability = 'unsupported'; details.reason = '正文超过 5 MB 读取上限，仍可查找此会话' }
-            else if (project.split(sep).includes('subagents')) { details.kind = 'subagent'; details.availability = 'unsupported'; details.reason = '已发现子会话；子会话正文与继承上下文尚未支持' }
-            const promptTitle = state.saved.source === 'claude-code' || state.saved.source === 'codex'
+            if (state.saved.source === 'claude-code' && !entry.name.endsWith('.jsonl')) {
+              details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
+            }
+            if (project.split(sep).includes('subagents')) details.kind = 'subagent'
+            const promptTitle = ['claude-code', 'codex', 'deepseek'].includes(state.saved.source)
+            if (state.saved.source === 'deepseek' && /\.jsonl\.(?:zst|zstd)$/.test(entry.name) && details.availability === 'unread') {
+              // 压缩流必须从头有界解码。只提取标题/ID，不调用正文投影，不缓存展开内容。
+              const text = await decodeCompressedLog(await readBounded(path, root, MAX_BYTES))
+              this.readMetadata(Buffer.from(text), details, state.saved.source)
+            }
             if (entry.name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
               const head = await readBounded(path, root, metadataBytes, true)
-              const tail = state.saved.source === 'claude-code' && stat.size > metadataBytes
+              const tail = (state.saved.source === 'claude-code' || state.saved.source === 'deepseek') && stat.size > metadataBytes
                 ? await readBounded(path, root, metadataBytes, true, true) : undefined
-              this.readMetadata(head, details, state.saved.source, tail)
-              // 只有整个小文件均为已知辅助元数据时才分类；预览残片或未知格式不能据此隐藏。
-              if (state.saved.source === 'claude-code' && stat.size <= metadataBytes) {
-                const records = head.toString('utf8').split('\n').filter(line => line.trim()).map(line => { try { return JSON.parse(line) } catch { return null } })
-                if (records.length && records.every(record => record && ['file-history-snapshot', 'file-history-delta', 'queue-operation'].includes(record.type))) {
-                  details.kind = 'internal'; details.availability = 'unsupported'; details.reason = '此文件仅含辅助运行记录，没有用户或助手对话；仍保留原文件入口'
-                }
-              }
-              // 仅标题缺失时扩展连续头部，涵盖跨 64 KiB 的快照／前置上下文；不扫描整份日志。
-              if (promptTitle && details.title === entry.name && stat.size > metadataBytes) {
+              let origin = this.readMetadata(head, details, state.saved.source, tail, stat.size <= metadataBytes)
+              // 标题或 Claude 客户端来源缺失时扩展连续头部；不能因先找到标题就漏掉长 SDK 首条记录。
+              const needsOrigin = state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined
+              if (promptTitle && (details.title === entry.name || needsOrigin) && stat.size > metadataBytes) {
                 const extended = await readBounded(path, root, 1024 * 1024, true)
-                this.readMetadata(extended, details, state.saved.source, tail)
+                origin = this.readMetadata(extended, details, state.saved.source, tail, stat.size <= 1024 * 1024)
+              }
+              // 预览不能确认独立侧链或晚出现的入口；在发布条目前完成能力检查，而不是让点击改写数量。
+              // 仅处理正文预算内且归属未定的日志；不投影、保存或索引其问答内容，标题仍沿用预览预算。
+              if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined && stat.size > 1024 * 1024) {
+                const bytes = await readBounded(path, root, MAX_BYTES, false, false, currentRevision => {
+                  if (currentRevision !== details.revision) throw new Error('来源在目录检查期间变化，请刷新后重试')
+                })
+                const support = { ...details }
+                this.readMetadata(bytes, support, state.saved.source, undefined, true)
+                details.availability = support.availability; details.reason = support.reason
               }
             }
           } catch (error) { details.availability = 'unreadable'; details.reason = failure(error) }
@@ -314,8 +337,12 @@ export class SourceBrowser {
       }
     }
   }
-  private readMetadata(head: Buffer, details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'>, source: BrowsableSource, tail?: Buffer) {
-    // Claude 标题按优先级选择；首问只从头部获取，不把尾部续问冒充首问。
+  private readMetadata(head: Buffer, details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'>, source: BrowsableSource, tail?: Buffer, completeHead = false) {
+    // Claude 标题按优先级选择；首问和原始客户端来源只从连续头部获取，不能用尾部续聊入口覆盖。
+    const origin = new ClaudeLogOrigin()
+    if (source === 'claude-code' && completeHead && isClaudeAuxiliaryLog(head.toString('utf8'))) {
+      details.kind = 'internal'; details.availability = 'unsupported'; details.reason = claudeAuxiliaryReason
+    }
     let custom = '', generated = '', summary = '', prompt = ''
     for (const [index, bytes] of [head, ...(tail ? [tail] : [])].entries()) for (const line of bytes.toString('utf8').split('\n')) {
       let value: Record<string, unknown>
@@ -326,9 +353,11 @@ export class SourceBrowser {
       const payload = value.payload as Record<string, unknown> | undefined
       if (value.type === 'session_meta' && payload && typeof payload.id === 'string') details.sourceSessionId = payload.id.slice(0, 512)
       if (source === 'claude-code') {
-        if (value.isSidechain === true) {
-          details.kind = 'subagent'; details.availability = 'unsupported'; details.reason = '已发现子会话；子会话正文与继承上下文尚未支持'
+        if (index === 0) origin.observe(value)
+        if (value.isCompactSummary || value.isVisibleInTranscriptOnly || value.logicalParentUuid != null || value.subtype === 'compact_boundary') {
+          details.availability = 'unsupported'; details.reason = 'Claude 压缩或逻辑父链边界尚未支持'
         }
+        if (value.isSidechain === true) details.kind = 'subagent'
         if (value.type === 'custom-title') custom = titleText(value.customTitle) || custom
         if (value.type === 'ai-title') generated = titleText(value.aiTitle) || generated
         if (value.type === 'summary') summary = titleText(value.summary) || summary
@@ -342,16 +371,30 @@ export class SourceBrowser {
           }
         }
       } else if (source === 'codex') {
-        if (value.type === 'session_meta' && payload && (payload.parent_thread_id != null || payload.subagent_history_start_ordinal != null || (payload.source && typeof payload.source === 'object' && 'subagent' in payload.source))) {
-          details.kind = 'subagent'; details.availability = 'unsupported'; details.reason = '已发现 Codex 子会话；继承上下文边界尚未支持'
+        if (value.type === 'session_meta' && payload) {
+          if (isCodexSubagent(payload)) details.kind = 'subagent'
+          if (payload.history_base != null || payload.forked_from_id != null ||
+            (typeof payload.history_mode === 'string' && !['legacy', 'paginated'].includes(payload.history_mode))) {
+            details.availability = 'unsupported'; details.reason = 'Codex 跨文件继承或未知历史模式尚未支持'
+          }
         }
         if (index === 0 && !prompt) prompt = codexFirstPrompt(value)
+      } else if (source === 'deepseek') {
+        if (value.type === 'session' && (value.version !== 4 || value.isSeeded !== false || value.delegationDepth !== 0)) {
+          details.availability = 'unsupported'; details.reason = '仅支持 DeepSeek v4 独立主会话'
+        }
+        if (index === 0 && !prompt) prompt = deepseekFirstPrompt(value)
       } else if (value.type === 'custom-title') details.title = short(value.customTitle, details.title)
       const data = value.data as Record<string, unknown> | undefined
-      if (value.type === 'session/title' && data) details.title = short(data.title, details.title)
+      if (source === 'deepseek' && value.type === 'session/title' && data) custom = titleText(data.title) || custom
     }
     if (source === 'claude-code') details.title = custom || generated || summary || prompt || details.title
     if (source === 'codex') details.title = prompt || details.title
+    if (source === 'deepseek') details.title = custom || prompt || details.title
+    if (source === 'claude-code' && origin.value(completeHead) === 'sdk') {
+      details.availability = 'unsupported'; details.reason = sdkOriginReason
+    }
+    return origin.value(completeHead)
   }
   private async scanDatabase(state: State, active: () => boolean, previous: Map<string, Entry>) {
     const cindy = state.saved.source === 'cindy'
@@ -363,10 +406,10 @@ export class SourceBrowser {
         const rowId = row.id
         const id = createHash('sha256').update(state.saved.id).update('\0').update(rowId).digest('hex')
         if (state.entries.has(id)) throw new Error('数据库会话 ID 重复，拒绝覆盖目录条目；统计不完整')
-        const reason = cindy ? 'Cindy 正文直读与协同边界尚未验证，仅提供会话目录' : row.is_private ? '隐私会话正文暂未支持' :
+        const reason = cindy ? (row.readable === 1 ? undefined : '非普通桌面会话，或涉及分叉、协作、远程、隐藏及非活动边界，正文未支持') : row.is_private ? '隐私会话正文暂未支持' :
           row.forked_from_id != null ? '分叉会话正文暂未支持' : row.source !== 'app' ? '非普通 App 会话正文暂未支持' : Number(row.message_count) === 0 ? '此会话没有当前消息' : undefined
         const old = previous.get(id), rowRevision = revision(row)
-        if (old?.summary.revision === rowRevision) { state.entries.set(id, { ...old, summary: { ...old.summary } }); state.view.discovered = state.entries.size }
+        if (old?.summary.revision === rowRevision) { state.entries.set(id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old)) }
         else this.add(state, rowId, { sourceSessionId: rowId, title: short(row.title, rowId), project: '', updatedAt: date(row.updated_at), revision: rowRevision,
           availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
       }
@@ -378,7 +421,7 @@ export class SourceBrowser {
     await this.load()
     const search = query.query.trim().toLocaleLowerCase()
     const entries = [...this.states.values()].filter(state => (!query.connectionId || state.saved.id === query.connectionId) && (!query.source || state.saved.source === query.source))
-      .flatMap(state => [...state.entries.values()])
+      .flatMap(state => [...state.entries.values()]).filter(visibleEntry)
       .filter(({ summary: entry, path, rowId }) => [entry.title, entry.project, entry.sourceSessionId ?? '', rowId === undefined ? basename(path) : ''].join('\n').toLocaleLowerCase().includes(search))
       .map(entry => entry.summary)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
@@ -401,6 +444,7 @@ export class SourceBrowser {
       let contentRevision: string | undefined
       const parsed: SourceArchive = state.saved.source === 'newmax'
         ? await this.readNewMax(entry, value => { contentRevision = value })
+        : state.saved.source === 'cindy' ? await this.readCindy(entry, value => { contentRevision = value })
         : await parseSourceArchive(await readBounded(entry.path, state.saved.path, MAX_BYTES, false, false, value => { contentRevision = value }))
       // 后台目录检查不取消正在阅读的正文；撤销授权或删除条目仍立即失效。
       if (this.states.get(state.saved.id) !== state || !state.entries.has(id)) throw new Error('来源已删除或断开，旧的正文请求已取消')
@@ -416,17 +460,39 @@ export class SourceBrowser {
       ] }
     } catch (error) {
       if (this.states.get(state.saved.id) === state && state.entries.get(id) === entry) {
-        entry.summary.availability = 'unreadable'; entry.summary.reason = failure(error)
+        entry.summary.availability = error instanceof UnsupportedContent ? 'unsupported' : 'unreadable'; entry.summary.reason = failure(error)
+        if (error instanceof UnsupportedContent) {
+          state.view.discovered = visibleCount(state.entries)
+          if (state.view.status === 'ready') state.view.total = state.view.discovered
+          this.version += 1
+        }
       }
       throw new Error(failure(error))
     }
+  }
+  private async readCindy(entry: Entry, onRead: (revision: string) => void): Promise<SourceArchive> {
+    const { session: row, budget, rows: messages } = await readSourceDatabase(entry.path, 'cindy', entry.rowId!)
+    if (!row) throw new Error('来源会话已删除，请刷新')
+    if (row.readable !== 1) throw new UnsupportedContent('仅支持普通桌面会话；当前会话涉及分叉、协作、远程、隐藏或非活动边界，未读取正文')
+    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new UnsupportedContent('正文超过读取预算，不截断内容')
+    onRead(revision({ id: row.id, title: row.title, updated_at: row.updated_at, readable: row.readable }))
+    const parsed = parseCindyLocal({ format: 'pinekin.cindy-local-snapshot', version: 1, sourceVersion: CINDY_SOURCE_SCHEMA,
+      session: { id: row.id, title: row.title, source: row.source, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+        parentSessionId: row.parent_session_id, remoteHostId: row.remote_host_id, orcaRole: row.orca_role, clearedAt: row.cleared_at },
+      messages: messages.map(message => ({ id: message.id, role: message.role, content: message.content, createdAt: message.created_at, rewindAt: message.rewind_at })) })
+    return { ...parsed, sourceName: 'Cindy · 来源直读', session: { ...parsed.session, tags: ['Cindy', '来源直读', '文本投影'] }, warnings: [
+      '依据已核对的 Cindy 0.1.110 字段结构检查，未根据数据库声称当前客户端版本；不写入或原生恢复。',
+      '仅在同一只读事务中投影选定普通桌面会话的当前用户与助手文本；清空前、已回退、推理和工具记录不读取到正文。',
+      '按 created_at + rowid 保持同时间消息的原始顺序；用户对象只提取 text，不访问图片、附件、配置或凭据。',
+      '未落盘保存快照，也未复制数据库；分叉、协作和远程会话仍不支持。',
+    ] }
   }
   private async readNewMax(entry: Entry, onRead: (revision: string) => void) {
     const { session: row, budget, rows: messages } = await readSourceDatabase(entry.path, 'newmax', entry.rowId!)
     if (!row) throw new Error('来源会话已删除，请刷新')
     onRead(revision(row))
-    if (row.source !== 'app' || row.is_private || row.forked_from_id != null) throw new Error('会话已变为隐私、分叉或非普通会话，请刷新')
-    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new Error('正文超过读取预算，仍保留会话目录，不截断内容')
+    if (row.source !== 'app' || row.is_private || row.forked_from_id != null) throw new UnsupportedContent('会话已变为隐私、分叉或非普通会话，请刷新')
+    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new UnsupportedContent('正文超过读取预算，不截断内容')
     if (messages.some(message => message.consistent !== 1)) throw new Error('来源消息列不一致，拒绝不完整投影')
     return parseNewMaxLocal({ format: 'pinekin.newmax-local-snapshot', version: 1, sourceVersion: '1.1.22',
       session: { id: row.id, title: row.title, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at,

@@ -1,0 +1,50 @@
+.message-markdown {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--ds-text-dense);
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.message-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.message-markdown h1 { font-size: 1.5em; }
+.message-markdown h2 { font-size: 1.3em; }
+.message-markdown h3 { font-size: 1.15em; }
+.message-markdown :is(h4, h5, h6) { font-size: 1em; }
+.message-markdown p { margin: 0 0 0.75em; white-space: pre-wrap; }
+.message-markdown strong { font-weight: 600; }
+.message-markdown :is(ul, ol) { margin: 0.75em 0; padding-inline-start: 1.75em; }
+.message-markdown li { margin: 0.25em 0; white-space: pre-wrap; }
+.message-markdown li > :is(ul, ol) { margin-block: 0.25em; }
+.message-markdown blockquote {
+  margin: 0.75em 0;
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--ds-divider);
+  color: var(--ds-text-secondary);
+}
+.message-markdown .markdown-inline-code {
+  padding: 0.1em 0.3em;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-on-surface);
+  font-family: var(--ds-font-mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+}
+.message-markdown .code-label { -webkit-user-select: none; user-select: none; }
+.message-markdown .code-block pre { white-space: pre; overflow-wrap: normal; }
+.message-markdown .markdown-task-state { font-family: var(--ds-font-mono); color: var(--ds-text-secondary); }
+.message-markdown .markdown-image-alt { color: var(--ds-text-secondary); }
+.message-markdown .markdown-raw-html { white-space: pre-wrap; }
+.message-markdown .markdown-table { max-width: 100%; margin: 0.75em 0; overflow: auto; }
+.message-markdown table { width: max-content; min-width: 100%; border-collapse: collapse; }
+.message-markdown :is(th, td) { padding: 6px 12px; border: 1px solid var(--ds-divider); text-align: left; }
+.message-markdown th { background: var(--ds-on-surface); font-weight: 600; }
+.message-markdown hr { margin: 1em 0; border: 0; border-top: 1px solid var(--ds-divider); }
+.message-markdown > :first-child, .message-markdown blockquote > :first-child { margin-top: 0; }
+.message-markdown > :last-child, .message-markdown blockquote > :last-child, .message-markdown li > :last-child { margin-bottom: 0; }

@@ -41,8 +41,11 @@ describe('来源详情按内容结构展示', () => {
     render(<SourceActivity presentation={{ kind: 'browser-task', textMessages: 1, toolCalls: 1, toolResults: 1, attachments: 0, omittedRecords: 0, activitiesTruncated: false,
       activities: [{ kind: 'call', name: 'synthetic_tool', content: '{"selector":"#play"}' }, { kind: 'result', name: 'synthetic_tool', content: '合成工具结果' }] }} />)
     expect(screen.getByText(/1 次调用.*1 条结果/)).toBeTruthy()
+    expect(screen.getByText('调用 · synthetic_tool')).toBeTruthy()
+    expect(screen.getByText('结果 · synthetic_tool')).toBeTruthy()
+    expect(screen.getByText('工具活动 · 1 次调用 · 1 条结果').closest('details')?.open).toBe(true)
     expect(screen.queryByText('合成工具结果')).toBeNull()
-    const details = screen.getByText(/工具活动/).closest('details')!; details.open = true; fireEvent(details, new Event('toggle'))
+    const details = screen.getByText('工具活动 · 1 次调用 · 1 条结果').closest('details')!; details.open = true; fireEvent(details, new Event('toggle'))
     expect(screen.getByText('调用 · synthetic_tool')).toBeTruthy()
     const result = screen.getByText('结果 · synthetic_tool').closest('details')!; result.open = true; fireEvent(result, new Event('toggle'))
     expect(screen.getByText('合成工具结果')).toBeTruthy()

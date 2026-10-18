@@ -6,13 +6,13 @@ import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { MAX_BYTES } from '../core/session'
+import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery } from './cindy-source-query'
 
 const execute = promisify(execFile)
 export type DatabaseRow = Record<string, unknown>
 export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow }
 const conversationColumns = ['id', 'title', 'source', 'created_at', 'updated_at', 'forked_from_id', 'is_private', 'message_count']
 const messageColumns = ['seq', 'id', 'conversation_id', 'role', 'content', 'timestamp', 'data']
-const cindyColumns = ['id', 'title', 'updated_at']
 // SQLite 的 readOnly 仍可能写共享内存。由操作系统拒绝所有文件写入，不能回退到无沙箱读取。
 // 用户目录及来源同目录默认禁止读数据，只为明确授权的 DB/WAL/SHM 开例外。
 const profile = `(version 1)(allow default)(deny file-write*)(deny network*)
@@ -36,7 +36,7 @@ function object(fields: string[]) { return `json_object(${fields.flatMap(field =
 export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy', rowId?: string): Promise<DatabaseProjection> {
   if (process.platform !== 'darwin') throw new Error('此平台的无副作用数据库读取尚未验证')
   if (source !== 'newmax' && source !== 'cindy') throw new Error('数据库来源未支持')
-  if (rowId !== undefined && (source !== 'newmax' || !rowId.trim() || rowId.length > 512)) throw new Error('数据库会话 ID 无效')
+  if (rowId !== undefined && (!rowId.trim() || rowId.length > 512)) throw new Error('数据库会话 ID 无效')
   const before = await ordinary(path)
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
@@ -49,13 +49,22 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
     // 无副文件的静态库才能使用 immutable；活跃 WAL 必须交给 SQLite 原生事务处理。
     const immutable = !wal && !shm
     const table = source === 'cindy' ? 'sessions' : 'conversations'
-    const required = { [table]: source === 'cindy' ? cindyColumns : conversationColumns, ...(rowId === undefined ? {} : { messages: messageColumns }) }
+    const required = source === 'cindy' ? cindyRequiredTables
+      : { [table]: conversationColumns, ...(rowId === undefined ? {} : { messages: messageColumns }) }
     const names = Object.keys(required).map(name => `'${name}'`).join(',')
-    const schema = `SELECT json_object('kind','schema','name',name,'type',type,'columns',(SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name))) FROM sqlite_schema WHERE name IN (${names});`
+    // 在同一事务中先验证普通表，再验证列；-bail 遇到校验错误即退出，后续查询不会准备或执行。
+    // 不能只在 stdout 返回后拒绝视图，否则视图已可能读取非白名单表。虚拟表和 shadow 表也排除。
+    const tableCheck = `(SELECT COUNT(*) FROM pragma_table_list WHERE schema='main' AND name IN (${names}) AND type='table')=${Object.keys(required).length}`
+    const columnCheck = Object.entries(required).map(([name, columns]) =>
+      `(SELECT COUNT(*) FROM pragma_table_info('${name}') WHERE name IN (${columns.map(column => `'${column}'`).join(',')}))=${columns.length}`).join(' AND ')
+    const guard = (condition: string) => `SELECT json_object('kind','schema-guard','valid',CASE WHEN ${condition} THEN 1 ELSE json('PINEKIN_SCHEMA_MISMATCH') END);`
+    const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',(SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name))) FROM sqlite_schema WHERE name IN (${names});`
     let query: string
     if (rowId === undefined) {
-      const columns = source === 'cindy' ? cindyColumns : conversationColumns
-      query = `SELECT json_object('kind','row','value',${object(columns)}) FROM ${table} ORDER BY id;`
+      query = source === 'cindy' ? cindyDirectoryQuery()
+        : `SELECT json_object('kind','row','value',${object(conversationColumns)}) FROM ${table} ORDER BY id;`
+    } else if (source === 'cindy') {
+      query = cindySourceQuery(rowId)
     } else {
       // ID 只作为 UTF-8 十六进制字符串值，不可能成为 SQL 或 CLI 指令。
       const id = `CAST(X'${Buffer.from(rowId).toString('hex')}' AS TEXT)`
@@ -69,15 +78,20 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
           'consistent',CASE WHEN json_extract(data,'$.id')=id AND json_extract(data,'$.role')=role AND json_extract(data,'$.content')=content AND json_extract(data,'$.timestamp')=timestamp THEN 1 ELSE 0 END))
         FROM messages WHERE conversation_id=${id} AND ${readable} AND (SELECT count<=10000 AND bytes<=${MAX_BYTES} FROM (${budget})) ORDER BY seq;`
     }
-    const sql = `PRAGMA temp_store=MEMORY; PRAGMA query_only=ON; PRAGMA trusted_schema=OFF; BEGIN; ${schema} ${query} COMMIT;`
+    // sqlite3 的 -bail 只会中止 stdin 脚本；同一命令行 SQL 参数内出错仍会继续后面的语句。
+    // 守卫各占一个完整输入行，保证失败后不会准备正文查询。
+    const sql = `PRAGMA temp_store=MEMORY;\nPRAGMA query_only=ON;\nPRAGMA trusted_schema=OFF;\nBEGIN;\n${schema}\n${query}\nCOMMIT;\n`
     const uri = `${pathToFileURL(path).href}?mode=ro${immutable ? '&immutable=1' : ''}`
     let stdout: string
     try {
-      const result = await execute('/usr/bin/sandbox-exec', [
+      const pending = execute('/usr/bin/sandbox-exec', [
         '-D', `HOME=${homedir()}`, '-D', `SOURCE_PARENT=${dirname(path)}`, '-D', `SOURCE=${path}`, '-D', `WAL=${path}-wal`, '-D', `SHM=${path}-shm`, '-p', profile,
-        '/usr/bin/sqlite3', '-init', '/dev/null', '-batch', '-bail', '-readonly', '-noheader', '-list', '-cmd', '.timeout 2000', uri, sql,
+        '/usr/bin/sqlite3', '-init', '/dev/null', '-batch', '-bail', '-readonly', '-noheader', '-list', '-cmd', '.timeout 2000', uri,
       ], { encoding: 'utf8', cwd: '/usr', env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', LC_ALL: 'C' }, timeout: 30_000, maxBuffer: 64 * 1024 * 1024 })
-      stdout = result.stdout
+      // 子进程提前拒绝时可能关闭 stdin；错误由 execFile 的退出状态与 stderr 统一报告。
+      pending.child.stdin?.on('error', () => {})
+      pending.child.stdin?.end(sql)
+      stdout = (await pending).stdout
     } catch (error) {
       const reason = error as NodeJS.ErrnoException & { stderr?: string; killed?: boolean }
       if (reason.code === 'ENOENT') throw new Error('安全数据库读取组件不可用，未回退到可能写入来源的读法')

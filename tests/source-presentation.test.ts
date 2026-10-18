@@ -18,7 +18,7 @@ describe('来源文字包装的边界', () => {
     const text = 'Task: 检查按钮\n也检查键盘\n\nCurrent URL: https://example.test/page\n\nPage snapshot:\n合成页面'
     expect(sourceMessageParts(text, 'claude-code', 'user')).toEqual({ primary: '检查按钮\n也检查键盘', context: 'Current URL: https://example.test/page\n\nPage snapshot:\n合成页面' })
     expect(sourcePromptTitle(text, 'claude-code')).toBe('检查按钮')
-    for (const content of ['Task: 测试\nCurrent URL: https://example.test\n\nPage snapshot:\n缺少分隔', 'Task: 测试\n\nCurrent URL: https://example.test\n没有快照', 'Task: 测试\n\nCurrent URL: file:///private\n\nPage snapshot:\n不识别']) {
+    for (const content of ['Task: 测试\nCurrent URL: https://example.test\n\nPage snapshot:\n缺少分隔', 'Task: 测试\n\nCurrent URL: https://example.test\n没有快照', 'Task: 测试\n\nCurrent URL: javascript:alert(1)\n\nPage snapshot:\n不识别']) {
       expect(sourceMessageParts(content, 'claude-code', 'user')).toEqual({ primary: content, context: '' })
     }
   })

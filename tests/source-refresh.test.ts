@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SourceBrowser } from '../src/main/source-browser'
 import * as sqlite from '../src/main/source-sqlite'
 import { claudeFixture } from './fixtures/claude-code'
+import { createCindySchema } from './fixtures/cindy-database'
 
 vi.mock('node:fs/promises', async original => {
   const fs = await original<typeof import('node:fs/promises')>()
@@ -102,14 +103,15 @@ describe('来源增量检查与稳定快照', () => {
   it('SQLite 无变化不启动查询进程，活跃 WAL 提交后刷新目录且不读取正文', async () => {
     const { root } = await setup(), path = join(root, 'cindy.db'), db = new DatabaseSync(path)
     try {
-      db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE sessions(id TEXT, title TEXT, updated_at INTEGER); INSERT INTO sessions VALUES('one','第一条',1000)")
+      db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0'); createCindySchema(db)
+      db.exec("INSERT INTO sessions(id,title,updated_at) VALUES('one','第一条',1000)")
       const browser = new SourceBrowser(join(root, 'sqlite-data'))
       const connection = await browser.connect('cindy', path); await browser.waitForScan(connection.id)
       const first = await browser.page({})
       vi.mocked(sqlite.readSourceDatabase).mockClear()
       await browser.check({ mode: 'manual' })
       expect(sqlite.readSourceDatabase).not.toHaveBeenCalled()
-      db.exec("INSERT INTO sessions VALUES('two','第二条',2000)")
+      db.exec("INSERT INTO sessions(id,title,updated_at) VALUES('two','第二条',2000)")
       const result = await browser.check({ mode: 'manual', selectedId: first.items[0].id })
       expect((await browser.page({})).total).toBe(2)
       expect(sqlite.readSourceDatabase).toHaveBeenCalledExactlyOnceWith(await fs.realpath(path), 'cindy')
@@ -120,7 +122,7 @@ describe('来源增量检查与稳定快照', () => {
     const { root, path, browser, first } = await setup()
     const dbPath = join(root, 'cindy-filter.db'), db = new DatabaseSync(dbPath)
     try {
-      db.exec("CREATE TABLE sessions(id TEXT, title TEXT, updated_at INTEGER)")
+      createCindySchema(db)
       db.exec("INSERT INTO sessions(id,title,updated_at) VALUES('one','旧 Cindy 会话',1000)")
       const cindy = await browser.connect('cindy', dbPath); await browser.waitForScan(cindy.id)
       const before = await browser.page({ source: 'cindy' })

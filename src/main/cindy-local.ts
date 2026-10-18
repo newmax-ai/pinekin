@@ -5,7 +5,7 @@ import type { Message, ParsedArchive } from '../core/types'
 const timestamp = z.number().int().min(0).max(8_640_000_000_000_000)
 const identifier = z.string().min(1).max(512)
 const snapshotSchema = z.strictObject({
-  format: z.literal('pinekin.cindy-local-snapshot'), version: z.literal(1), sourceVersion: z.literal('0.1.97'),
+  format: z.literal('pinekin.cindy-local-snapshot'), version: z.literal(1), sourceVersion: z.enum(['0.1.97', '0.1.110-schema']),
   session: z.strictObject({ id: identifier, title: z.string().trim().min(1).max(200), source: z.literal('desktop'),
     status: z.enum(['active', 'archived']), createdAt: timestamp, updatedAt: timestamp,
     parentSessionId: z.null(), remoteHostId: z.null(), orcaRole: z.null(), clearedAt: timestamp.nullable() }),

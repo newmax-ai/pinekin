@@ -99,11 +99,11 @@ describe('来源标题和对话投影回归', () => {
     expect(result.session.messages).toEqual([])
     expect(result.warnings.join('\n')).toMatch(/没有可显示的用户或助手消息/)
   })
-  it('超大 Codex 日志仍索引标题，正文预算不放宽', async () => {
+  it('超大 Codex 日志不显示在目录和搜索中，正文预算不放宽', async () => {
     const { browser, entry } = await connect(codexFixture([codexMeta(), user('超大日志的首问'), codexRecord('event_msg', { type: 'synthetic', data: 'x'.repeat(6 * 1024 * 1024) })]))
-    expect(entry.title).toBe('超大日志的首问')
-    expect(entry.availability).toBe('unsupported')
-    await expect(browser.read(entry.id)).rejects.toThrow(/5 MB/)
+    expect(entry).toBeUndefined()
+    expect((await browser.page({ query: '超大日志的首问' })).total).toBe(0)
+    expect((await browser.connections())[0].total).toBe(0)
   })
   it('标题预览预算外的首问只在按需读取后补到内存索引，不扫描整份正文', async () => {
     const filler = Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) }))

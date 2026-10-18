@@ -14,7 +14,7 @@ export function sourceMessageParts(content: string, source: Source, role: Messag
   if (primary.startsWith('Task:')) {
     const lines = primary.split('\n')
     for (let index = 2; index < lines.length; index += 1) {
-      if (lines[index - 1].trim() || !/^Current URL:[ \t]*https?:\/\/[^\r\n]+\r?$/.test(lines[index])) continue
+      if (lines[index - 1].trim() || !/^Current URL:[ \t]*(?:https?:\/\/|file:\/\/\/|about:blank(?:$|[?#]))[^\r\n]*\r?$/.test(lines[index])) continue
       let snapshot = index + 1
       if (lines[snapshot]?.startsWith('Viewport:')) snapshot += 1
       const blank = snapshot

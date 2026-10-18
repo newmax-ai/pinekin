@@ -97,7 +97,7 @@ describe('自动定位与只读连接', () => {
     expect(sourceCandidates('deepseek', context)).toEqual([join(context.home, '.dsh', 'sessions')])
     context.env.DSH_HOME = '~/custom-harness'
     const logs = await directory(join(context.home, 'custom-harness', 'sessions'))
-    await writeFile(join(logs, 'session.v4.jsonl'), '{"type":"session","id":"synthetic"}')
+    await writeFile(join(logs, 'session.v4.jsonl'), '{"type":"session","version":4,"id":"synthetic","isSeeded":false,"delegationDepth":0}')
     const result = await autoConnectSource(browser, 'deepseek', context)
     expect(result.connections).toHaveLength(1); expect(result.warnings).toEqual([])
     await browser.waitForScan(result.connections[0].id)

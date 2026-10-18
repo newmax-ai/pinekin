@@ -4,6 +4,7 @@ import { mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } fr
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readSourceDatabase } from '../src/main/source-sqlite'
+import { createCindySchema } from './fixtures/cindy-database'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -34,7 +35,7 @@ describe('SQLite 受限只读投影', () => {
     try {
       writer.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;')
       if (source === 'newmax') { newmax(writer); seedMessage(writer, 'one') }
-      else writer.exec("CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('one','WAL 会话',2000)")
+      else { createCindySchema(writer); writer.exec("INSERT INTO sessions(id,title,updated_at) VALUES('one','WAL 会话',2000)") }
       const before = await snapshot(root)
       const result = await readSourceDatabase(path, source)
       expect(result.rows).toMatchObject([{ id: 'one', title: 'WAL 会话', updated_at: 2000 }])
@@ -67,7 +68,8 @@ describe('SQLite 受限只读投影', () => {
   it('未提交事务不可见，读取后刷新才能发现新提交', async () => {
     const { path } = await setup(), writer = new DatabaseSync(path)
     try {
-      writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('committed','已提交',1); BEGIN; INSERT INTO sessions VALUES('pending','未提交',2)")
+      writer.exec('PRAGMA journal_mode=WAL'); createCindySchema(writer)
+      writer.exec("INSERT INTO sessions(id,title,updated_at) VALUES('committed','已提交',1); BEGIN; INSERT INTO sessions(id,title,updated_at) VALUES('pending','未提交',2)")
       expect((await readSourceDatabase(path, 'cindy')).rows.map(row => row.id)).toEqual(['committed'])
       writer.exec('COMMIT')
       expect((await readSourceDatabase(path, 'cindy')).rows.map(row => row.id)).toEqual(['committed', 'pending'])
@@ -75,7 +77,8 @@ describe('SQLite 受限只读投影', () => {
   })
   it('已关闭且 checkpoint 完成的 WAL 库无副文件时仍可读，不创建 WAL/SHM', async () => {
     const { root, path } = await setup(), writer = new DatabaseSync(path)
-    writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('one','已关闭',1)"); writer.close()
+    writer.exec('PRAGMA journal_mode=WAL'); createCindySchema(writer)
+    writer.exec("INSERT INTO sessions(id,title,updated_at) VALUES('one','已关闭',1)"); writer.close()
     expect(await readdir(root)).toEqual(['synthetic.db'])
     const before = await snapshot(root)
     expect((await readSourceDatabase(path, 'cindy')).rows).toMatchObject([{ id: 'one' }])

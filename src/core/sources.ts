@@ -67,8 +67,8 @@ export const sourceNames: Record<Source, string> = {
 }
 export const sourceLocations: Record<BrowsableSource, string> = {
   newmax: '默认查找 ~/.newmax/newmax.db，支持本进程继承的 NEWMAX_USER_DATA_DIR 绝对目录覆盖。自定义位置请选择 newmax.db；仅查询会话与选定消息。macOS 使用禁止写入的独立只读进程读取已提交 WAL；不会复制整库、checkpoint 或删除副文件。',
-  'claude-code': '选择 Claude Code 的 projects 目录或一个项目日志目录，包含其下的 JSONL 与子会话。',
+  'claude-code': '选择 Claude Code 的 projects 目录或一个项目日志目录。日志格式不等于客户端归属：明确由通用 Claude Agent SDK 创建的执行日志会排除，NewMax 主会话从 NewMax 数据库读取；可验证的客户端日志与子会话按各自边界展示。',
   codex: '选择 Codex 的 sessions 或 archived_sessions 目录；可分别连接多个位置。',
   deepseek: '选择 DeepSeek Harness 会话日志目录，不支持 DeepSeek 网页聊天。',
-  cindy: '自动查找 Cindy / CindyGlobal 的账号会话数据库，也可指定 cindy-*.db。macOS 支持在禁止写入的独立进程中读取已提交 WAL；只提供会话列表，正文直读尚未验证。不会复制整库或删除副文件。',
+  cindy: '自动查找 Cindy / CindyGlobal 的账号会话数据库，也可指定 cindy-*.db。macOS 在禁止写入的独立进程中读取已提交 WAL；经字段与协作边界校验后可读普通桌面会话的当前问答，分叉、协作、远程会话仍未支持。不复制整库、读取凭据或删除副文件。',
 }

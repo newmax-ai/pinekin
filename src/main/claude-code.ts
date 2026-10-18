@@ -4,6 +4,7 @@ import type { Message, ParsedArchive } from '../core/types'
 import type { SourcePresentation } from '../core/sources'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
 import { SourceActivities } from './source-activity'
+import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError } from './source-origin'
 
 const identifier = z.string().min(1).max(512)
 const object = z.record(z.string(), z.unknown())
@@ -32,10 +33,34 @@ function decode(raw: string, line: number): Record<string, unknown> {
   return invalid(line, ' JSON 无效、截断或不是对象')
 }
 
+export const claudeAuxiliaryReason = '此文件仅含辅助运行记录，没有 Claude 用户或助手对话；不作为会话展示，原文件未修改'
+
+/** 仅对完整输入判断纯辅助记录；不凭文件名、目录或不完整预览隐藏潜在会话。 */
+export function isClaudeAuxiliaryLog(text: string): boolean {
+  let records = 0, offset = 0
+  for (let line = 1; offset < text.length; line += 1) {
+    if (line > 20_000) return false
+    const newline = text.indexOf('\n', offset), end = newline < 0 ? text.length : newline
+    const raw = text.slice(offset, end); offset = end + 1
+    if (!raw.trim()) continue
+    let record: Record<string, unknown>
+    try { record = decode(raw, line) } catch { return false }
+    records += 1
+    if (metadata.has(String(record.type))) continue
+    // 任务调度 journal 不是 Claude 消息；result 中的文字也不能伪造为助手答复。
+    if ('message' in record || 'uuid' in record || 'sessionId' in record) return false
+    if (record.type === 'launched') continue
+    if (typeof record.agentId !== 'string' || typeof record.key !== 'string') return false
+    if (record.type !== 'started' && !(record.type === 'result' && 'result' in record)) return false
+  }
+  return records > 0
+}
+
 // 允许原生日志以 file-history 等元数据开头；不按扩展名猜测 history.jsonl。
-export function isClaudeCodeLog(text: string): boolean {
+// 来源正文已受 5 MiB 约束，识别沿用解析器的行预算；旧档案导入的探测范围不变。
+export function isClaudeCodeLog(text: string, sourceView = false): boolean {
   let offset = 0
-  for (let line = 1; line <= 64 && offset < text.length; line += 1) {
+  for (let line = 1; line <= (sourceView ? 20_000 : 64) && offset < text.length; line += 1) {
     const newline = text.indexOf('\n', offset), end = newline < 0 ? text.length : newline
     const raw = text.slice(offset, end); offset = end + 1
     if (!raw.trim()) continue
@@ -52,6 +77,7 @@ export function isClaudeCodeLog(text: string): boolean {
 export function parseClaudeCode(text: string, sourceView = false): ParsedArchive & { presentation?: SourcePresentation } {
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('Claude Code 文件过大，最大支持 5 MB')
   const activity = sourceView ? new SourceActivities() : undefined
+  const origin = new ClaudeLogOrigin()
   const nodes = new Map<string, Node>()
   const versions = new Set<string>()
   const warnings = new Set<string>([
@@ -71,6 +97,7 @@ export function parseClaudeCode(text: string, sourceView = false): ParsedArchive
     if (Buffer.byteLength(raw) > 512 * 1024) invalid(line, '超过单行 512 KiB 预算')
     if (!raw.trim()) continue
     const record = decode(raw, line)
+    if (sourceView) origin.observe(record)
     if (metadata.has(String(record.type))) {
       if (record.type === 'summary') warnings.add('日志含 summary 元数据；不把摘要当用户消息，也不从其 leafUuid 推断活动链。')
       continue
@@ -78,8 +105,12 @@ export function parseClaudeCode(text: string, sourceView = false): ParsedArchive
     const checked = nodeSchema.safeParse(record)
     if (!checked.success) invalid(line)
     const node = checked.data
-    if (node.isSidechain || node.isCompactSummary || node.isVisibleInTranscriptOnly || node.logicalParentUuid != null || node.subtype === 'compact_boundary') {
+    if ((!sourceView && node.isSidechain) || node.isCompactSummary || node.isVisibleInTranscriptOnly || node.logicalParentUuid != null || node.subtype === 'compact_boundary') {
       invalid(line, '存在未支持的子会话、压缩或逻辑父链边界')
+    }
+    if (node.isSidechain && activity) {
+      activity.presentation.kind = 'subagent'
+      warnings.add('子会话仅展示当前文件内可验证的单父链；不读取父会话或继承上下文，也不将子会话拼进主对话。')
     }
     if (nodes.has(node.uuid)) invalid(line, ' UUID 重复，不能猜测快照或重放')
     if (sessionId && node.sessionId !== sessionId) invalid(line, '混合多个会话')
@@ -89,6 +120,7 @@ export function parseClaudeCode(text: string, sourceView = false): ParsedArchive
     if (versions.size > 4) invalid(line, '版本声明过多')
     if (node.type === 'user' || node.type === 'assistant') last = node
   }
+  if (sourceView && origin.value(true) === 'sdk') throw new UnsupportedSourceError(sdkOriginReason)
   if (!last || !sessionId) throw new Error('Claude Code 日志没有可投影的用户或助手消息')
 
   // 检查全图而不只检查选中链，防止把缺失前缀或坏的兄弟分支静默当成完整日志。

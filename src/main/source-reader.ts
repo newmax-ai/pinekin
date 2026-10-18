@@ -1,8 +1,10 @@
 import type { ParsedArchive } from '../core/types'
 import type { SourcePresentation } from '../core/sources'
 import { MAX_BYTES } from '../core/session'
-import { isClaudeCodeLog, parseClaudeCode } from './claude-code'
-import { isCodexRollout } from './codex'
+import { claudeAuxiliaryReason, isClaudeAuxiliaryLog, isClaudeCodeLog, parseClaudeCode } from './claude-code'
+import { UnsupportedSourceError } from './source-origin'
+import { isCodexRollout, isCodexSubagent, parseCodex } from './codex'
+import { isDeepSeekLog, parseDeepSeek } from './deepseek'
 import { decodeCompressedLog, isZstandard } from './codex-zstd'
 import { parseArchive } from './imports'
 import { sourceConversation } from './source-conversation'
@@ -22,15 +24,18 @@ export async function parseSourceArchive(bytes: Uint8Array): Promise<SourceArchi
   }
   if (input.subarray(0, 8).equals(Buffer.from('XDTSHARE'))) return sourceConversation(await parseArchive(input))
   const text = new TextDecoder('utf-8', { fatal: true }).decode(input)
-  if (isClaudeCodeLog(text)) return parseClaudeCode(text, true)
-  const parsed = sourceConversation(await parseArchive(input))
-  if (!isCodexRollout(text)) return parsed
+  if (isClaudeAuxiliaryLog(text)) throw new UnsupportedSourceError(claudeAuxiliaryReason)
+  if (isClaudeCodeLog(text, true)) return parseClaudeCode(text, true)
+  if (isDeepSeekLog(text)) return parseDeepSeek(text, true)
+  if (!isCodexRollout(text)) return sourceConversation(await parseArchive(input))
+  const parsed = sourceConversation(parseCodex(text, true))
   // 原解析器已验证完整日志及所有消息；这里只对允许的响应项做展示投影。
   const activity = new SourceActivities()
   for (const line of text.split('\n')) {
     if (!line.trim()) continue
     const record = JSON.parse(line)
     const item = record.payload
+    if (record.type === 'session_meta' && isCodexSubagent(item)) activity.presentation.kind = 'subagent'
     if (record.type !== 'response_item') { activity.presentation.omittedRecords += 1; continue }
     if (['function_call', 'custom_tool_call', 'local_shell_call', 'web_search_call'].includes(item.type)) {
       activity.add('call', item.call_id ?? item.id, item.name ?? item.type, item.arguments ?? item.input ?? item.action)

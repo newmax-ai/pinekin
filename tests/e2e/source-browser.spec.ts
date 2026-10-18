@@ -7,6 +7,7 @@ import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
 import { fixtureSessions } from '../fixtures/sessions'
 import { codexFixture, codexMessage, codexMeta } from '../fixtures/codex'
 import { DatabaseSync } from 'node:sqlite'
+import { createCindyDatabase } from '../fixtures/cindy-database'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
 let app: ElectronApplication, page: Page, root: string, data: string, source: string
@@ -437,7 +438,8 @@ test('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框�
   const newmax = new DatabaseSync(join(newmaxRoot, 'newmax.db')), cindy = new DatabaseSync(join(cindyRoot, 'cindy-synthetic.db'))
   try {
     newmax.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;'); seedNewMax(newmax)
-    cindy.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('cindy-one','Cindy 活跃会话',3000)")
+    cindy.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;'); createCindyDatabase(cindy, 'cindy-one')
+    cindy.exec("UPDATE sessions SET title='Cindy 活跃会话',updated_at=3000")
     const beforeNewMax = await snapshot(newmaxRoot), beforeCindy = await snapshot(cindyRoot)
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     await selectSource('newmax'); await selectSource('cindy')
@@ -452,7 +454,7 @@ test('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框�
     await page.getByRole('button', { name: /^数据库合成会话/ }).click()
     await expect(page.getByRole('region', { name: '会话消息' })).toContainText('仅合成数据库正文')
     await page.getByRole('button', { name: /^Cindy 活跃会话/ }).click()
-    await expect(page.getByRole('alert')).toContainText('正文直读')
+    await expect(page.getByRole('region', { name: '会话消息' })).toContainText('合成用户问题')
     expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
     expect(await snapshot(newmaxRoot)).toEqual(beforeNewMax)
     expect(await snapshot(cindyRoot)).toEqual(beforeCindy)
@@ -534,10 +536,8 @@ test('Claude 标题覆盖首问、尾部重命名和超大日志，搜索与阅�
   await openMatchingSession('尾部的最新会话名称')
   await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
-  await openMatchingSession('超大日志仍显示标题')
-  await expect(page.locator('.detail-title-row h2')).toHaveText('超大日志仍显示标题')
-  await expect(page.getByRole('region', { name: '会话消息' })).toHaveCount(0)
-  await expect(page.getByText('正文超过 5 MB 读取上限，仍可查找此会话', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: '超大日志仍显示标题' }).then(result => result.total))).toBe(0)
+  await expect(page.locator('.session-card').filter({ hasText: '超大日志仍显示标题' })).toHaveCount(0)
   // 文件名仍可查找，不要求用户知道新提取出的标题。
   await openMatchingSession('renamed-title.jsonl')
   await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')

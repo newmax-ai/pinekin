@@ -8,6 +8,7 @@ import { SourceBrowser } from '../src/main/source-browser'
 import { claudeFixture } from './fixtures/claude-code'
 import { codexFixture } from './fixtures/codex'
 import { deepseekFixture } from './fixtures/deepseek'
+import { createCindySchema } from './fixtures/cindy-database'
 import { zstdCompressSync } from 'node:zlib'
 
 vi.mock('node:fs/promises', async importOriginal => {
@@ -60,19 +61,19 @@ describe('来源直读：发现与正文读取分离', () => {
     expect(await readdir(data)).toEqual(['connections.json'])
     expect(await readFile(join(data, 'connections.json'), 'utf8')).not.toMatch(/正文|messages|合成问题|sessionId/)
   })
-  it('损坏、超限、子会话仍列出；不支持正文不会令计数消失', async () => {
+  it('过滤明确超限日志，保留可读子会话与可重试的损坏记录', async () => {
     const { input, browser } = await setup()
     await writeFile(join(input, 'broken.jsonl'), 'broken')
     await writeFile(join(input, 'huge.jsonl'), Buffer.alloc(5 * 1024 * 1024 + 1))
     await mkdir(join(input, 'subagents')); await writeFile(join(input, 'subagents', 'sub.jsonl'), claudeFixture())
     const connection = await browser.connect('claude-code', input)
     const page = await settle(browser, connection.id)
-    expect(page.total).toBe(3)
-    expect(page.items.find(item => item.title === 'huge.jsonl')?.availability).toBe('unsupported')
+    expect(page.total).toBe(2)
+    expect(page.items.find(item => item.title === 'huge.jsonl')).toBeUndefined()
     const broken = page.items.find(item => item.title === 'broken.jsonl')!
     await expect(browser.read(broken.id)).rejects.toThrow()
     expect((await browser.page({ connectionId: connection.id })).items.find(item => item.id === broken.id)?.availability).toBe('unreadable')
-    expect((await browser.page({ connectionId: connection.id })).total).toBe(3)
+    expect((await browser.page({ connectionId: connection.id })).total).toBe(2)
   })
   it.each(['codex', 'deepseek'] as const)('%s 支持多层目录与压缩日志的按需读取', async source => {
     const { input, browser } = await setup()
@@ -94,16 +95,16 @@ describe('来源直读：发现与正文读取分离', () => {
     await settle(browser, first.id); await settle(browser, second.id)
     expect(await browser.connections()).toHaveLength(2)
   })
-  it('NewMax 分页列出全部元数据，不把私密、分叉、空消息或版本不兼容会话过滤掉', async () => {
+  it('NewMax 分页与计数排除已知不支持的隐私和分叉会话', async () => {
     const { input, browser, data } = await setup(), path = join(input, 'newmax.db')
     seedDatabase(path)
     const before = await readFile(path)
     const connection = await browser.connect('newmax', path)
     const page = await settle(browser, connection.id)
-    expect(page.total).toBe(125)
+    expect(page.total).toBe(123)
     const items = [...page.items, ...(await browser.page({ connectionId: connection.id, offset: 100 })).items]
-    expect(items.find(item => item.sourceSessionId === 's2')?.reason).toMatch(/隐私/)
-    expect(items.find(item => item.sourceSessionId === 's3')?.reason).toMatch(/分叉/)
+    expect(items.find(item => item.sourceSessionId === 's2')).toBeUndefined()
+    expect(items.find(item => item.sourceSessionId === 's3')).toBeUndefined()
     const ordinary = items.find(item => item.sourceSessionId === 's0')!
     expect((await browser.read(ordinary.id)).session.messages[0].content).toBe('正文不应缓存')
     expect(await readFile(path)).toEqual(before)
@@ -190,7 +191,7 @@ describe('来源直读：发现与正文读取分离', () => {
     const database = new DatabaseSync(path); database.exec('PRAGMA journal_mode=WAL'); database.close()
     const before = await readdir(input), bytes = await readFile(path)
     const connection = await browser.connect('newmax', path), page = await settle(browser, connection.id)
-    expect(page.connections[0]).toMatchObject({ status: 'ready', total: 125 })
+    expect(page.connections[0]).toMatchObject({ status: 'ready', total: 123 })
     const ordinary = (await browser.page({ connectionId: connection.id, query: 's0' })).items[0]
     expect((await browser.read(ordinary.id)).session.messages[0].content).toBe('正文不应缓存')
     expect(await readdir(input)).toEqual(before)
@@ -199,17 +200,19 @@ describe('来源直读：发现与正文读取分离', () => {
   it('Cindy 活跃 WAL 连接后不再报错，已提交会话可列出，未验证的正文仍明确标记', async () => {
     const { input, browser } = await setup(), path = join(input, 'cindy.db'), writer = new DatabaseSync(path)
     try {
-      writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE sessions(id TEXT,title TEXT,updated_at INTEGER); INSERT INTO sessions VALUES('one','Cindy 合成会话',2000)")
+      writer.exec('PRAGMA journal_mode=WAL'); createCindySchema(writer)
+      writer.exec("INSERT INTO sessions(id,title,updated_at) VALUES('one','Cindy 合成会话',2000)")
       const connection = await browser.connect('cindy', path), page = await settle(browser, connection.id)
       expect(page.connections[0]).toMatchObject({ status: 'ready', total: 1 })
-      expect(page.items[0]).toMatchObject({ title: 'Cindy 合成会话', availability: 'unsupported' })
-      expect(page.items[0].reason).toMatch(/正文直读/)
+      expect(page.items[0]).toMatchObject({ title: 'Cindy 合成会话', availability: 'unread' })
+      await expect(browser.read(page.items[0].id)).rejects.toThrow(/没有.*文本/)
     } finally { writer.close() }
   })
   it('重复数据库 ID 不能静默覆盖后宣称完整总数，Cindy 正常目录仍可显示', async () => {
     const { input, browser } = await setup(), path = join(input, 'cindy.db')
     const database = new DatabaseSync(path)
-    database.exec("CREATE TABLE sessions (id TEXT, title TEXT, updated_at INTEGER); INSERT INTO sessions VALUES ('same','A',1000),('same','B',2000)")
+    createCindySchema(database)
+    database.exec("ALTER TABLE sessions RENAME TO original_sessions; CREATE TABLE sessions AS SELECT * FROM original_sessions; DROP TABLE original_sessions; INSERT INTO sessions(id,title,updated_at,created_at,source,status) VALUES ('same','A',1000,1000,'desktop','active'),('same','B',2000,1000,'desktop','active')")
     database.close()
     const connection = await browser.connect('cindy', path), page = await settle(browser, connection.id)
     expect(page.connections[0]).toMatchObject({ status: 'error', total: null })
@@ -218,7 +221,8 @@ describe('来源直读：发现与正文读取分离', () => {
     await browser.refresh(connection.id)
     const fixed = await settle(browser, connection.id)
     expect(fixed.total).toBe(1)
-    expect(fixed.items[0].reason).toMatch(/正文直读/)
+    expect(fixed.items[0].availability).toBe('unread')
+    await expect(browser.read(fixed.items[0].id)).rejects.toThrow(/没有.*文本/)
   })
   it('拒绝非法来源、分页、任意路径读取和损坏配置，不覆盖已有授权文件', async () => {
     const { input, browser, data } = await setup()

@@ -23,14 +23,29 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   const data = join(root, 'data'), source = join(root, 'source')
   await mkdir(data); await mkdir(source); await mkdir(join(root, 'appData'))
   const task = claudeRecords()
-  task[1].message = { role: 'user', content: 'Task: 验证合成页面\n\nCurrent URL: http://localhost/synthetic\nViewport: 400x800\n\nPage snapshot:\n<script>window.untrustedExecuted=true</script>\n页面隐藏标记' }
+  task[1].entrypoint = 'cli'
+  task[1].message = { role: 'user', content: 'Task: 验证合成页面\n\nCurrent URL: file:///synthetic/gallery.html\nViewport: 400x800\n\nPage snapshot:\n<script>window.untrustedExecuted=true</script>\n页面隐藏标记' }
   task[3].message = { role: 'assistant', id: 'tool', content: [{ type: 'tool_use', id: 'call', name: 'synthetic_browser', input: { selector: '#synthetic' } }] }
   task[4] = { ...task[1], uuid: 'result', parentUuid: 'a1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call', content: '合成工具结果标记' }] } }
   const taskBytes = claudeFixture(task)
   await writeFile(join(source, 'task.jsonl'), taskBytes)
   const legacy = claudeRecords().map(record => { const { apiBlockIndex: _index, ...rest } = record; return rest })
   await writeFile(join(source, 'legacy.jsonl'), claudeFixture(legacy))
+  const sdk = claudeRecords(); sdk[1].entrypoint = 'sdk-ts'
+  sdk[1].message = { role: 'user', content: 'NewMax 内部 SDK 浏览器任务，不应冒充 Claude Code' }
+  const longSdkSidechain = sdk.map(record => record.uuid ? { ...record, isSidechain: true } : record)
+  longSdkSidechain.splice(2, 0, ...Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) })))
+  await writeFile(join(source, 'sdk-task.jsonl'), claudeFixture(longSdkSidechain))
   await writeFile(join(source, 'helper.jsonl'), JSON.stringify({ type: 'queue-operation' }) + '\n')
+  const journalBytes = claudeFixture([
+    { type: 'launched' },
+    { type: 'started', agentId: 'synthetic-agent', key: 'synthetic-key', label: '合成调度任务' },
+    { type: 'result', agentId: 'synthetic-agent', key: 'synthetic-key', result: '不是用户助手消息' },
+  ])
+  for (const name of ['one', 'two', 'three']) {
+    const directory = join(source, 'subagents', name); await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'journal.jsonl'), journalBytes)
+  }
   await writeFile(join(data, 'connections.json'), JSON.stringify({ version: 1, connections: [{ id: '11111111-2222-4333-8444-555555555555', source: 'claude-code', path: source }] }))
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const {app, dialog, clipboard}=require('electron');
@@ -45,7 +60,9 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
   const page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.session-card')).toHaveCount(3)
+  await expect(page.locator('.session-card')).toHaveCount(2)
+  await expect(page.getByRole('button', { name: /^Claude Code\s*2$/ })).toBeVisible()
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'SDK 浏览器任务' }).then(result => result.total))).toBe(0)
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await page.getByRole('button', { name: '验证合成页面 .', exact: true }).click()
@@ -59,7 +76,7 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await expect(detail.getByText(/页面隐藏标记/)).toBeVisible()
     await expect(detail.locator('script, a, img, iframe')).toHaveCount(0)
     await expect(detail.getByText('合成工具结果标记', { exact: true })).toHaveCount(0)
-    await detail.getByText('工具活动 · 1 次调用 · 1 条结果', { exact: true }).click()
+    await expect(detail.getByText('调用 · synthetic_browser', { exact: true })).toBeVisible()
     await detail.getByText('结果 · synthetic_browser', { exact: true }).click()
     await expect(detail.getByText('合成工具结果标记', { exact: true })).toBeVisible()
     expect(await page.evaluate(() => 'untrustedExecuted' in window)).toBe(false)
@@ -67,7 +84,9 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await expect(detail.locator('article')).toHaveCount(2)
     await expect(detail.getByText('合成答复：先确认目标。', { exact: true })).toBeVisible()
   }
-  await page.getByRole('button', { name: 'helper.jsonl .', exact: true }).click()
-  await expect(page.locator('.detail')).toContainText('仅含辅助运行记录')
+  await expect(page.getByRole('button', { name: 'helper.jsonl .', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'helper.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'journal.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await readFile(join(source, 'subagents', 'one', 'journal.jsonl'))).toEqual(journalBytes)
   expect(await readFile(join(source, 'task.jsonl'))).toEqual(taskBytes)
 })

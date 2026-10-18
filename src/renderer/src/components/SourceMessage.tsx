@@ -5,9 +5,9 @@ import { sourceMessageParts } from '../../../core/source-presentation'
 import { MessageContent } from './MessageContent'
 import './SourceMessage.css'
 
-function Disclosure({ label, children }: { label: string; children: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  return <details className="source-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
+function Disclosure({ label, children, defaultOpen = false }: { label: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return <details className="source-disclosure" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{label}</summary>{open && <div className="source-disclosure-body">{children}</div>}
   </details>
 }
@@ -27,7 +27,7 @@ export function SourceActivity({ presentation }: { presentation: SourcePresentat
   const p = presentation
   if (!p.toolCalls && !p.toolResults && !p.attachments && !p.omittedRecords) return null
   return <section className="source-activity" aria-label="非文字活动">
-    {(p.toolCalls > 0 || p.toolResults > 0) && <Disclosure label={`工具活动 · ${p.toolCalls} 次调用 · ${p.toolResults} 条结果`}>
+    {(p.toolCalls > 0 || p.toolResults > 0) && <Disclosure defaultOpen={p.kind === 'browser-task' || p.textMessages <= 1} label={`工具活动 · ${p.toolCalls} 次调用 · ${p.toolResults} 条结果`}>
       <p className="privacy-note">以下是日志中的工具活动，不是助手文字答复；不会执行历史调用。</p>
       {p.activities.map((activity, index) => <Disclosure key={index} label={`${activity.kind === 'call' ? '调用' : '结果'} · ${activity.name}`}>
         <MessageContent content={activity.content} />{activity.truncated && <p className="privacy-note">预览已截断，完整内容保留在来源文件。</p>}

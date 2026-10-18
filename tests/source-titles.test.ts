@@ -1,5 +1,6 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as filesystem from 'node:fs/promises'
@@ -79,10 +80,12 @@ describe('来源列表的 Claude Code 标题', () => {
       return handle
     })
     const page = await scan()
-    expect(page.items[0]).toMatchObject({ title: '超大日志的最新标题', availability: 'unsupported', sourceSessionId: claudeSessionId })
+    expect(page.items).toEqual([])
+    const id = createHash('sha256').update(page.connections[0].id).update('\0').update('session.jsonl').digest('hex')
+    expect((await browser.check({ mode: 'manual', selectedId: id })).selected).toMatchObject({ title: '超大日志的最新标题', availability: 'unsupported', sourceSessionId: claudeSessionId })
     expect(requests.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(128 * 1024)
     expect(requests.reduce((sum, size) => sum + size, 0)).toBeGreaterThan(64 * 1024)
-    await expect(browser.read(page.items[0].id)).rejects.toThrow(/5 MB/)
+    await expect(browser.read(id)).rejects.toThrow(/5 MB/)
     expect((await readFile(path)).equals(bytes)).toBe(true)
     expect(originalOpen).toBe(filesystem.open)
   })
@@ -98,10 +101,9 @@ describe('来源列表的 Claude Code 标题', () => {
     const { scan } = await setup(jsonl({ type: 'progress', data: 'x'.repeat(1_200_000) }, prompt('仅在尾部的后续消息')))
     expect((await scan()).items[0].title).toBe('session.jsonl')
   })
-  it('忽略注入、压缩摘要、工具结果、命令和 IDE 包装，只取普通用户文本块', async () => {
+  it('忽略注入、工具结果、命令和 IDE 包装，只取普通用户文本块', async () => {
     const { scan } = await setup(jsonl(
-      prompt('系统注入', { isMeta: true }), prompt('压缩摘要', { isCompactSummary: true }),
-      prompt('仅记录可见', { isVisibleInTranscriptOnly: true }),
+      prompt('系统注入', { isMeta: true }),
       prompt([{ type: 'tool_result', content: '工具输出' }, { type: 'text', text: '工具旁白' }]),
       prompt('<local-command-stdout>命令输出</local-command-stdout>'),
       prompt('<command-name>/compact</command-name>'), prompt('[Request interrupted by user]'),
@@ -123,13 +125,13 @@ describe('来源列表的 Claude Code 标题', () => {
     expect(page.connections[0].status).toBe('ready')
     expect(page.items[0].title).toBe('有效标题')
   })
-  it('刷新后更新重命名，子会话仍有标题但正文保持未支持', async () => {
+  it('刷新后更新重命名，子目录文件仍有标题并验证本文件正文', async () => {
     const { scan, browser, input, path } = await setup(claudeFixture())
     await mkdir(join(input, 'subagents'))
     await writeFile(join(input, 'subagents', 'agent.jsonl'), claudeFixture())
     const page = await scan(), sub = page.items.find(item => item.project === 'subagents')!
-    expect(sub).toMatchObject({ title: '合成问题：整理项目计划', availability: 'unsupported' })
-    await expect(browser.read(sub.id)).rejects.toThrow(/子会话/)
+    expect(sub).toMatchObject({ title: '合成问题：整理项目计划', kind: 'subagent', availability: 'unread' })
+    expect((await browser.read(sub.id)).session.messages).toHaveLength(2)
     await writeFile(path, jsonl(...claudeRecords(), { type: 'custom-title', customTitle: '刷新后的名称' }))
     await browser.refresh(page.connections[0].id); await browser.waitForScan(page.connections[0].id)
     expect((await browser.page({ query: '刷新后的名称' })).total).toBe(1)

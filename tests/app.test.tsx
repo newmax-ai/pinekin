@@ -498,7 +498,7 @@ describe('档案界面', () => {
     const user = within(reader).getByRole('article', { name: '第 1 条消息 · 你' })
     const assistant = within(reader).getByRole('article', { name: '第 2 条消息 · 助手' })
     expect(user.querySelector('.message-bubble')?.textContent).toBe(demoSessions[0].messages[0].content)
-    expect(assistant.querySelector('.chat-assistant-content')?.textContent).toBe(demoSessions[0].messages[1].content)
+    expect([...assistant.querySelectorAll('.chat-assistant-content .message-markdown > p')].map(paragraph => paragraph.textContent).join('\n\n')).toBe(demoSessions[0].messages[1].content)
     expect(reader.querySelector('.avatar, .message-role')).toBeNull()
   })
   it('系统和工具消息保留可见类型，不伪装成助手回复', async () => {

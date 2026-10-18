@@ -198,10 +198,11 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       return index < 0 || index >= previous.entries.length ? previous : { ...previous, index }
     })
   }
-  function clearSelection() {
-    readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setHandoff(false)
-    // 新增／撤销授权时清掉历史中的旧选择；普通后台刷新不走此路径。
-    setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => ({ ...view, selected: undefined })) }))
+  function clearSelection(unsupportedId?: string) {
+    readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setHandoff(false); setLatestEntry(undefined)
+    // 新增／撤销授权清空旧选择；能力变更只清理被过滤会话，不影响其他浏览历史。
+    setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => !unsupportedId || view.selected?.id === unsupportedId
+      ? { ...view, selected: undefined } : view) }))
   }
   function openSearch() {
     searchTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -264,7 +265,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     if (checkingRef.current || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
     if (mode === 'automatic' && (document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
     if (mode === 'automatic') lastAutomaticCheck.current = Date.now()
-    const request = listRequest.current, selectedId = view.selected?.id
+    const request = listRequest.current, selectedId = view.selected?.id, selectionRead = readRequest.current
     checkingRef.current = true; setChecking(true)
     if (mode === 'manual') setError('')
     try {
@@ -272,7 +273,15 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
       if (!mounted.current || request !== listRequest.current) return
       setPage(previous => ({ ...previous, connections: result.connections }))
       if (result.version !== current.current.page.version) setCatalogVersion(value => value + 1)
-      if (selectedId === current.current.selected?.id && result.selected !== undefined) setLatestEntry(result.selected)
+      const sameRead = selectedId === current.current.selected?.id && selectionRead === readRequest.current
+      if (sameRead && result.selected?.availability === 'unsupported') {
+        clearSelection(selectedId)
+        setError(`“${result.selected.title}”已从列表过滤：${result.selected.reason ?? '正文暂未支持'}。原始文件未删除。`)
+        setPage(previous => ({ ...previous, items: previous.items.filter(item => item.id !== selectedId) }))
+        await replaceLoadedList(request)
+        return
+      }
+      if (sameRead && result.selected !== undefined) setLatestEntry(result.selected)
       const failures = result.connections.filter(item => item.error && (!ids || ids.includes(item.id)))
       if (failures.length) setError(`更新未完成，已保留上次内容：${failures.map(item => `${sourceNames[item.source]} · ${item.error}`).join('；')}`)
       if (result.version !== current.current.page.version) {
@@ -367,7 +376,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
               <div className="detail-title-row"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span></div></div>
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span>{content ? `${content.session.messages.length} 条消息` : '正文按需读取'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>未导入 Pinekin</span></div>
             </div>
-            {latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
+            {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
             {contentChanged && <div className="source-update-notice" role="status"><span>此对话有更新</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '查看更新'}</DsButton></div>}
             {newMessageIndex !== undefined && <div className="source-update-notice"><DsButton size="small" onClick={() => {
               messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' }); setNewMessageIndex(undefined)

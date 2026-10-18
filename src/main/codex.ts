@@ -53,7 +53,12 @@ export function isCodexRollout(text: string): boolean {
   } catch { return false }
 }
 
-export function parseCodex(text: string): ParsedArchive {
+export function isCodexSubagent(meta: Record<string, unknown>): boolean {
+  return meta.parent_thread_id != null || meta.subagent_history_start_ordinal != null ||
+    (!!meta.source && typeof meta.source === 'object' && 'subagent' in meta.source)
+}
+
+export function parseCodex(text: string, sourceView = false): ParsedArchive {
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('文件过大，最大支持 5 MB')
   const warnings = new Set<string>([
     '格式解析经合成夹具验证，CLI 版本只作为输入声明；这不是原生恢复，未验证客户端运行状态迁移。',
@@ -92,9 +97,11 @@ export function parseCodex(text: string): ParsedArchive {
         warnings.add('分页日志仅作为无外部历史引用、序号从 0 连续的单文件文本档案读取；不重放分页状态，也不保证会话已结束。')
       }
       if (meta.history_base != null || meta.forked_from_id != null) throw new Error('Codex 继承其他历史的日志尚未支持，不会读取引用文件')
-      if (meta.parent_thread_id != null || meta.subagent_history_start_ordinal != null ||
-        (meta.session_id !== undefined && meta.session_id !== meta.id) ||
-        (typeof meta.source === 'object' && 'subagent' in meta.source)) throw new Error('Codex 子会话历史边界尚未支持')
+      if (meta.session_id !== undefined && meta.session_id !== meta.id) throw new Error('Codex 子会话 ID 与当前文件不一致，未猜测会话归属')
+      if (isCodexSubagent(meta)) {
+        if (!sourceView) throw new Error('Codex 子会话历史边界尚未支持')
+        warnings.add('这是子会话当前文件中实际记录的文本与活动；继承上下文可能缺失，不读取父会话或外部历史，不表示完整主对话或原生恢复。')
+      }
       updatedAt = Math.max(updatedAt, Date.parse(meta.timestamp))
       continue
     }

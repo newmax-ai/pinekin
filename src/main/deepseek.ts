@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { MAX_BYTES, sessionSchema } from '../core/session'
 import type { Message, ParsedArchive } from '../core/types'
+import { sourcePromptTitle } from '../core/source-presentation'
 
 const timestamp = z.number().int().min(0).max(8_640_000_000_000_000)
 const identifier = z.string().min(1).max(512)
@@ -19,8 +20,14 @@ export function isDeepSeekLog(text: string): boolean {
   catch { return false }
 }
 
+export function deepseekFirstPrompt(record: Record<string, unknown>): string {
+  const data = record.data as { role?: unknown; source?: { kind?: unknown }; content?: unknown } | undefined
+  if (record.type !== 'user/message' || data?.role !== 'user' || data.source?.kind !== 'user' || !Array.isArray(data.content)) return ''
+  return sourcePromptTitle(data.content.flatMap(block => block?.type === 'text' && typeof block.text === 'string' ? [block.text] : []).join('\n'), 'deepseek')
+}
+
 // 仅接收完整的 v4 独立主会话；不重放来源运行时、不沿任何路径加载文件。
-export function parseDeepSeek(text: string): ParsedArchive {
+export function parseDeepSeek(text: string, sourceView = false): ParsedArchive {
   if (Buffer.byteLength(text) > MAX_BYTES) throw new Error('DeepSeek 日志超过 5 MB')
   const lines = text.split('\n').filter(line => line.trim())
   if (lines.length > 50_000) throw new Error('DeepSeek 日志记录数超限')
@@ -67,6 +74,6 @@ export function parseDeepSeek(text: string): ParsedArchive {
   if (!messages.length) throw new Error('DeepSeek 日志没有可归档的用户或助手文本')
   return { adapterId: 'deepseek-harness-v4', adapterVersion: '0.1.0', sourceName: 'DeepSeek Harness',
     originalSessionId: header.id, sourceVersion: 'session-v4', warnings: [...warnings],
-    session: sessionSchema.parse({ id: 'deepseek-preview', title: title || (messages.find(m => m.role === 'user')?.content ?? 'DeepSeek Harness 会话').slice(0, 100),
+    session: sessionSchema.parse({ id: 'deepseek-preview', title: title || (sourceView ? sourcePromptTitle(messages.find(m => m.role === 'user')?.content ?? '', 'deepseek') : (messages.find(m => m.role === 'user')?.content ?? '').slice(0, 100)) || 'DeepSeek Harness 会话',
       source: 'deepseek', updatedAt: new Date(updatedAt).toISOString(), tags: ['DeepSeek Harness', '文本投影'], messages, demo: false }) }
 }
