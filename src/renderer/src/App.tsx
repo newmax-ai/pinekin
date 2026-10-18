@@ -4,6 +4,7 @@ import { adapters, filterSessions, makeDeepLink, makeHandoff } from '../../core/
 import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DesignIcon } from './components/ui'
 import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
+import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { Sidebar } from './components/Sidebar'
 import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
@@ -25,6 +26,7 @@ function sameView(a: LibraryView, b: LibraryView) {
 }
 
 export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; openingId?: string } = {}) {
+  const now = useCurrentTime()
   const [librarySessions, setSessions] = useState<Session[]>([])
   // 兼容仍在运行的旧主进程；演示记录不能重新进入列表、计数或搜索。
   const sessions = useMemo(() => librarySessions.filter(session => !session.demo), [librarySessions])
@@ -209,7 +211,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
           <ScrollArea className="session-list" aria-busy={!loaded && !loadError}>
             {loadError && visible.length > 0 && <EmptyState kind="archive-error" layout="quiet" description={loadError} action={emptyAction('archive-error')} />}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
-              <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><time dateTime={s.updatedAt}>{s.updatedAt.slice(5, 10).replace('-', '.')}</time></div>
+              <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><SessionTime dateTime={s.updatedAt} now={now} /></div>
               <h3>{s.title}</h3>
             </button>)}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" />}

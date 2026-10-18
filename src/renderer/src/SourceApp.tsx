@@ -4,6 +4,7 @@ import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { Sidebar } from './components/Sidebar'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
+import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { FadeText } from './components/FadeText'
 import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DesignIcon } from './components/ui'
 import { MessageContent } from './components/MessageContent'
@@ -26,6 +27,7 @@ function countLabel(connections: SourceConnection[]) {
 }
 
 export function SourceApp({ onArchives }: { onArchives: () => void }) {
+  const now = useCurrentTime()
   const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number; editingSearch: boolean }>({
     entries: [{ source: 'all', query: '' }], index: 0, editingSearch: false,
   })
@@ -220,7 +222,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status">{count}</span></div>
           <ScrollArea className="session-list" aria-busy={!loaded || scanning}>
             {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
-              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><time dateTime={entry.updatedAt}>{entry.updatedAt.slice(5, 10).replace('-', '.')}</time></div><h3>{entry.title}</h3>
+              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><h3>{entry.title}</h3>
             </button>)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" action={selected ? emptyAction(emptyKind) : undefined} />}

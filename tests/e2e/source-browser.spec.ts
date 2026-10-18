@@ -92,6 +92,28 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+test('会话卡片显示友好时间、完整时刻且停留时自动更新，不改变紧凑布局', async () => {
+  await connect()
+  const originalTime = page.locator('.session-card time').first()
+  await expect(originalTime).toBeVisible()
+  const dateTime = (await originalTime.getAttribute('datetime'))!
+  await page.clock.install({ time: new Date(Date.parse(dateTime) + 59 * 60_000) })
+  await page.reload()
+  const card = page.locator('.session-card').first()
+  const time = card.locator('time')
+  await expect(time).toHaveText('59分钟前')
+  const full = await time.getAttribute('title')
+  expect(full).toMatch(/^\d{4}年\d{2}月\d{2}日 \d{2}:\d{2}:\d{2}$/)
+  await expect(time).toHaveAttribute('aria-label', full!)
+  await expect(time).toHaveAttribute('datetime', dateTime)
+  await expect(card).toHaveCSS('padding', '8px 12px')
+  expect(await card.evaluate(element => element.children.length)).toBe(2)
+  await page.clock.fastForward(60_000)
+  await expect(time).toHaveText('1小时前')
+  await expect(time).toHaveAttribute('title', full!)
+  await background()
+})
+
 test('选择控件对齐 NewMax 圆形 DsCheckbox，浅深主题、整行点击、键盘与禁用反馈一致', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })

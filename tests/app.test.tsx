@@ -34,6 +34,21 @@ function closeSearch() {
   fireEvent(screen.getByRole('dialog', { name: '搜索会话' }), new Event('cancel', { bubbles: true, cancelable: true }))
 }
 describe('档案界面', () => {
+  it('本地档案卡片也显示友好时间和完整悬停时刻，保留原卡片布局', async () => {
+    const now = new Date(2026, 9, 18, 12, 30, 45).getTime()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+    const updatedAt = new Date(now - 5 * 60_000).toISOString()
+    try {
+      vi.mocked(window.staithe.list).mockResolvedValue([{ ...demoSessions[0], updatedAt }])
+      await open()
+      const card = document.querySelector('.session-card')!
+      const time = card.querySelector('time')!
+      expect(time.textContent).toBe('5分钟前')
+      expect(time.getAttribute('datetime')).toBe(updatedAt)
+      expect(time.getAttribute('title')).toBe('2026年10月18日 12:25:45')
+      expect(card.children).toHaveLength(2)
+    } finally { clock.mockRestore() }
+  })
   it('侧栏、列表、正文、搜索与交接弹窗的所有滚动容器统一使用 ScrollArea', async () => {
     await open()
     const assertScrollArea = (selector: string) => {

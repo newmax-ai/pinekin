@@ -62,6 +62,23 @@ describe('来源逻辑沿用原有设计', () => {
     expect(screen.queryByRole('button', { name: '已有档案' })).toBeNull()
     expect(screen.queryByRole('button', { name: '管理连接' })).toBeNull()
   })
+  it('来源卡片显示相对时间，悬停保留完整本地时刻，不新增来源读取', async () => {
+    const now = new Date(2026, 9, 18, 12, 30, 45).getTime()
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
+    const updatedAt = new Date(now - 60 * 60_000).toISOString()
+    try {
+      vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, items: [{ ...entry, updatedAt }] })
+      render(<App />); await ready()
+      const time = document.querySelector('.session-card time')!
+      expect(time.textContent).toBe('1小时前')
+      expect(time.getAttribute('datetime')).toBe(updatedAt)
+      expect(time.getAttribute('title')).toBe('2026年10月18日 11:30:45')
+      expect(time.getAttribute('aria-label')).toBe('2026年10月18日 11:30:45')
+      expect(document.querySelector('.session-card')?.children).toHaveLength(2)
+      expect(window.staithe.sources.page).toHaveBeenCalledOnce()
+      expect(window.staithe.sources.read).not.toHaveBeenCalled()
+    } finally { clock.mockRestore() }
+  })
   it('默认不读档案、不自动扫描，兼容与连接管理收在原菜单弹窗内', async () => {
     render(<App />); await ready()
     expect(screen.getByRole('heading', { name: '尚未连接会话来源' })).toBeTruthy()
