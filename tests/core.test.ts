@@ -80,22 +80,23 @@ describe('可移植会话', () => {
     expect(makeHandoff(s, '通用')).toContain('附件未映射')
     expect(makeHandoff(s, '通用')).toContain('原始文件不随交接导出')
   })
-  it('只声明已验证范围的文件归档能力，不把 Harness 等同于网页聊天或自动读取', () => {
+  it('发现、正文直读、文件归档分别声明，不把 Harness 等同于网页聊天', () => {
     expect(adapters.find(adapter => adapter.id === 'codex')).toMatchObject({ archiveStatus: 'fixture-tested',
-      capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false } })
+      capabilities: { importArchive: true, listLocal: true, readLocal: true, nativeResume: false, deepLink: false } })
     expect(adapters.find(adapter => adapter.id === 'deepseek')).toMatchObject({ archiveStatus: 'fixture-tested',
-      capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false } })
+      capabilities: { importArchive: true, listLocal: true, readLocal: true, nativeResume: false, deepLink: false } })
     expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/Harness.*v4/)
     expect(adapters.find(adapter => adapter.id === 'deepseek')?.constraints).toMatch(/网页聊天.*不支持/)
     expect(adapters.find(adapter => adapter.id === 'cindy')?.constraints).toMatch(/本地快照/)
     for (const id of ['newmax', 'claude-code']) expect(adapters.find(adapter => adapter.id === id)).toMatchObject({
-      archiveStatus: 'fixture-tested', capabilities: { importArchive: true, readLocal: false, nativeResume: false, deepLink: false },
+      archiveStatus: 'fixture-tested', capabilities: { importArchive: true, listLocal: true, readLocal: true, nativeResume: false, deepLink: false },
     })
     expect(adapters.find(adapter => adapter.id === 'newmax')?.constraints).toMatch(/白名单快照/)
     expect(adapters.find(adapter => adapter.id === 'claude-code')?.constraints).toMatch(/父链/)
   })
   it('尚未实现的适配器绝不声明原生迁移能力', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(3)
-    expect(adapters.every(a => !a.capabilities.nativeResume && !a.capabilities.readLocal)).toBe(true)
+    expect(adapters.every(a => !a.capabilities.nativeResume && !a.capabilities.deepLink)).toBe(true)
+    expect(adapters.find(a => a.id === 'cindy')?.capabilities).toMatchObject({ listLocal: true, readLocal: false })
   })
 })

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ExportFormat, ImportPreview, Session, Source, Target } from '../../core/types'
 import { adapters, filterSessions, makeDeepLink, makeHandoff } from '../../core/session'
-import { DsButton, DsDialog, DesignIcon } from './components/ui'
+import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DesignIcon } from './components/ui'
 import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
 import { Sidebar } from './components/Sidebar'
 import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
+import { SourceApp } from './SourceApp'
 
 const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
@@ -22,7 +23,7 @@ function sameView(a: LibraryView, b: LibraryView) {
   return a.query === b.query && a.source === b.source && a.selectedId === b.selectedId
 }
 
-export function App() {
+export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; openingId?: string } = {}) {
   const [librarySessions, setSessions] = useState<Session[]>([])
   // 兼容仍在运行的旧主进程；演示记录不能重新进入列表、计数或搜索。
   const sessions = useMemo(() => librarySessions.filter(session => !session.demo), [librarySessions])
@@ -68,6 +69,12 @@ export function App() {
       navigate({ query: '', source: 'all', selectedId: id }); setHandoff(false); setSearchOpen(false)
     })
   }, [sessions, loaded])
+  useEffect(() => {
+    if (loaded && openingId) {
+      if (sessions.some(session => session.id === openingId)) navigate({ query: '', source: 'all', selectedId: openingId })
+      else setStatus('本机没有这段会话，请先导入对应的 Pinekin 包。')
+    }
+  }, [loaded, openingId])
   useEffect(() => {
     if (searchOpen) { search.current?.focus(); search.current?.select() }
   }, [searchOpen])
@@ -176,6 +183,7 @@ export function App() {
             <span className="count">{sessions.filter(s => s.source === adapter.id).length}</span></button>)}
       </ScrollArea>
       <div className="sidebar-bottom">
+        {onBack && <button className="nav-item" onClick={onBack}><span><DesignIcon name="back" />返回来源会话</span></button>}
         <section className="storage-note" aria-label="本地存储与隐私">
           <div className="storage-copy">
             <div className="local-info">仅保存在本机</div>
@@ -231,7 +239,7 @@ export function App() {
         <div className="search"><DesignIcon name="search" /><input ref={search} aria-label="搜索会话" value={query}
           onChange={event => navigate({ query: event.target.value }, true)} placeholder="搜索标题、正文或标签" />
           {query && <DsButton variant="ghost" size="small" className="search-clear" aria-label="清空搜索" onClick={() => { navigate({ query: '' }); search.current?.focus() }}>清空</DsButton>}
-          <DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭搜索" onClick={() => setSearchOpen(false)}><DesignIcon name="close" /></DsButton>
+          <DsDialogClose aria-label="关闭搜索" onClick={() => setSearchOpen(false)} />
         </div>
       </div>
       <ScrollArea className="dialog-content search-content">
@@ -244,7 +252,7 @@ export function App() {
       </ScrollArea>
     </DsDialog>}
     {importPreview && <DsDialog titleId="import-title" onDismiss={cancelImport} busy={busy} returnFocus={importTrigger.current}>
-      <div className="dialog-header"><div className="dialog-icon"><DesignIcon name="archive" size={22} /></div><div><div className="eyebrow">只读导入</div><h2 id="import-title">确认导入档案</h2></div><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭导入预览" disabled={busy} onClick={cancelImport}><DesignIcon name="close" /></DsButton></div>
+      <DsDialogHeader titleId="import-title" title="确认导入档案" eyebrow="只读导入" closeLabel="关闭导入预览" busy={busy} onDismiss={cancelImport} />
       <ScrollArea className="dialog-content"><div className="import-file"><strong>{importPreview.title}</strong><p>{importPreview.sourceName} · {importPreview.messageCount} 条消息 · {importPreview.byteLength.toLocaleString('zh-CN')} 字节</p></div>
         <div className="notice"><DesignIcon name="info" /><div><strong>兼容范围有限</strong><p>验证状态：合成夹具通过，未经第三方客户端实机验证。</p></div></div>
         {importPreview.warnings.length > 0 && <div className="import-report"><h3>导入说明与缺失项 <span>{importPreview.warnings.length}</span></h3><ul className="import-warnings">{importPreview.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
@@ -256,7 +264,7 @@ export function App() {
       <div className="dialog-footer"><span className="footer-note"><DesignIcon name="shield" size={14} />仅保存在本机</span><div className="export-actions"><DsButton disabled={busy} onClick={cancelImport}>取消导入</DsButton><DsButton variant="primary" disabled={busy} onClick={confirmImport}>{busy ? '正在处理…' : importPreview.duplicate ? '打开已有档案' : '确认保存到本地'}</DsButton></div></div>
     </DsDialog>}
     {handoff && selected && <DsDialog titleId="handoff-title" onDismiss={() => setHandoff(false)} busy={busy}>
-      <div className="dialog-header"><div className="dialog-icon"><DesignIcon name="arrow" size={22} /></div><div><div className="eyebrow">上下文交接</div><h2 id="handoff-title">让这段思考，有下文。</h2></div><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭交接面板" disabled={busy} onClick={() => setHandoff(false)}><DesignIcon name="close" /></DsButton></div>
+      <DsDialogHeader titleId="handoff-title" title="让这段思考，有下文。" eyebrow="上下文交接" closeLabel="关闭交接面板" busy={busy} onDismiss={() => setHandoff(false)} />
       <ScrollArea className="dialog-content"><p className="dialog-description">带走完整文本，交给下一个工具继续。<br />这不是原生恢复，不会迁移工具状态、附件或权限。</p>
         <label className="target-label">接续目标<select aria-label="接续目标" value={target} disabled={busy} onChange={event => setTarget(event.target.value as Target)}>{(['通用', 'NewMax', 'Claude Code', 'Codex'] as const).map(t => <option key={t}>{t}</option>)}</select></label>
         <div className="preview-label">交接文本预览<span>只生成文本，不自动执行</span></div>
@@ -267,4 +275,12 @@ export function App() {
       <div className="dialog-footer"><div className="export-actions"><DsButton disabled={busy} onClick={() => exportSession('bundle')}>导出 Pinekin 包</DsButton><DsButton disabled={busy} onClick={() => exportSession('markdown')}>导出 Markdown</DsButton><DsButton variant="primary" disabled={busy} onClick={() => copy(makeHandoff(selected, target), '已复制交接文本，粘贴到目标客户端后继续')}><DesignIcon name="copy" />复制交接文本</DsButton></div></div>
     </DsDialog>}
   </div>
+}
+
+export function App() {
+  const [archive, setArchive] = useState(false)
+  const [openingId, setOpeningId] = useState<string>()
+  useEffect(() => window.staithe.onOpenSession(id => { setOpeningId(id); setArchive(true) }), [])
+  return archive ? <ArchiveApp openingId={openingId} onBack={() => { setOpeningId(undefined); setArchive(false) }} /> :
+    <SourceApp onArchives={() => setArchive(true)} />
 }

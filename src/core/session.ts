@@ -55,14 +55,14 @@ export function parseDeepLink(value: string): string | null {
   return match ? match[1] : null
 }
 export const adapters: SessionAdapter[] = [
-  { id: 'newmax', name: 'NewMax', archiveStatus: 'fixture-tested', constraints: '仅 Pinekin 生成的 NewMax 1.1.22 普通主会话白名单快照；不直接接受数据库、不自动读取或原生恢复',
-    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
-  { id: 'claude-code', name: 'Claude Code', archiveStatus: 'fixture-tested', constraints: '仅完整单根、非子会话 JSONL 的末条消息父链文本投影；不包含全部分支，压缩/逻辑父链未支持，不自动读取或原生恢复',
-    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
-  { id: 'codex', name: 'Codex', archiveStatus: 'fixture-tested', constraints: '仅独立主会话 JSONL / JSONL.ZST 文本投影；分页须从 0 连续编号且无引用，不扫描目录或恢复运行态',
-    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
-  { id: 'cindy', name: 'Cindy', archiveStatus: 'fixture-tested', constraints: '未加密普通 v1 分享包或 Pinekin 生成的 0.1.97 本地快照；后者仅普通桌面主会话，原生恢复不支持',
-    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
-  { id: 'deepseek', name: 'DeepSeek Harness', archiveStatus: 'fixture-tested', constraints: '仅 Harness v4 独立主会话 JSONL / JSONL.ZSTD 文本投影；网页聊天导出不支持，不自动读取或原生恢复',
-    capabilities: { readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
+  { id: 'newmax', name: 'NewMax', archiveStatus: 'fixture-tested', constraints: '显式连接可列出会话目录；正文限 macOS 非 WAL 数据库、与 1.1.22 白名单快照契约相容的普通主会话；不支持原生恢复',
+    capabilities: { listLocal: true, readLocal: true, importArchive: true, nativeResume: false, deepLink: false } },
+  { id: 'claude-code', name: 'Claude Code', archiveStatus: 'fixture-tested', constraints: '授权目录全量发现；正文仅完整单根、非子会话 JSONL 的末条消息父链文本投影；压缩/逻辑父链和原生恢复未支持',
+    capabilities: { listLocal: true, readLocal: true, importArchive: true, nativeResume: false, deepLink: false } },
+  { id: 'codex', name: 'Codex', archiveStatus: 'fixture-tested', constraints: '授权目录全量发现；正文仅独立主会话 JSONL / JSONL.ZST 文本投影，分页须从 0 连续编号且无引用；不恢复运行态',
+    capabilities: { listLocal: true, readLocal: true, importArchive: true, nativeResume: false, deepLink: false } },
+  { id: 'cindy', name: 'Cindy', archiveStatus: 'fixture-tested', constraints: 'macOS 非 WAL 数据库只列会话目录，正文直读未验证；档案兼容未加密普通 v1 分享包和 0.1.97 本地快照；原生恢复不支持',
+    capabilities: { listLocal: true, readLocal: false, importArchive: true, nativeResume: false, deepLink: false } },
+  { id: 'deepseek', name: 'DeepSeek Harness', archiveStatus: 'fixture-tested', constraints: '授权目录全量发现；正文仅 Harness v4 独立主会话 JSONL / JSONL.ZSTD 文本投影；网页聊天导出不支持，不支持原生恢复',
+    capabilities: { listLocal: true, readLocal: true, importArchive: true, nativeResume: false, deepLink: false } },
 ]

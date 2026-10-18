@@ -149,6 +149,28 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toMatch(/\.count\s*\{[^}]*flex-shrink: 0;/)
     expect(styles).toMatch(/\.sidebar-resize-handle\s*\{[^}]*width: 6px;[^}]*touch-action: none;[^}]*-webkit-app-region: no-drag;/)
   })
+  it('UI 文案默认不可选中，仅正文、代码、交接预览及编辑区域允许选择', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/body\s*\{[^}]*-webkit-user-select: none;[^}]*user-select: none;/)
+    expect(styles).toMatch(/body \*\s*\{[^}]*-webkit-user-select: inherit;[^}]*user-select: inherit;/)
+    for (const selector of ['.message-body p', '.code-block pre', '.handoff-preview', 'input', 'textarea', '[contenteditable="true"]', '[contenteditable="plaintext-only"]']) {
+      const rule = styles.split('}').find(rule => rule.split('{')[0].split(',').some(value => value.trim() === selector) && rule.includes('user-select: text;'))
+      expect(rule, selector).toBeDefined()
+      expect(rule).toContain('-webkit-user-select: text;')
+    }
+  })
+  it.each([
+    { file: 'App.tsx', titles: ['import-title', 'handoff-title'] },
+    { file: 'SourceApp.tsx', titles: ['connect-title', 'connections-title', 'target-title'] },
+  ])('$file 的全部常规弹窗使用共享标题组件，不再自行拼装标题图标', ({ file, titles }) => {
+    const source = readFileSync(resolve('src/renderer/src', file), 'utf8')
+    expect(source).not.toContain('className="dialog-header')
+    expect(source).not.toContain('dialog-icon')
+    expect(source.match(/<DsDialogHeader\b/g)).toHaveLength(titles.length)
+    for (const title of titles) expect(source).toContain(`<DsDialogHeader titleId="${title}"`)
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).not.toMatch(/\.dialog-icon\s*\{/)
+  })
   it('统一使用 Lucide 图标并保留尺寸与按钮可访问名称', () => {
     const { container } = render(<DsButton aria-label="搜索档案" iconOnly><DesignIcon name="search" size={20} /></DsButton>)
     const icon = container.querySelector('svg')!

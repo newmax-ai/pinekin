@@ -9,6 +9,9 @@ import { readImportFile } from './import-file'
 import { getBackgroundTestMode, getTestWindowOptions, getWindowChrome, presentWindow } from './window-options'
 import { MAX_BYTES, idSchema, makeBundle, makeHandoff, parseDeepLink } from '../core/session'
 import { getAppIconFilename, setDevelopmentDockIcon } from './app-icon'
+import { SourceBrowser } from './source-browser'
+import { autoConnectSource } from './source-discovery'
+import { connectionIdSchema, entryIdSchema, sourceQuerySchema, sourceSchema } from '../core/sources'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appIconPath = join(here, '../../resources', getAppIconFilename(process.platform))
@@ -68,6 +71,40 @@ else {
     const library = new Library(app.getPath('userData'))
     const imports = new ImportCoordinator(library)
     importer = imports
+    const sourceBrowser = new SourceBrowser(app.getPath('userData'))
+    let choosingSource = false
+    ipcMain.handle('pinekin:sources-connections', event => { assertSender(event); return sourceBrowser.connections() })
+    ipcMain.handle('pinekin:sources-page', (event, query: unknown) => { assertSender(event); return sourceBrowser.page(sourceQuerySchema.parse(query)) })
+    ipcMain.handle('pinekin:sources-read', (event, id: unknown) => { assertSender(event); return sourceBrowser.read(entryIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:sources-refresh', (event, id: unknown) => { assertSender(event); return sourceBrowser.refresh(connectionIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:sources-cancel', (event, id: unknown) => { assertSender(event); return sourceBrowser.cancel(connectionIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:sources-disconnect', (event, id: unknown) => { assertSender(event); return sourceBrowser.disconnect(connectionIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:sources-auto-connect', async (event, rawSource: unknown) => {
+      assertSender(event)
+      const source = sourceSchema.parse(rawSource)
+      if (choosingSource) throw new Error('已有来源连接正在处理')
+      choosingSource = true
+      try {
+        return await autoConnectSource(sourceBrowser, source, {
+          home: app.getPath('home'), appData: app.getPath('appData'), platform: process.platform, env: process.env,
+        }, () => assertSender(event))
+      } finally { choosingSource = false }
+    })
+    ipcMain.handle('pinekin:sources-connect', async (event, rawSource: unknown) => {
+      assertSender(event)
+      const source = sourceSchema.parse(rawSource)
+      if (choosingSource) throw new Error('已有来源位置选择正在处理')
+      choosingSource = true
+      try {
+        const result = await dialog.showOpenDialog(window!, {
+          title: '授权只读浏览所选位置的全部会话；不导入正文、不写入来源',
+          properties: [source === 'newmax' || source === 'cindy' ? 'openFile' : 'openDirectory'],
+        })
+        assertSender(event)
+        if (result.canceled || !result.filePaths[0]) return null
+        return await sourceBrowser.connect(source, result.filePaths[0])
+      } finally { choosingSource = false }
+    })
     ipcMain.handle('staithe:list', event => { assertSender(event); return library.list() })
     ipcMain.handle('staithe:ready', event => {
       assertSender(event); rendererReady = true

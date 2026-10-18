@@ -1,92 +1,85 @@
 # 架构与能力边界
 
-## 分层
+## 主数据流（2026-10-18 起）
+
+**连接来源 → 发现会话目录 → 元数据分页／查找 → 按需读取正文 → 目标能力检查。**
+
+来源直读不依赖 `Library`，也不调用 `ImportCoordinator.prepare/commit`。已有档案只作为独立兼容入口。目标创建／打开／接续尚未通过验收，当前不提供目标写入 IPC。
 
 | 层 | 路径 | 职责 |
 | --- | --- | --- |
-| 桌面主进程 | `src/main/index.ts` | 窗口、受限 IPC、原生选择框、剪贴板、协议入口 |
-| 窗口装饰与展示策略 | `src/main/window-options.ts` | macOS 原生红绿灯布局；其他平台保留系统装饰；仅未打包且显式标记的后台测试禁用显示 / 聚焦，正常启动不变 |
-| 选择文件读取 | `src/main/import-file.ts` | 非阻塞打开、句柄类型检查、有界读取快照 |
-| 导入协调 | `src/main/imports.ts` | 内容识别、快照、预览 token、失效/确认与重复检测 |
-| 外部格式解析 | `src/main/cindy.ts`、`cindy-local.ts`、`newmax-local.ts`、`claude-code.ts`、`deepseek.ts`、`codex.ts`、`codex-zstd.ts`、`zip.ts` | 固定格式映射、ZIP / Zstandard / JSONL 资源约束、来源校验、损失报告；NewMax/Cindy 本地快照仅解析已提取文件，不连接数据库 |
-| 显式开发批次 | `scripts/import-local.mjs`、`src/main/local-import.ts` | 用户授权的只读 NewMax 白名单提取或有界 Claude Code/Codex 日志批次；默认预演、显式确认保存；不接入 IPC、桌面启动或后台扫描 |
-| 本地档案服务 | `src/main/library.ts` | 串行入库、原件与记录整体发布、旧库读取和损坏保护 |
-| 安全桥 | `src/preload/index.ts` | 只暴露具名能力，不暴露任意 IPC、路径读写或 Node.js |
-| 会话核心 | `src/core/` | 文本模型、版本校验、搜索、交接文本、深链、来源能力 |
-| 界面 | `src/renderer/src/App.tsx` | 侧栏文字 Logo 与图标搜索、按需搜索弹窗、窗口内浏览历史、可收起来源侧栏、三栏档案工作台、来源/搜索组合过滤、加载恢复、只读阅读、导入与文本交接；不包含演示分类 |
-| 本地设计系统 | `src/renderer/src/tokens.css`、`styles.css`、`components/ui.tsx` | NewMax DS 语义/尺度基础上的独立中性主题、Lucide 通用图标、原生模态焦点管理 |
-| 消息排版 | `src/renderer/src/components/MessageContent.tsx` | 只读文本与成对代码围栏，不解析 HTML 或外部媒体 |
-| 可调宽侧栏 | `src/renderer/src/components/Sidebar.tsx` | 指针/键盘调宽、拖拽清理、响应式宽度限制；仅宽度偏好进入本地 localStorage，不触及档案或 IPC |
-| 单行文字渐隐 | `src/renderer/src/components/FadeText.tsx` | 依据真实溢出启用 16px 末端 mask，保留完整名称；不遮罩品牌图标或数量 |
+| 桌面主进程 | `src/main/index.ts` | 窗口、顶层 frame 与 IPC 校验、系统位置选择框、档案深链路由 |
+| 来源契约 | `src/core/sources.ts` | 连接状态、目录条目、查询与响应 schema；将发现、正文能力和总数状态分开 |
+| 来源服务 | `src/main/source-browser.ts` | 位置授权配置、全量目录发现、分页搜索、取消、刷新、断开、正文按需读取、只读数据库门禁 |
+| 安全桥 | `src/preload/index.ts` | `window.staithe.sources` 的具名方法；旧档案 API 保留；不暴露 Node、任意 IPC 或路径读写 |
+| 默认界面 | `src/renderer/src/SourceApp.tsx` | 来源列表、元数据搜索、分页、连接管理、正文、能力检查与过期请求隔离 |
+| 页面路由／兼容界面 | `src/renderer/src/App.tsx` | 默认 `SourceApp`，显式切换 `ArchiveApp`；旧深链进入档案入口 |
+| 导入协调 | `src/main/imports.ts` | 独立兼容路径的内容识别、预览 token、确认、去重；其纯 `parseArchive` 也供来源正文投影复用 |
+| 外部格式解析 | `cindy.ts`、`cindy-local.ts`、`newmax-local.ts`、`claude-code.ts`、`deepseek.ts`、`codex.ts`、`codex-zstd.ts`、`zip.ts` | 受限文本投影、资源预算、来源验证与损失报告；解析器不能自行寻找外部引用 |
+| 本地档案服务 | `src/main/library.ts` | 旧档案读取、串行入库、原件与记录整体原子发布；与来源目录计数隔离 |
+| 历史开发批次 | `scripts/import-local.mjs`、`src/main/local-import.ts` | 旧的显式小批量归档；不参与新的来源浏览或自动启动 |
+| 本地设计系统 | `tokens.css`、`styles.css`、`components/` | 沿用原有主题、布局、图标、插画、ScrollArea、Tooltip、侧栏和模态焦点管理；来源模式不增加独立视觉样式 |
 
-界面无 Node.js 权限，开启 `contextIsolation` 与 `sandbox`。主进程校验 IPC 发送者及顶层 frame，拒绝窗口导航、新窗口和权限请求。导入内容只作为 React 文本节点，不解析 HTML、不执行历史工具调用或授权描述。
+## 来源状态与计数
 
-UI 的视觉参考来源、独立化决策与操作说明见 [桌面工作台设计](ui-design.md)。不存在对 NewMax 源码或运行时的跨仓库依赖；来源筛选不代表客户端连接状态。界面排版不修改存储消息或交接原文。返回 / 前进只恢复窗口内的会话与筛选位置，最多 100 项，不操作网页 history 或持久化搜索内容；侧栏开关独立于浏览历史，不更改筛选。
+- `SourceConnection` 保存 `status`、`discovered`、可空 `total`、不可访问目录数 `issues` 和跳过链接数 `ignoredLinks`。
+- `idle / scanning / ready / partial / cancelled / error` 不可混同。只有完成且无目录错误的扫描才能给出完整 `total`；其余均为 `null`。
+- `SourceEntry` 只含标题、来源会话 ID、相对项目目录、时间与正文可读状态。renderer 获得 opaque hash ID，不能传任意路径读取。
+- `SourcePage.total` 是当前查询下**已发现**的匹配条目数量，不表示正在统计来源的最终总数。UI 同时参考连接状态。
+- 目录发现不调用完整解析器，不因正文不兼容而删除条目。日志头只读取前 64 KiB 的显式元数据；无标题／压缩文件退回文件名。
+- 文件树分批异步遍历，数据库行每 200 条让出事件循环，直至结束而不是在旧批次上限停止。renderer 每页最多 100 条，界面默认 50；统计中不追加后续页，避免排序变化引发漏项。
+- 配置支持多个独立授权位置；相同来源和规范化根路径重复连接复用授权。不做跨位置或正文语义去重，重叠来源可能出现多条。
+- 刷新替换当前内存索引，取消／断开使旧扫描失效；断开也让在途正文请求失效。UI 使用请求代次防止旧正文覆盖新选择。
 
-Pinekin 更名只改变品牌显示，安装身份 `ai.newmax.staithe`、文本包格式和深链保持兼容。内部桥继续使用 `window.staithe`、`StaitheAPI` 与 `staithe:*` IPC。选择文件由主进程系统对话框完成，渲染进程不能指定路径或直接提交待保存会话。确认参数为短期 UUID token，关联已经验证的内存快照。
+## 安全与无副作用读取
 
-## 文本包兼容
+保留 Electron `sandbox`、`contextIsolation`、禁用 Node integration；拒绝导航、新窗口与权限请求。每个 IPC 校验发送者与主 frame，参数由严格 schema 验证。
 
-历史 v1 示例保持不变：
+默认调用 `pinekin:sources-auto-connect`，仅接受来源枚举；主进程的 `src/main/source-discovery.ts` 根据已验证的固定位置／CLI home 环境覆盖自动定位，同时刷新已有授权连接。只在用户点击连接时触发，不读取配置或凭据；Codex 同时处理活跃与归档目录，Cindy 仅浅层枚举两种地区目录中的 `cindy-*.db`。单个位置失败与未找到分开报告，成功位置仍返回；重复路径复用连接。
 
-```json
-{
-  "format": "staithe.session",
-  "version": 1,
-  "session": {
-    "id": "example-id",
-    "title": "一段值得继续的思考",
-    "source": "other",
-    "updatedAt": "2026-10-16T00:00:00.000Z",
-    "tags": ["思考"],
-    "messages": [{ "role": "user", "content": "接下来做什么？" }],
-    "demo": false
-  }
-}
-```
+`pinekin:sources-connect` 保留为显式手动备用入口，同样仅接受来源枚举，路径必须来自主进程系统对话框。两个连接通道共用互斥锁和发送者校验，renderer 不可指定任意路径。NewMax 默认数据库位置未核实，不猜测；已授权位置可直接复用。连接授权包括范围内的隐私、分叉、归档会话元数据，折叠说明中告知；未点击连接不探测默认位置。日志中的附件、工作区、父会话路径和历史指令都不执行或跟随。
 
-v1 只接受原有四个来源枚举及原有字段，同时接受 `staithe.session` / `ember.session`。不放松 v1 校验以塞入新字段。
+文件读取规范化授权根、不跟随符号链接；每次按需读取重新核验范围、普通文件类型及实际句柄的 dev/ino。打开前、打开后和交付前检查文件身份，避免祖先目录替换让读取逃出授权根。正文读取发现大小、mtime 或 ctime 改变时拒绝交付片段。
 
-v2 只接受 `staithe.session`，扩展 Cindy / DeepSeek 来源标识和可选的 `archive` 报告。无扩展字段的会话继续导出 v1，新增档案使用 v2。**这是文本快照协议，不是最终的结构化事件和附件容器**；定义及兼容边界见 [导入格式文档](import-formats.md)。新增来源枚举不等于已实现该来源解析。
+### SQLite 特别门禁
 
-未知版本、额外协议字段及不合法数据拒绝，不静默降级。导入外部包时允许保存未映射字段所在的整个原件，并在报告中说明文本投影的损失；这不等于 v2 会携带原件。再次导出不会携带包内附件、转录或运行权限。
+普通 `readOnly: true` 不能单独保证 WAL/SHM 副文件零写入，因此不得直接通过原始来源路径打开数据库：
 
-## 四种动作分开建模与验收
+- 当前只验证 macOS：先以只读、禁止最终符号链接的文件描述符固定来源，检查文件身份和 SQLite 头。
+- **拒绝 WAL 模式以及存在 `-wal/-shm/-journal` 的库**，不自动 checkpoint、不删副文件、不把 WAL 内容忽略后称为完整读取。
+- 通过固定 `/dev/fd/<fd>` 与 `mode=ro&immutable=1` 打开，附加 `query_only`、`trusted_schema=OFF` 和读取事务；结束前核验原文件身份、大小、mtime/ctime 与副文件状态，发现变化则不交付正文／完整计数。
+- Windows／Linux 数据库直读尚未验证，明确拒绝；日志目录浏览不依赖该路径。
+- 仅查询会话表结构、列表和选中会话消息，不复制整库、不访问设置／认证表，不运行来源 Store。ID 非法或重复导致统计失败，不能通过 Map 覆盖伪装完整。
 
-1. **档案导入**：能阅读和保存历史；Cindy 与 Codex 均有合成回归，Codex 另做过少量获授权本机文件只读抽样，不代表全部版本兼容。Codex 支持受限 Zstandard 以及序号从 0 连续、无继承的分页主会话，但始终是追加日志文本投影，不重建有效分支。
-2. **上下文交接**：把文本原文、角色与损失报告交给目标工具；不自动发送，不保证目标模型抵抗提示注入。
-3. **打开来源**：当前只有 Pinekin 自身本地定位；未接入来源客户端打开入口。
-4. **原生恢复／迁移**：涉及原会话 ID、工作区、工具状态、权限、模型、客户端版本和正式恢复入口；本版全部未支持。
+这意味着 **处于常见 WAL 布局的 NewMax／Cindy 数据库当前可能无法连接**。这是明确的尚未支持边界，不应让用户手动删除 WAL 文件。后续需独立实现和验证可消费 WAL 的无写入读取方案或来源官方只读 API。
 
-`SessionAdapter.capabilities` 描述桌面实际实现：NewMax 白名单快照、Claude Code JSONL、Cindy、Codex 与 DeepSeek Harness 的 `importArchive=true`，标记 `archiveStatus=fixture-tested` 并限定具体格式。DeepSeek 网页聊天仍未支持。少量获授权本机核验单独记录，不将整个产品提升为全面集成验证。所有外部来源的 `readLocal/nativeResume/deepLink` 仍为 false；显式开发 CLI 可在授权路径内生成 NewMax 快照或导入有界日志批次，但不改变桌面 API，不提供启动扫描或持续同步。详见 [接入契约与核验](newmax-claude-local-validation-2026-10-17.md)。
+## 发现、阅读、接续分开声明
 
-## 深链
+`SessionAdapter.capabilities`：
 
-新协议 `newmax-staithe://session/<本地ID>`，旧协议 `newmax-ember://session/<本地ID>` 保留，两者走相同解析和分发逻辑。
+- `listLocal`：可在已授权位置发现元数据，不代表所有平台／数据库模式适用。
+- `readLocal`：可按需投影受支持正文；NewMax、Claude Code、Codex、Harness 有受限实现，Cindy 暂为 false。
+- `importArchive`：旧档案格式解析与保存能力。
+- `nativeResume` / `deepLink`：外部目标恢复／打开能力，全部仍为 false。
 
-- 原始字符串严格匹配，不接受查询、片段、用户信息、端口或额外路径。
-- 仅定位本机档案，不取远程文件、不传 prompt、不触发工具执行；找不到则明确提示。
-- 开发模式不注册系统协议；打包配置两种协议声明。
-- 测试覆盖冷启动参数、应用内事件与消息桥，不代表安装后的系统级协议验收。
-- 首次导入分配新 ID；相同字节文件重复导入复用已有档案 ID。跨设备不能只传本地链接。
-- 更名不重写已保存档案的 ID；不再注入内置演示会话，未保存的历史示例链接按未找到处理。
+NewMax 的数据库结构匹配不等于探测到真实安装版本；1.1.22 仅为既有白名单读取契约。官方文档有目标接口不等于 Pinekin 已完成创建、持久化回读、打开与回滚验收。当前目标弹窗仅展示门禁，不创建目标、不发送 prompt、不操作剪贴板来伪装同步。
 
-## 持久化
+## 持久化与兼容
 
-档案列表只返回持久化的非演示会话，不追加内置数据。空库返回空数组；旧记录的 `demo` 字段仅作兼容，标记为演示的记录过滤显示而不删除。渲染层也过滤旧主进程可能仍返回的演示记录，避免热更新时残留。测试数据全部放在 `tests/fixtures`，桌面验收仅向隔离 userData 显式种入合成档案。
+- 新来源模式只保存 `userData/connections.json`（版本 1）：来源枚举、UUID、规范化根路径。串行写入、临时文件 + rename 原子替换，文件 `0600`。标题、搜索词和正文不持久化。
+- 重启后连接为 `idle`，显式刷新才读来源。断开清除授权配置和该连接索引，不删除来源内容。
+- 旧 `library.json` 与 `imports/<sha256>/{original.bin,record.json}` 不自动迁移、改写或删除。损坏档案和损坏连接配置分别报错。
+- `staithe.session` v1/v2、`ember.session` v1 继续兼容；严格版本、字段与预算校验。v2 是文本投影，不是附件和运行态容器。
+- 深链 `newmax-staithe://session/<本地ID>` / `newmax-ember://session/<本地ID>` 仅定位本机档案，自动切到兼容入口；不下载远程文件、不携带 prompt、不触发外部操作。
+- Pinekin 安装身份 `ai.newmax.staithe`、默认 userData `appData/@newmax-ai/ember` 保留；开发隔离 `STAITHE_DATA_DIR` 优先，兼容 `EMBER_DATA_DIR`，打包忽略覆盖。
+- 所有配置、档案都是明文；没有加密、自动脱敏、云同步或自动备份。
 
-旧 `userData/library.json` 不自动改写或迁移。新导入保存 `imports/<sha256>/original.bin` 与 `record.json`，同文件系统暂存目录内写完后整体 rename，保证读者只看到完整提交。串行队列保护进程内并发；完全相同字节幂等，不做跨账户或正文语义合并。损坏数据明确报错，不清空覆盖。
+## 验证
 
-产品显示名为 Pinekin，默认 `userData` 仍为系统 `appData` 下的 `@newmax-ai/ember`。开发模式优先使用 `STAITHE_DATA_DIR`，兼容 `EMBER_DATA_DIR`；打包忽略两者。测试始终使用隔离临时目录。
+单元／集成覆盖完整发现、分页、跨页搜索、损坏／超限条目、取消／刷新／断开、配置重启、链接和文件身份竞态、SQLite 无副文件、重复 ID 以及来源不修改。
 
-当前是有界小包验证：无 SQLite、大库索引、后台解析 worker、目录监听、整库容量限制、自动备份、加密或删除界面。原件按内容散列存储，但文本索引仍逐个读取 JSON；这不是大规模存储完成状态。最终结构化模型与数据库迁移需要独立方案及备份/校验/回滚。
+组件覆盖空档案主入口、连接授权、未连接非零、正文懒读取、请求竞态、能力门禁与档案兼容。
 
-## 验证边界
+E2E 经过真实 Electron、preload、IPC、系统对话框替身与隔离文件；新增空库来源流程，原档案 E2E 显式进入兼容入口继续验证。后台窗口从创建起隐藏、不聚焦，监听 show/focus 事件；不用真实聊天、客户端凭据或目标写入测试。
 
-- 单元：v1/v2 schema、搜索、交接、深链、能力标记；Cindy 格式、原件校验、错误内容、ZIP 路径和资源边界。
-- 集成：隔离文件系统中的普通文件/FIFO 拒绝、快照预览/取消/确认、并发去重、失败重试、损坏保护。
-- 组件：来源过滤、导入预览与确认、重复提示、错误反馈、导入报告、导出和深链。
-- 桌面：真实 Electron + preload + IPC + 文件服务；对话框与剪贴板替换，只用合成数据。Cindy 第三方客户端自身未在测试中运行。
-- 覆盖率阈值 80%，包括 `src/core`、主进程纯解析/存储/文件读取模块和渲染进程 TSX（包括本地控件与消息排版）；类型、演示数据、主进程启动事件编排及 preload 不计入数值，后两者通过 E2E 验证主要路径。这不是全仓覆盖率承诺。
-
-验收见 [第一批只读导入](import-verification.md)、[Codex 首批](codex-verification.md) 和 [获授权本机抽样及格式修正](local-validation-2026-10-17.md)；Codex 当前支持边界见 [专项格式说明](codex-import.md)。
+覆盖率阈值仍为 80%，新增 `source-browser.ts` 纳入覆盖范围。来源端验证不能作为目标接续的验证证明。

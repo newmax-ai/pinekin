@@ -48,7 +48,7 @@ export interface ParsedArchive {
 export interface SessionAdapter {
   id: Source
   name: string
-  capabilities: { readLocal: boolean; importArchive: boolean; nativeResume: boolean; deepLink: boolean }
+  capabilities: { listLocal: boolean; readLocal: boolean; importArchive: boolean; nativeResume: boolean; deepLink: boolean }
   archiveStatus?: 'unknown' | 'documented' | 'fixture-tested' | 'integration-tested' | 'unsupported'
   constraints?: string
   // 未来接入只能读取用户明确授权的位置，不默认扫描主目录。
@@ -56,6 +56,7 @@ export interface SessionAdapter {
 }
 export interface StaitheAPI {
   readonly platform: string
+  readonly sources: import('./sources').SourceBrowserAPI
   list(): Promise<Session[]>
   previewImport(): Promise<ImportPreview | null>
   confirmImport(token: string): Promise<ImportResult>

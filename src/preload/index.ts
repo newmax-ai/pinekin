@@ -3,6 +3,16 @@ import type { StaitheAPI } from '../core/types'
 
 const api: StaitheAPI = {
   platform: process.platform,
+  sources: {
+    connections: () => ipcRenderer.invoke('pinekin:sources-connections'),
+    autoConnect: source => ipcRenderer.invoke('pinekin:sources-auto-connect', source),
+    connect: source => ipcRenderer.invoke('pinekin:sources-connect', source),
+    refresh: id => ipcRenderer.invoke('pinekin:sources-refresh', id),
+    cancel: id => ipcRenderer.invoke('pinekin:sources-cancel', id),
+    disconnect: id => ipcRenderer.invoke('pinekin:sources-disconnect', id),
+    page: query => ipcRenderer.invoke('pinekin:sources-page', query),
+    read: id => ipcRenderer.invoke('pinekin:sources-read', id),
+  },
   list: () => ipcRenderer.invoke('staithe:list'),
   previewImport: () => ipcRenderer.invoke('staithe:import-preview'),
   confirmImport: token => ipcRenderer.invoke('staithe:import-confirm', token),

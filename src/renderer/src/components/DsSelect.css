@@ -1,0 +1,31 @@
+/* 取自 NewMax DsSelect / DsMenu 的基础尺寸与主题契约；品牌色和连续圆角沿用 Pinekin。 */
+.ds-select {
+  --ds-input-shadow-inset: inset 0.5px 0.5px 0.5px 0 white;
+  --ds-input-shadow-hover: 0 0 0.5px 0.5px rgba(0, 0, 0, 0.04), 0 0 0 0.5px color-mix(in srgb, var(--ds-brand-primary) 24%, transparent), 0.5px 0.5px 1px rgba(0, 0, 0, 0.08);
+  --ds-menu-bg: color-mix(in oklch, var(--ds-surface-200) 96%, white);
+  --ds-menu-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 2px 1px 5px rgba(50, 48, 48, 0.06), 8px 6px 10px rgba(50, 48, 48, 0.05), 18px 13px 13px rgba(50, 48, 48, 0.03), 31px 24px 16px rgba(50, 48, 48, 0.01);
+  --ds-menu-shadow-inset: inset 0.5px 0.5px 0 0 white;
+  position: relative; width: 180px; min-width: 120px; flex-shrink: 0;
+}
+.ds-select-trigger { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px 0 10px; border: 0; border-radius: var(--ds-radius-md); background: var(--ds-surface-input); color: var(--ds-text-primary); box-shadow: var(--ds-input-shadow); font-size: 13px; line-height: 16px; text-align: left; cursor: pointer; }
+.ds-select-trigger::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: var(--ds-input-shadow-inset); pointer-events: none; }
+.ds-select-trigger:hover:not(:disabled) { box-shadow: var(--ds-input-shadow-hover); }
+.ds-select-trigger[aria-expanded='true'], .ds-select-trigger:focus-visible { outline: none; box-shadow: var(--ds-input-shadow-focus); }
+.ds-select-trigger:disabled { opacity: 0.4; box-shadow: none; background: var(--ds-on-surface); cursor: default; }
+.ds-select-trigger > .design-icon { color: var(--ds-text-tertiary); flex-shrink: 0; }
+.ds-select-value { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ds-select-menu { position: fixed; inset: auto; margin: 0; padding: 6px; border: 0; border-radius: var(--ds-radius-lg); background: var(--ds-menu-bg); color: var(--ds-text-primary); box-shadow: var(--ds-menu-shadow), var(--ds-menu-shadow-inset); overflow: auto; overscroll-behavior: contain; }
+.ds-select-option { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; border-radius: var(--ds-radius-md); background: transparent; color: var(--ds-text-primary); font-size: 13px; line-height: 16px; text-align: left; cursor: pointer; }
+.ds-select-option > span:last-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ds-select-option[data-active='true'] { background: var(--ds-on-surface); }
+.ds-select-option[aria-selected='true'] { color: var(--ds-brand-primary); font-weight: 500; }
+.ds-select-check { display: inline-flex; justify-content: center; width: 18px; flex-shrink: 0; }
+@media (prefers-color-scheme: dark) {
+  .ds-select {
+    --ds-input-shadow-inset: 0 0 0 transparent;
+    --ds-input-shadow-hover: 0 0 0 0.5px rgba(255, 255, 255, 0.16);
+    --ds-menu-bg: var(--ds-surface-400);
+    --ds-menu-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 0 9px -4px rgba(0, 0, 0, 0.50), 0 0 32px -8px rgba(0, 0, 0, 0.20);
+    --ds-menu-shadow-inset: 0 0 0 transparent;
+  }
+}

@@ -57,6 +57,13 @@ async function launch(legacyEnv = false, link?: string, legacyAppData = false) {
   expect(await app.evaluate(({ app }) => app.getName())).toBe('Pinekin')
   expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(legacyAppData ? join(directory, '@newmax-ai/ember') : directory)
   await assertBackground()
+  // 本文件保留档案兼容流程回归；默认来源主流程由 source-browser.spec.ts 覆盖。
+  const connectEntry = page.getByRole('button', { name: '连接 App', exact: true })
+  if (await connectEntry.count()) {
+    await connectEntry.click()
+    await page.getByRole('button', { name: '已有档案', exact: true }).click()
+  }
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeEnabled()
 }
 test.beforeEach(async ({ seedLibrary }) => {
   directory = await mkdtemp(join(tmpdir(), 'staithe-e2e-'))
@@ -355,6 +362,7 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   await writeFile(preload, `const { contextBridge } = require('electron');
     contextBridge.exposeInMainWorld('staithe', {
       platform: 'win32', list: async () => ${JSON.stringify(demoSessions)},
+      sources: { page: async () => ({ items: [], total: 0, offset: 0, hasMore: false, connections: [] }) },
       previewImport: async () => null, confirmImport: async () => { throw new Error('此布局夹具不执行导入') },
       cancelImport: async () => {}, exportSession: async () => false, copy: async () => {},
       onOpenSession: () => () => {}
@@ -367,6 +375,8 @@ test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白
   }, { preload, html: resolve('out/renderer/index.html') })
   const preview = await created
   await preview.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
+  await preview.getByRole('button', { name: '连接 App', exact: true }).click()
+  await preview.getByRole('button', { name: '已有档案', exact: true }).click()
   await expect(preview.getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeVisible()
   await expect(preview.locator('.shell')).toHaveAttribute('data-platform', 'win32')
   await expect(preview.locator('.window-controls-space')).toHaveCount(0)
@@ -543,11 +553,15 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toBeInViewport()
   // 窄窗口刷新仍只临时 clamp；恢复大窗口后必须找回 360，而不是保存后的 312。
   await page.reload()
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await page.getByRole('button', { name: '已有档案', exact: true }).click()
   await expectWidth(312)
   expect(await preference()).toBe('360')
   await resizeWindow(1440)
   await expectWidth(360)
   await page.reload()
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await page.getByRole('button', { name: '已有档案', exact: true }).click()
   await expectWidth(360)
   expect(await preference()).toBe('360')
   await expectFade(false)
@@ -615,6 +629,8 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   // 旧版本保存的窄宽度在刷新后也必须遵守 240px 下限，不主动重写偏好。
   await page.evaluate(() => localStorage.setItem('pinekin.sidebar-width', '200'))
   await page.reload()
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  await page.getByRole('button', { name: '已有档案', exact: true }).click()
   await expectWidth(240)
   await expect(handle).toHaveAttribute('aria-valuemin', '240')
   expect(await preference()).toBe('200')
@@ -747,7 +763,7 @@ test('禁用连续圆角能力规则后回退原始半径，胶囊和焦点行�
   await expect(trigger).toBeFocused()
 })
 
-test('small relaxed 图标按钮统一尺寸、悬浮与禁用反馈，正文操作保持原尺寸', async () => {
+test('导航保留 small relaxed，弹窗关闭组件统一默认尺寸，正文操作保持原尺寸', async () => {
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await page.mouse.move(700, 300)
@@ -772,15 +788,20 @@ test('small relaxed 图标按钮统一尺寸、悬浮与禁用反馈，正文操
     await page.screenshot({ scale: 'css', path: `test-results/pinekin-small-relaxed-buttons-${colorScheme}-v1.png` })
     await search.click()
     const close = page.getByRole('button', { name: '关闭搜索' })
-    await expect(close).toHaveCSS('height', '28px')
-    await expect(close).toHaveCSS('width', '35px')
-    await expect(close.locator('svg')).toHaveCSS('width', '15px')
+    await expect(close).toHaveClass(/ds-dialog-close/)
+    await expect(close).toHaveCSS('height', '32px')
+    await expect(close).toHaveCSS('width', '42px')
+    await expect(close.locator('svg')).toHaveCSS('width', '18px')
     await page.keyboard.press('Escape')
     await expect(search).toBeFocused()
     const handoff = page.getByRole('button', { name: 'Pin 走这段对话' })
     await expect(handoff).toHaveCSS('height', '32px')
     await handoff.click()
-    await expect(page.getByRole('button', { name: '关闭交接面板' })).toHaveCSS('height', '28px')
+    await expect(page.locator('.dialog-header h2')).toHaveText('让这段思考，有下文。')
+    await expect(page.locator('.dialog-header .dialog-icon')).toHaveCount(0)
+    await expect(page.locator('.dialog-header svg')).toHaveCount(1)
+    await expect(page.getByRole('button', { name: '关闭交接面板' })).toHaveClass(/ds-dialog-close/)
+    await expect(page.getByRole('button', { name: '关闭交接面板' })).toHaveCSS('height', '32px')
     await expect(page.getByRole('button', { name: '复制交接文本' })).toHaveCSS('height', '36px')
     await page.keyboard.press('Escape')
   }
@@ -1219,6 +1240,9 @@ for (const format of ['staithe.session', 'ember.session']) {
     }, file)
     await page.getByRole('button', { name: '导入会话文件' }).click()
     await expect(page.getByRole('dialog', { name: '确认导入档案' })).toBeVisible()
+    await expect(page.locator('.dialog-header h2')).toHaveText('确认导入档案')
+    await expect(page.locator('.dialog-header .dialog-icon')).toHaveCount(0)
+    await expect(page.locator('.dialog-header svg')).toHaveCount(1)
     await expect(page.getByRole('heading', { level: 2, name: imported.title })).not.toBeVisible()
     await page.getByRole('button', { name: '确认保存到本地' }).click()
     await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()

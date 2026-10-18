@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { App } from '../src/renderer/src/App'
+import { ArchiveApp as App } from '../src/renderer/src/App'
+import { mockSourcesAPI } from './fixtures/source-api'
 import { fixtureSessions as demoSessions } from './fixtures/sessions'
 
 afterEach(cleanup)
@@ -11,6 +12,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   window.staithe = {
     platform: 'darwin',
+    sources: mockSourcesAPI(),
     list: vi.fn().mockResolvedValue(demoSessions),
     previewImport: vi.fn().mockResolvedValue(null),
     confirmImport: vi.fn(),
@@ -158,13 +160,15 @@ describe('档案界面', () => {
     expect(screen.getByRole('heading', { level: 2, name: demoSessions[2].title })).toBeTruthy()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
-  it('导航、搜索及弹窗关闭统一使用 small relaxed 图标按钮', async () => {
+  it('导航和搜索入口保留 small relaxed，弹窗关闭复用默认尺寸组件', async () => {
     await open()
     function expectSmallRelaxedIcons() {
       const buttons = document.querySelectorAll('.ds-button-icon')
       expect(buttons.length).toBeGreaterThanOrEqual(4)
       for (const button of buttons) {
-        expect(button.classList.contains('ds-button-small')).toBe(true)
+        const isDialogClose = button.closest('dialog') !== null
+        expect(button.classList.contains('ds-button-small')).toBe(!isDialogClose)
+        expect(button.classList.contains('ds-dialog-close')).toBe(isDialogClose)
         expect(button.classList.contains('ds-button-icon-relaxed')).toBe(true)
         expect(button.getAttribute('aria-label')).toBeTruthy()
         expect(button.textContent).toBe('')
