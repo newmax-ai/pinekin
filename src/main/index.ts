@@ -80,7 +80,7 @@ else {
     const library = new Library(app.getPath('userData'))
     const imports = new ImportCoordinator(library)
     importer = imports
-    const sourceBrowser = new SourceBrowser(app.getPath('userData'))
+    const sourceBrowser = new SourceBrowser(app.getPath('userData'), { home: app.getPath('home'), env: process.env })
     const codexApplication = async () => {
       const application = await app.getApplicationInfoForProtocol('codex://')
       return { ...application, ...await resolveCodexApplication(application.path) }

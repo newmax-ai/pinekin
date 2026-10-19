@@ -19,11 +19,39 @@ const nodeSchema = z.object({
 const messageSchema = z.object({ role: z.enum(['user', 'assistant']), id: identifier.optional(),
   content: z.union([z.string().max(200_000), z.array(object).max(10_000)]) })
 const metadata = new Set(['file-history-snapshot', 'file-history-delta', 'queue-operation', 'summary', 'last-prompt',
-  'ai-title', 'custom-title', 'agent-name', 'agent-color', 'mode', 'bridge-session', 'atis-latch', 'cost-state'])
+  'ai-title', 'custom-title', 'agent-name', 'agent-color', 'mode', 'permission-mode', 'bridge-session', 'atis-latch', 'cost-state'])
 type Node = z.infer<typeof nodeSchema>
 // 流式来源阅读共用结构门禁；单次行缓冲另有预算，档案导入的长度限制保持不变。
 export const claudeSourceSchemas = { node: nodeSchema, metadata,
   message: messageSchema.extend({ content: z.union([z.string(), z.array(object).max(10_000)]) }) }
+
+/** 已验证的纯工具结果不是新一轮用户输入；混合正文、附件或空消息不能跨越助手 ID 边界。 */
+export function isClaudeToolResultMessage(message: z.infer<typeof messageSchema>): boolean {
+  return message.role === 'user' && Array.isArray(message.content) && message.content.length > 0 &&
+    message.content.every(block => block.type === 'tool_result')
+}
+
+/** 仅整条由已知本地命令包装组成的 user 记录才省略；引用、未知块和附带真实提问均保留。 */
+export function isClaudeLocalCommandMessage(message: z.infer<typeof messageSchema>, isMeta = false): boolean {
+  if (message.role !== 'user') return false
+  let text: string
+  if (typeof message.content === 'string') text = message.content
+  else {
+    if (!message.content.length || !message.content.every(block => block.type === 'text' && typeof block.text === 'string')) return false
+    text = message.content.map(block => block.text).join('\n')
+  }
+  text = text.trim()
+  if (!text) return false
+  let command = false
+  while (text) {
+    const match = /^<(bash-input|bash-stdout|bash-stderr|command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)>[\s\S]*?<\/\1>\s*/.exec(text)
+    if (!match) return false
+    if (match[1] !== 'local-command-caveat') command = true
+    text = text.slice(match[0].length)
+  }
+  // 独立 caveat 只有显式 isMeta 才能证明是运行提示，不能过滤用户的普通标签引用。
+  return command || isMeta
+}
 
 function invalid(line: number, reason = '字段无效或类型不支持'): never {
   throw new Error(`Claude Code 第 ${line} 行${reason}；未导入。`)
@@ -38,25 +66,73 @@ function decode(raw: string, line: number): Record<string, unknown> {
 
 export const claudeAuxiliaryReason = '此文件仅含辅助运行记录，没有 Claude 用户或助手对话；不作为会话展示，原文件未修改'
 
-/** 仅对完整输入判断纯辅助记录；不凭文件名、目录或不完整预览隐藏潜在会话。 */
+/** 完整输入才能确认纯辅助日志；只存短父链，不保留或执行命令正文。 */
+export class ClaudeAuxiliaryLog {
+  private candidate = true
+  private records = 0
+  private journal = false
+  private sessionId?: string
+  private parents = new Map<string, string | null>()
+  private versions = new Set<string>()
+
+  private reject() { this.candidate = false; this.parents.clear(); this.versions.clear() }
+  observe(record: Record<string, unknown>): void {
+    if (!this.candidate) return
+    if (++this.records > 20_000) { this.reject(); return }
+    if (metadata.has(String(record.type))) return
+    const message = record.type === 'user' ? claudeSourceSchemas.message.safeParse(record.message) : undefined
+    const terminal = message?.success && isClaudeLocalCommandMessage(message.data, record.isMeta === true)
+    if (terminal || record.type === 'system' && record.subtype === 'local_command' && !('message' in record) && typeof record.content === 'string') {
+      const checked = nodeSchema.safeParse(record)
+      if (!checked.success) { this.reject(); return }
+      const node = checked.data
+      if (node.isCompactSummary || node.isVisibleInTranscriptOnly || node.logicalParentUuid != null ||
+        this.parents.has(node.uuid) || this.sessionId && this.sessionId !== node.sessionId) { this.reject(); return }
+      this.sessionId = node.sessionId
+      if (node.version) this.versions.add(node.version)
+      if (this.versions.size > 4) { this.reject(); return }
+      this.parents.set(node.uuid, node.parentUuid)
+      return
+    }
+    // 调度 journal 可与元数据共存，但不能用流水掩盖未知节点或潜在消息。
+    if (!('message' in record) && !('uuid' in record) && !('sessionId' in record) &&
+      (record.type === 'launched' || typeof record.agentId === 'string' && typeof record.key === 'string' &&
+        (record.type === 'started' || record.type === 'result' && 'result' in record))) { this.journal = true; return }
+    this.reject()
+  }
+
+  get auxiliary(): boolean {
+    if (!this.candidate || !this.records || this.journal && this.parents.size > 0) return false
+    if (!this.parents.size) return true
+    // 纯命令也必须完整单根；缺失、循环或重放仍是可重试的损坏，不静默过滤。
+    let roots = 0
+    const validated = new Set<string>()
+    for (const [uuid, parent] of this.parents) {
+      if (parent === null) roots += 1
+      const path = new Set<string>()
+      let current: string | null = uuid
+      while (current !== null && !validated.has(current)) {
+        if (path.has(current) || !this.parents.has(current)) return false
+        path.add(current); current = this.parents.get(current)!
+      }
+      for (const id of path) validated.add(id)
+    }
+    return roots === 1
+  }
+}
+
+/** 不凭文件名、目录或不完整预览隐藏潜在会话。 */
 export function isClaudeAuxiliaryLog(text: string): boolean {
-  let records = 0, offset = 0
+  const state = new ClaudeAuxiliaryLog()
+  let offset = 0
   for (let line = 1; offset < text.length; line += 1) {
     if (line > 20_000) return false
     const newline = text.indexOf('\n', offset), end = newline < 0 ? text.length : newline
     const raw = text.slice(offset, end); offset = end + 1
     if (!raw.trim()) continue
-    let record: Record<string, unknown>
-    try { record = decode(raw, line) } catch { return false }
-    records += 1
-    if (metadata.has(String(record.type))) continue
-    // 任务调度 journal 不是 Claude 消息；result 中的文字也不能伪造为助手答复。
-    if ('message' in record || 'uuid' in record || 'sessionId' in record) return false
-    if (record.type === 'launched') continue
-    if (typeof record.agentId !== 'string' || typeof record.key !== 'string') return false
-    if (record.type !== 'started' && !(record.type === 'result' && 'result' in record)) return false
+    try { state.observe(decode(raw, line)) } catch { return false }
   }
-  return records > 0
+  return state.auxiliary
 }
 
 // 允许原生日志以 file-history 等元数据开头；不按扩展名猜测 history.jsonl。
@@ -166,6 +242,13 @@ export function parseClaudeCode(text: string, sourceView = false): ParsedArchive
     if (!result.success || result.data.role !== node.type) throw new Error('Claude Code 消息字段或角色不一致，未导入')
     const message = result.data
     if (node.isMeta) { if (activity) activity.presentation.omittedRecords += 1; continue }
+    if (sourceView && isClaudeLocalCommandMessage(message)) {
+      activity!.presentation.omittedRecords += 1
+      warnings.add('本地终端命令及输出不作为用户问答、标题或文本交接；原记录仍保留在来源文件。')
+      // 省略正文不等于允许跨交互边界拼接助手块，原有顺序校验继续保留。
+      previousAssistantId = undefined; previousOutputId = undefined
+      continue
+    }
     if (node.type === 'assistant') {
       if (!message.id || typeof message.content === 'string') throw new Error('Claude Code 助手消息 ID 或内容块结构不支持')
       if (assistantIndices.has(message.id)) {
@@ -178,7 +261,7 @@ export function parseClaudeCode(text: string, sourceView = false): ParsedArchive
       }
       assistantIndices.set(message.id, node.apiBlockIndex)
       previousAssistantId = message.id
-    } else previousAssistantId = undefined
+    } else if (!sourceView || !isClaudeToolResultMessage(message)) previousAssistantId = undefined
     const parts: string[] = []
     if (typeof message.content === 'string') parts.push(message.content)
     else for (const block of message.content) {

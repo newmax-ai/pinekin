@@ -171,8 +171,8 @@ describe('不打断阅读的来源刷新', () => {
     fireEvent.click(screen.getByRole('button', { name: '列表有更新，点击查看' }))
     await screen.findByRole('button', { name: '遮罩验收新会话 .' })
     await waitFor(() => expect(list.style.maskImage).not.toContain('calc(100% - 96px)'))
-    expect(list.style.paddingBottom).toBe('')
     expect(list.style.maskImage).toContain('calc(100% - 48px)')
+    expect(list.style.paddingBottom).toBe('')
     expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
   })
   it('后台正文变化只提示，点击查看更新保留正文容器及阅读位置，失败保留原文', async () => {

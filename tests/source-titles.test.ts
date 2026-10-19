@@ -108,6 +108,8 @@ describe('来源列表的 Claude Code 标题', () => {
       prompt([{ type: 'tool_result', content: '工具输出' }, { type: 'text', text: '工具旁白' }]),
       prompt('<local-command-stdout>命令输出</local-command-stdout>'),
       prompt('<command-name>/compact</command-name>'), prompt('[Request interrupted by user]'),
+      prompt('<bash-input>synthetic-command</bash-input>'),
+      prompt([{ type: 'text', text: '<bash-stdout>合成输出</bash-stdout>' }, { type: 'text', text: '<bash-stderr></bash-stderr>' }]),
       prompt('<ide_opened_file>仅 IDE 提示</ide_opened_file>'),
       prompt([{ type: 'image', source: '不读取图片' }, { type: 'text', text: '<system-reminder>不显示提示</system-reminder>\n真正的问题\n第二行' }]),
       prompt('后续用户输入')))

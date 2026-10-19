@@ -4,7 +4,7 @@ import { createWorkbuddyIndexer, workbuddyRecordText, type WorkbuddyContext } fr
 import type { Message, Session } from '../core/types'
 import type { SourcePresentation } from '../core/sources'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
-import { claudeSourceSchemas, claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
+import { claudeSourceSchemas, ClaudeAuxiliaryLog, claudeAuxiliaryReason, isClaudeAuxiliaryLog, isClaudeToolResultMessage, isClaudeLocalCommandMessage } from './claude-code'
 import { codexSourceSchemas, codexUnsupportedReason, isCodexSubagent } from './codex'
 import { deepseekSourceSchemas } from './deepseek'
 import { codexUserText } from './source-conversation'
@@ -187,16 +187,16 @@ export function createLogIndexer(source: LogSource, context?: WorkbuddyContext):
 }
 
 type ClaudeNode = Pick<z.infer<typeof claudeSourceSchemas.node>, 'uuid' | 'parentUuid' | 'type' | 'isSidechain' | 'isMeta' | 'apiBlockIndex'> & {
-  time: number; line: number; text?: IndexedMessage; messageId?: string; messageValid: boolean; browserTask: boolean
+  time: number; line: number; text?: IndexedMessage; messageId?: string; messageValid: boolean; browserTask: boolean; toolResultOnly: boolean; localCommand: boolean
   counts: { calls: number; results: number; attachments: number; omitted: number }
 }
 function claudeIndexer(): LogIndexer {
-  const budget = new Budget(), origin = new ClaudeLogOrigin(), nodes = new Map<string, ClaudeNode>(), versions = new Set<string>()
+  const budget = new Budget(), origin = new ClaudeLogOrigin(), auxiliary = new ClaudeAuxiliaryLog(), nodes = new Map<string, ClaudeNode>(), versions = new Set<string>()
   const warnings = new Set(commonWarnings)
   let last: ClaudeNode | undefined, id = '', hasRecord = false, hasJournal = false
   return {
     accept(record, line) {
-      hasRecord = true; origin.observe(record)
+      hasRecord = true; origin.observe(record); auxiliary.observe(record)
       if (claudeSourceSchemas.metadata.has(String(record.type))) return
       if (!('message' in record) && !('uuid' in record) && !('sessionId' in record) && isClaudeAuxiliaryLog(JSON.stringify(record))) { hasJournal = true; return }
       const parsed = checked(claudeSourceSchemas.node, record, 'Claude Code', line)
@@ -210,14 +210,16 @@ function claudeIndexer(): LogIndexer {
       // 不能把 message、subtype 或其他大字段留在结构索引中，只保存父链所需的短 ID 与标量。
       const node: ClaudeNode = { uuid: header.uuid, parentUuid: header.parentUuid, type: header.type, isSidechain: header.isSidechain,
         isMeta: header.isMeta, apiBlockIndex: header.apiBlockIndex, time: Date.parse(header.timestamp), line,
-        counts: { calls: 0, results: 0, attachments: 0, omitted: 0 }, messageValid: true, browserTask: false }
+        counts: { calls: 0, results: 0, attachments: 0, omitted: 0 }, messageValid: true, browserTask: false, toolResultOnly: false, localCommand: false }
       if (header.type === 'user' || header.type === 'assistant') {
         const message = claudeSourceSchemas.message.safeParse(rawMessage)
         node.messageValid = message.success && message.data.role === header.type
         if (message.success) {
+          node.toolResultOnly = isClaudeToolResultMessage(message.data)
+          node.localCommand = isClaudeLocalCommandMessage(message.data)
           node.messageId = message.data.id
           if (header.type === 'assistant' && !header.isMeta && (!message.data.id || typeof message.data.content === 'string')) node.messageValid = false
-          if (!header.isMeta) {
+          if (!header.isMeta && !node.localCommand) {
             let text = ''
             try { text = recordText('claude-code', record, line) } catch { node.messageValid = false }
             if (text.trim()) node.text = descriptor(line, text, header.type)
@@ -238,7 +240,7 @@ function claudeIndexer(): LogIndexer {
     },
     finish() {
       if (origin.value(true) === 'sdk') throw new UnsupportedSourceError(sdkOriginReason)
-      if (!nodes.size && hasRecord) throw new UnsupportedSourceError(claudeAuxiliaryReason)
+      if (auxiliary.auxiliary || !nodes.size && hasRecord) throw new UnsupportedSourceError(claudeAuxiliaryReason)
       if (hasJournal) throw new Error('Claude 日志混合任务流水与会话节点，未猜测会话结构')
       if (!last || !id) throw new Error('Claude 日志没有可投影的用户或助手消息')
       const validated = new Set<string>()
@@ -278,6 +280,11 @@ function claudeIndexer(): LogIndexer {
         if (node.type !== 'user' && node.type !== 'assistant') continue
         if (!node.messageValid) throw new Error('Claude 消息字段、角色、助手 ID 或内容块结构无效')
         if (node.isMeta) continue
+        if (node.localCommand) {
+          warnings.add('本地终端命令及输出不作为用户问答、标题或文本交接；原记录仍保留在来源文件。')
+          previousAssistant = undefined; previousOutput = undefined
+          continue
+        }
         if (node.type === 'assistant') {
           if (assistantIndices.has(node.messageId!)) {
             const previous = assistantIndices.get(node.messageId!)
@@ -285,7 +292,7 @@ function claudeIndexer(): LogIndexer {
             else if (previous === undefined || node.apiBlockIndex === undefined || node.apiBlockIndex <= previous || previousAssistant !== node.messageId) throw new Error('Claude 助手重复消息的追加块索引缺失、重放或顺序不明')
           }
           assistantIndices.set(node.messageId!, node.apiBlockIndex); previousAssistant = node.messageId
-        } else previousAssistant = undefined
+        } else if (!node.toolResultOnly) previousAssistant = undefined
         if (!node.text) { if (node.type === 'user') previousOutput = undefined; continue }
         const tail = messages.at(-1)
         if (node.type === 'assistant' && tail?.role === 'assistant' && previousOutput === node.messageId && node.apiBlockIndex !== undefined) {

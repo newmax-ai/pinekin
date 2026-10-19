@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
+import { claudeFixture, claudeLocalCommandRecords, claudeRecords } from '../fixtures/claude-code'
 
 let app: ElectronApplication | undefined, root: string
 
@@ -27,16 +27,37 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   task[1].message = { role: 'user', content: 'Task: 验证合成页面\n\nCurrent URL: file:///synthetic/gallery.html\nViewport: 400x800\n\nPage snapshot:\n<script>window.untrustedExecuted=true</script>\n页面隐藏标记' }
   task[3].message = { role: 'assistant', id: 'tool', content: [{ type: 'tool_use', id: 'call', name: 'synthetic_browser', input: { selector: '#synthetic' } }] }
   task[4] = { ...task[1], uuid: 'result', parentUuid: 'a1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'call', content: '合成工具结果标记' }] } }
+  task.push({ ...task[3], uuid: 'after-result', parentUuid: 'result', apiBlockIndex: 1,
+    message: { role: 'assistant', id: 'tool', content: [{ type: 'text', text: '工具完成后的真实答复' }] } })
   const taskBytes = claudeFixture(task)
   await writeFile(join(source, 'task.jsonl'), taskBytes)
   const legacy = claudeRecords().map(record => { const { apiBlockIndex: _index, ...rest } = record; return rest })
-  await writeFile(join(source, 'legacy.jsonl'), claudeFixture(legacy))
+  await writeFile(join(source, 'legacy.jsonl'), claudeFixture([
+    { type: 'mode', mode: 'synthetic', sessionId: legacy[1].sessionId },
+    { type: 'permission-mode', permissionMode: 'synthetic-setting-not-message', sessionId: legacy[1].sessionId },
+    { type: 'atis-latch', atis: false, sessionId: legacy[1].sessionId },
+    ...legacy,
+  ]))
   const sdk = claudeRecords(); sdk[1].entrypoint = 'sdk-ts'
   sdk[1].message = { role: 'user', content: 'NewMax 内部 SDK 浏览器任务，不应冒充 Claude Code' }
   const longSdkSidechain = sdk.map(record => record.uuid ? { ...record, isSidechain: true } : record)
   longSdkSidechain.splice(2, 0, ...Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) })))
   await writeFile(join(source, 'sdk-task.jsonl'), claudeFixture(longSdkSidechain))
   await writeFile(join(source, 'helper.jsonl'), JSON.stringify({ type: 'queue-operation' }) + '\n')
+  const commandBytes = claudeFixture(claudeLocalCommandRecords())
+  await writeFile(join(source, 'commands.jsonl'), commandBytes)
+  const terminal = claudeRecords().slice(1, 2)
+  terminal[0].entrypoint = 'cli'
+  terminal[0].message = { role: 'user', content: '<bash-input>synthetic-command --version</bash-input>' }
+  terminal.push({ ...terminal[0], uuid: 'terminal-output', parentUuid: 'u1', message: { role: 'user', content: '<bash-stdout>合成终端输出</bash-stdout><bash-stderr></bash-stderr>' } })
+  const terminalBytes = claudeFixture(terminal)
+  await writeFile(join(source, 'terminal.jsonl'), terminalBytes)
+  const mixed = claudeRecords(); mixed[1].parentUuid = 'terminal-output'
+  await writeFile(join(source, 'mixed-terminal.jsonl'), claudeFixture([
+    ...terminal.map(record => ({ ...record, uuid: record.uuid === 'u1' ? 'terminal-input' : record.uuid,
+      parentUuid: record.parentUuid === 'u1' ? 'terminal-input' : record.parentUuid })), ...mixed,
+    { type: 'custom-title', customTitle: '混合终端与真实问答' },
+  ]))
   const answerOnly = claudeRecords().slice(3)
   answerOnly[0].parentUuid = null
   const answerOnlyBytes = claudeFixture(answerOnly)
@@ -64,17 +85,18 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
   const page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.session-card')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: /^Claude Code\s*3$/ })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(4)
+  await expect(page.getByRole('button', { name: /^Claude Code\s*4$/ })).toBeVisible()
   expect(await page.evaluate(() => window.staithe.sources.page({ query: 'SDK 浏览器任务' }).then(result => result.total))).toBe(0)
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await page.getByRole('button', { name: '验证合成页面 .', exact: true }).click()
     const detail = page.getByRole('region', { name: '会话消息', exact: true })
     await expect(page.locator('.detail-meta')).toContainText('浏览器任务')
-    await expect(page.locator('.detail-meta')).toContainText('1 条来源消息')
+    await expect(page.locator('.detail-meta')).toContainText('2 条来源消息')
     await expect(page.locator('.detail-meta')).toContainText('2 项工具活动')
-    await expect(detail.locator('article')).toHaveCount(1)
+    await expect(detail.locator('article')).toHaveCount(2)
+    await expect(detail.getByText('工具完成后的真实答复', { exact: true })).toBeVisible()
     await expect(detail.getByText(/页面隐藏标记/)).toHaveCount(0)
     await detail.getByText('页面上下文', { exact: true }).click()
     await expect(detail.getByText(/页面隐藏标记/)).toBeVisible()
@@ -88,6 +110,18 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await expect(detail.locator('article')).toHaveCount(2)
     await expect(detail.getByText('合成答复：先确认目标。', { exact: true })).toBeVisible()
   }
+  await expect(page.getByRole('button', { name: 'helper.jsonl .', exact: true })).toHaveCount(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'helper.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'journal.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'commands.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'terminal.jsonl' }).then(result => result.total))).toBe(1)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'synthetic-command' }).then(result => result.total))).toBe(0)
+  await page.getByRole('button', { name: '混合终端与真实问答 .', exact: true }).click()
+  const mixedDetail = page.getByRole('region', { name: '会话消息', exact: true })
+  await expect(mixedDetail.locator('article')).toHaveCount(2)
+  await expect(page.locator('.detail-meta')).toContainText('2 条来源消息')
+  await expect(mixedDetail.getByText('合成答复：先确认目标。', { exact: true })).toBeVisible()
+  await expect(mixedDetail.getByText(/synthetic-command|合成终端输出|bash-input|bash-stdout/)).toHaveCount(0)
   const answerOnlyCard = page.getByRole('button', { name: 'assistant-only.jsonl .', exact: true })
   await answerOnlyCard.click()
   await expect(page.getByRole('heading', { name: 'assistant-only.jsonl', exact: true })).toBeVisible()
@@ -97,9 +131,8 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   await expect(page.getByRole('heading', { name: 'assistant-only.jsonl', exact: true })).toBeVisible()
   expect(await page.evaluate(() => window.staithe.sources.page({ query: 'assistant-only.jsonl' }).then(result => result.items[0].title))).toBe('assistant-only.jsonl')
   expect(await readFile(join(source, 'assistant-only.jsonl'))).toEqual(answerOnlyBytes)
-  await expect(page.getByRole('button', { name: 'helper.jsonl .', exact: true })).toHaveCount(0)
-  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'helper.jsonl' }).then(result => result.total))).toBe(0)
-  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'journal.jsonl' }).then(result => result.total))).toBe(0)
+  expect(await readFile(join(source, 'terminal.jsonl'))).toEqual(terminalBytes)
+  expect(await readFile(join(source, 'commands.jsonl'))).toEqual(commandBytes)
   expect(await readFile(join(source, 'subagents', 'one', 'journal.jsonl'))).toEqual(journalBytes)
   expect(await readFile(join(source, 'task.jsonl'))).toEqual(taskBytes)
 })

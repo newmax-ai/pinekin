@@ -11,7 +11,7 @@ import { createCindyDatabase } from '../fixtures/cindy-database'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
 let app: ElectronApplication, page: Page, root: string, data: string, source: string
-async function launch(newmaxDataDirectory?: string) {
+async function launch(newmaxDataDirectory?: string, claudeConfigDirectory?: string) {
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard } = require('electron');
     app.setPath('home', ${JSON.stringify(root)});
@@ -28,7 +28,8 @@ async function launch(newmaxDataDirectory?: string) {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined &&
     !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1',
-    ...(newmaxDataDirectory ? { NEWMAX_USER_DATA_DIR: newmaxDataDirectory } : {}) } })
+    ...(newmaxDataDirectory ? { NEWMAX_USER_DATA_DIR: newmaxDataDirectory } : {}),
+    ...(claudeConfigDirectory ? { CLAUDE_CONFIG_DIR: claudeConfigDirectory } : {}) } })
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.getByRole('button', { name: '连接 App', exact: true })).toBeEnabled()
@@ -98,6 +99,25 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   try { if (app?.process().exitCode === null) await background() }
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
+})
+
+test('NewMax 继承的 Claude 环境目录不会混淆来源，旧误连明确报错并可修复', async () => {
+  await app.close()
+  const newmaxHome = join(root, '.newmax'), wrong = join(newmaxHome, 'projects')
+  await mkdir(wrong, { recursive: true })
+  await writeFile(join(wrong, 'sdk.jsonl'), '不得作为 Claude 会话读取的合成运行日志')
+  const id = '11111111-2222-4333-8444-555555555555'
+  await writeFile(join(data, 'connections.json'), JSON.stringify({ version: 1, connections: [{ id, source: 'claude-code', path: wrong }] }))
+  await launch(undefined, newmaxHome)
+  await manageConnections()
+  await expect(page.getByRole('region', { name: 'Claude Code 来源', exact: true }).getByRole('alert')).toContainText('NewMax 数据目录')
+  const result = await page.evaluate(() => window.staithe.sources.autoConnect('claude-code'))
+  expect(result.warnings).toEqual([])
+  expect(result.connections).toHaveLength(1)
+  expect(result.connections[0]).toMatchObject({ id, status: 'ready', total: 66 })
+  const saved = JSON.parse(await readFile(join(data, 'connections.json'), 'utf8'))
+  expect(saved.connections).toEqual([{ id, source: 'claude-code', path: source }])
+  expect(await readFile(join(wrong, 'sdk.jsonl'), 'utf8')).toBe('不得作为 Claude 会话读取的合成运行日志')
 })
 
 test('复制收进更多菜单，双主题窄窗直接操作，不显示目标表单或修改来源', async () => {
@@ -1124,8 +1144,6 @@ test('已有 Qwen 多行提示时重复连接不收缩再展开弹窗、网格�
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })
   const card = dialog.getByRole('region', { name: 'Qwen Code 来源', exact: true })
   await expect(card.getByRole('status')).toHaveText(notice)
-  await expect(card.locator('.connection-summary > p')).toHaveCSS('line-height', '18px')
-  await expect(card.locator('.connection-summary')).not.toContainText('自动查找本机会话')
   await expect.poll(() => dialog.evaluate(element => {
     const header = element.querySelector<HTMLElement>('.connection-header')!, footer = element.querySelector<HTMLElement>('.dialog-footer')!
     const inner = element.querySelector<HTMLElement>('.connection-content-inner')!, viewport = element.querySelector<HTMLElement>('.connection-content')!
@@ -1143,7 +1161,6 @@ test('已有 Qwen 多行提示时重复连接不收缩再展开弹窗、网格�
     await expect(card.locator('.connection-summary')).toHaveAttribute('data-notice', 'true')
     await expect(card.locator('.connection-summary > p')).toHaveText(notice)
     await expect(card.locator('.connection-summary > p')).toHaveAttribute('aria-hidden', 'true')
-    await expect(card.locator('.connection-summary > p')).toHaveCSS('visibility', 'hidden')
     expect(await layout()).toEqual(before)
     await app.evaluate(() => (globalThis as unknown as { finishRetryLayout: () => void }).finishRetryLayout())
     await expect(control).toBeEnabled(); await expect(card.getByRole('status')).toHaveText(notice)

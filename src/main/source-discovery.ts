@@ -1,5 +1,5 @@
 import { lstat, opendir, realpath } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { sourceNames, sourceSchema, type BrowsableSource, type SourceConnectResult } from '../core/sources'
 import type { SourceBrowser } from './source-browser'
 
@@ -22,11 +22,26 @@ function configuredHome(context: SourceLocationContext, variable: string, fallba
   return resolve(value)
 }
 
+/** 仅识别当前用户的默认／显式配置 NewMax 数据根，不按任意路径片段或 SDK 字段猜具体客户端。 */
+export function claudeLocationError(path: string, context: Pick<SourceLocationContext, 'home' | 'env'>): string | undefined {
+  const roots = [join(context.home, '.newmax')]
+  const configured = context.env.NEWMAX_USER_DATA_DIR
+  if (configured && isAbsolute(configured)) roots.push(resolve(configured))
+  if (roots.some(root => {
+    const part = relative(root, path)
+    return part === '' || part !== '..' && !part.startsWith('..' + sep) && !isAbsolute(part)
+  })) return '此位置属于 NewMax 数据目录，不能作为 Claude Code 来源；请选择 Claude Code 的 projects 目录（通常为 ~/.claude/projects）'
+}
+
 /** 明确的会话入口；Cindy 返回账号库所在目录，之后只枚举一层白名单文件名。证据见 docs/source-browser.md。 */
 export function sourceCandidates(source: BrowsableSource, context: SourceLocationContext): string[] {
   sourceSchema.parse(source)
   switch (source) {
-    case 'claude-code': return [join(configuredHome(context, 'CLAUDE_CONFIG_DIR', '.claude'), 'projects')]
+    case 'claude-code': {
+      const home = configuredHome(context, 'CLAUDE_CONFIG_DIR', '.claude')
+      // 从 NewMax 终端继承的 SDK 配置不等于独立 Claude Code 的数据位置。
+      return [join(claudeLocationError(home, context) ? join(context.home, '.claude') : home, 'projects')]
+    }
     case 'codex': {
       const home = configuredHome(context, 'CODEX_HOME', '.codex')
       return [join(home, 'sessions'), join(home, 'archived_sessions')]
@@ -120,6 +135,11 @@ export async function autoConnectSource(browser: SourceBrowser, rawSource: Brows
         : await browser.connect(source, location)
       if (!result.connections.some(item => item.id === connection.id)) result.connections.push(connection)
     } catch (error) { result.warnings.push(locationFailure(path, error)) }
+  }
+  // Claude 重新连接可能合并多个历史误连；不再等待已撤销的连接 ID。
+  if (source === 'claude-code') {
+    const currentIds = new Set((await browser.connections()).map(connection => connection.id))
+    result.connections = result.connections.filter(connection => currentIds.has(connection.id))
   }
   // 添加位置不等于读取成功。等待首次扫描，批量界面才能逐项报告真实结果。
   for (const connection of result.connections) { assertAuthorized(); await browser.waitForScan(connection.id) }

@@ -12,4 +12,17 @@ export function claudeRecords(): Record<string, unknown>[] {
       message: { id: 'msg_synthetic', role: 'assistant', content: [{ type: 'text', text: '合成答复：先确认目标。' }] } },
   ]
 }
+// 仅本地命令的原生日志结构；命令文字只作为合成数据，绝不执行。
+export function claudeLocalCommandRecords(): Record<string, unknown>[] {
+  const base = { sessionId: claudeSessionId, version: '2.1.280', isSidechain: false, isMeta: false,
+    timestamp: '2026-10-17T00:00:00.000Z', type: 'system', subtype: 'local_command', entrypoint: 'cli' }
+  return [
+    { type: 'mode', mode: 'synthetic', sessionId: claudeSessionId },
+    { type: 'permission-mode', permissionMode: 'synthetic', sessionId: claudeSessionId },
+    { ...base, uuid: 'command-input', parentUuid: null, content: '<command-name>/synthetic-status</command-name>' },
+    { ...base, uuid: 'command-output', parentUuid: 'command-input', content: '<local-command-stdout>合成命令状态，不是助手回答</local-command-stdout>', commandRun: true },
+    { type: 'last-prompt', leafUuid: 'command-output', sessionId: claudeSessionId },
+    { type: 'cost-state', sessionId: claudeSessionId, totalCostUSD: 0 },
+  ]
+}
 export function claudeFixture(records = claudeRecords()) { return Buffer.from(records.map(record => JSON.stringify(record)).join('\n') + '\n') }

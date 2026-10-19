@@ -18,11 +18,13 @@ import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
 import { parseNewMaxLocal } from './newmax-local'
 import { codexFirstPrompt, sourceTitle as titleText } from './source-conversation'
 import { codexUnsupportedReason, isCodexSubagent } from './codex'
-import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
+import { claudeAuxiliaryReason, claudeSourceSchemas, isClaudeAuxiliaryLog, isClaudeLocalCommandMessage } from './claude-code'
 import { deepseekFirstPrompt } from './deepseek'
 import { parseCindyLocal } from './cindy-local'
 import { CINDY_SOURCE_SCHEMA } from './cindy-source-query'
 import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError as UnsupportedContent } from './source-origin'
+import { homedir } from 'node:os'
+import { claudeLocationError, type SourceLocationContext } from './source-discovery'
 
 const configSchema = z.strictObject({ version: z.literal(1), connections: z.array(z.strictObject({
   id: connectionIdSchema, source: sourceSchema, path: z.string().min(1).max(4096),
@@ -108,6 +110,8 @@ function firstPrompt(value: Record<string, unknown>): string {
   if (value.type !== 'user' || value.isMeta || value.isCompactSummary || value.isVisibleInTranscriptOnly) return ''
   const message = value.message as Record<string, unknown> | undefined
   if (!message || message.role !== 'user') return ''
+  const checked = claudeSourceSchemas.message.safeParse(message)
+  if (checked.success && isClaudeLocalCommandMessage(checked.data)) return ''
   const content = message.content
   const blocks = Array.isArray(content) ? content : []
   if (blocks.some(block => block?.type === 'tool_result')) return ''
@@ -126,9 +130,15 @@ export class SourceBrowser {
   private loaded?: Promise<void>
   private version = 0
   private mutations: Promise<unknown> = Promise.resolve()
-  constructor(private readonly dataDirectory: string) {}
+  constructor(private readonly dataDirectory: string,
+    private readonly locationContext: Pick<SourceLocationContext, 'home' | 'env'> = { home: homedir(), env: process.env }) {}
+  private locationError(saved: Pick<SavedConnection, 'source' | 'path'>) {
+    if (saved.source === 'workbuddy' && (basename(saved.path) === 'cloud' || saved.path.split(sep).some((part, index, parts) => part === 'cloud' && parts[index - 1] === 'projects'))) return 'WorkBuddy 云会话缓存尚未支持；请选择本地 projects 或普通项目目录'
+    return saved.source === 'claude-code' ? claudeLocationError(saved.path, this.locationContext) : undefined
+  }
   private assertLocation(saved: Pick<SavedConnection, 'source' | 'path'>) {
-    if (saved.source === 'workbuddy' && (basename(saved.path) === 'cloud' || saved.path.split(sep).some((part, index, parts) => part === 'cloud' && parts[index - 1] === 'projects'))) throw new Error('WorkBuddy 云会话缓存尚未支持；请选择本地 projects 或普通项目目录')
+    const error = this.locationError(saved)
+    if (error) throw new Error(error)
   }
   private load() {
     return this.loaded ??= (async () => {
@@ -188,12 +198,18 @@ export class SourceBrowser {
       const stat = await checkedPath(path, path)
       const sqlite = source === 'newmax' || source === 'cindy'
       if (sqlite ? !stat.isFile() : !stat.isDirectory()) throw new Error(sqlite ? '请选择会话数据库普通文件' : '请选择会话日志目录')
-      const previous = [...this.states.values()].find(state => state.saved.source === source && state.saved.path === path)
-      if (previous) return { ...previous.view }
-      const saved: SavedConnection = { id: randomUUID(), source, path }, state = this.createState(saved)
-      await this.save([...this.states.values()].map(item => item.saved).concat(saved))
+      const states = [...this.states.values()]
+      const previous = states.find(state => state.saved.source === source && state.saved.path === path)
+      // 只有用户明确连接到通过检查的 Claude 位置才修复历史误连；启动不能偷偷增加读取授权。
+      const misplaced = source === 'claude-code' ? states.filter(state => this.locationError(state.saved)) : []
+      if (previous && !misplaced.length) return { ...previous.view }
+      const saved: SavedConnection = previous?.saved ?? { id: misplaced[0]?.saved.id ?? randomUUID(), source, path }
+      const state = previous ?? this.createState(saved)
+      await this.save(states.filter(item => item !== previous && !misplaced.includes(item)).map(item => item.saved).concat(saved))
+      for (const old of misplaced) { old.generation += 1; old.entries.clear(); this.states.delete(old.saved.id) }
+      if (misplaced.length) this.version += 1
       this.states.set(saved.id, state)
-      this.start(state)
+      if (!previous) this.start(state)
       return { ...state.view }
     })
   }
@@ -333,16 +349,19 @@ export class SourceBrowser {
               const head = await readBounded(path, root, metadataBytes, true)
               const tail = (state.saved.source === 'claude-code' || state.saved.source === 'deepseek') && stat.size > metadataBytes
                 ? await readBounded(path, root, metadataBytes, true, true) : undefined
+              let preview = head
               let origin = this.readMetadata(head, details, state.saved.source, tail, stat.size <= metadataBytes)
               // 标题或 Claude 客户端来源缺失时扩展连续头部；不能因先找到标题就漏掉长 SDK 首条记录。
               const needsOrigin = state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined
               if (promptTitle && (details.title === entry.name || needsOrigin) && stat.size > metadataBytes) {
                 const extended = await readBounded(path, root, 1024 * 1024, true)
                 origin = this.readMetadata(extended, details, state.saved.source, tail, stat.size <= 1024 * 1024)
+                preview = extended
               }
-              // 大日志或预览无法确定归属时，流式完成能力检查；不聚合正文，不恢复整文件大小过滤。
+              // 辅助前缀也必须读到 EOF 才能过滤，不能因 CLI 归属已明确就漏过长终端日志。
               if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' &&
-                (stat.size > MAX_BYTES || origin === undefined && stat.size > 1024 * 1024)) {
+                (stat.size > MAX_BYTES || origin === undefined && stat.size > 1024 * 1024 ||
+                  stat.size > preview.length && isClaudeAuxiliaryLog(preview.toString('utf8')))) {
                 const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
                 if (support.kind) details.kind = support.kind
                 if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }

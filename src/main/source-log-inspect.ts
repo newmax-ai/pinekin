@@ -3,7 +3,7 @@ import { createQwenIndexer } from './qwen-source'
 import { basename } from 'node:path'
 import { createWorkbuddyIndexer } from './workbuddy-source'
 import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
-import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
+import { ClaudeAuxiliaryLog, claudeAuxiliaryReason } from './claude-code'
 import { ClaudeLogOrigin, sdkOriginReason } from './source-origin'
 import { codexFirstPrompt, sourceTitle } from './source-conversation'
 import { deepseekFirstPrompt } from './deepseek'
@@ -30,13 +30,12 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       const index = parser.finish()
       return { reason: undefined, kind: 'conversation' as const, sourceSessionId: index.session.id, title: index.session.title }
     }
-    const origin = new ClaudeLogOrigin()
-    let reason: string | undefined, kind: SourceRecordKind | undefined, sourceSessionId: string | undefined, prompt = '', custom = '', auxiliary = true, records = 0
+    const origin = new ClaudeLogOrigin(), auxiliary = new ClaudeAuxiliaryLog()
+    let reason: string | undefined, kind: SourceRecordKind | undefined, sourceSessionId: string | undefined, prompt = '', custom = ''
     await scan(record => {
-      records += 1
       if (source === 'claude-code') {
         origin.observe(record)
-        if (auxiliary) auxiliary = isClaudeAuxiliaryLog(JSON.stringify(record))
+        auxiliary.observe(record)
         if (record.isCompactSummary || record.isVisibleInTranscriptOnly || record.logicalParentUuid != null || record.subtype === 'compact_boundary') reason = 'Claude 压缩或逻辑父链边界尚未支持'
         if (record.isSidechain === true) kind = 'subagent'
       } else if (source === 'codex') {
@@ -58,7 +57,7 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       }
     })
     if (source === 'claude-code') {
-      if (records && auxiliary) { reason = claudeAuxiliaryReason; kind = 'internal' }
+      if (auxiliary.auxiliary) { reason = claudeAuxiliaryReason; kind = 'internal' }
       if (origin.value(true) === 'sdk') reason = sdkOriginReason
     }
     return { reason, kind, sourceSessionId, title: custom || prompt }
