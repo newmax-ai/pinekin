@@ -31,6 +31,7 @@ const messageSchema = z.object({
 })
 const eventSchema = z.object({ type: z.string().min(1).max(100) })
 const toolItems = new Set(['function_call', 'function_call_output', 'custom_tool_call', 'custom_tool_call_output', 'local_shell_call', 'web_search_call'])
+export const codexSourceSchemas = { record: recordSchema, meta: metaSchema, response: responseSchema, message: messageSchema, event: eventSchema, toolItems }
 
 function checked<T>(schema: z.ZodType<T>, value: unknown, line: number): T {
   const result = schema.safeParse(value)

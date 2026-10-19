@@ -10,7 +10,7 @@ export class SourceActivities {
     if (kind === 'call') p.toolCalls += 1
     else p.toolResults += 1
     const label = typeof name === 'string' && name.trim() ? name.slice(0, 100) : typeof id === 'string' ? this.names.get(id) ?? '未知工具' : '未知工具'
-    if (kind === 'call' && typeof id === 'string') this.names.set(id, label)
+    if (kind === 'call' && typeof id === 'string' && id.length <= 512 && p.activities.length < 100) this.names.set(id, label)
     if (p.activities.length >= 100) { p.activitiesTruncated = true; return }
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const truncated = text.length > 1024

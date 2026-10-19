@@ -31,10 +31,17 @@ describe('来源标题和对话投影回归', () => {
     const bytes = claudeFixture(records)
     const { browser, entry, input, name } = await connect(bytes, 'claude-code')
     expect(entry.title).toMatch(/^核对播放暂停/)
-    const content = await browser.read(entry.id)
+    let content = await browser.read(entry.id)
     expect(content.session.title).toBe(entry.title)
-    expect(content.session.messages[0].content).toBe(prompt)
-    expect(content.session.messages.some(message => message.role === 'assistant')).toBe(true)
+    let restored = '', hasAssistant = false
+    for (;;) {
+      restored += content.session.messages.filter(message => message.role === 'user').map(message => message.content).join('')
+      hasAssistant ||= content.session.messages.some(message => message.role === 'assistant')
+      if (!content.window?.next) break
+      content = await browser.read(entry.id, content.window.next)
+    }
+    expect(restored).toBe(prompt)
+    expect(hasAssistant).toBe(true)
     expect(await readFile(join(input, name))).toEqual(bytes)
   })
   it('Codex 跳过系统和注入上下文，使用首条真实提问作为列表和阅读标题', async () => {
@@ -99,11 +106,14 @@ describe('来源标题和对话投影回归', () => {
     expect(result.session.messages).toEqual([])
     expect(result.warnings.join('\n')).toMatch(/没有可显示的用户或助手消息/)
   })
-  it('超大 Codex 日志不显示在目录和搜索中，正文预算不放宽', async () => {
+  it('超大 Codex 日志保留在目录和搜索中，巨大事件不传入正文页', async () => {
     const { browser, entry } = await connect(codexFixture([codexMeta(), user('超大日志的首问'), codexRecord('event_msg', { type: 'synthetic', data: 'x'.repeat(6 * 1024 * 1024) })]))
-    expect(entry).toBeUndefined()
-    expect((await browser.page({ query: '超大日志的首问' })).total).toBe(0)
-    expect((await browser.connections())[0].total).toBe(0)
+    expect(entry.title).toBe('超大日志的首问')
+    expect((await browser.page({ query: '超大日志的首问' })).total).toBe(1)
+    const content = await browser.read(entry.id)
+    expect(content.session.messages).toEqual([{ role: 'user', content: '超大日志的首问' }])
+    expect(JSON.stringify(content).length).toBeLessThan(10_000)
+    expect((await browser.connections())[0].total).toBe(1)
   })
   it('标题预览预算外的首问只在按需读取后补到内存索引，不扫描整份正文', async () => {
     const filler = Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) }))

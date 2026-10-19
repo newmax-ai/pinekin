@@ -674,7 +674,7 @@ test('Claude 标题覆盖首问、尾部重命名和超大日志，搜索与阅�
   const renamed = Buffer.concat([claudeFixture(), Buffer.from(JSON.stringify({ type: 'file-history-snapshot', padding: 'x'.repeat(140_000) }) + '\n' +
     JSON.stringify({ type: 'custom-title', customTitle: '尾部的最新会话名称' }) + '\n')])
   await writeFile(join(source, 'renamed-title.jsonl'), renamed)
-  await writeFile(join(source, 'huge-title.jsonl'), Buffer.concat([claudeFixture(), Buffer.from(JSON.stringify({ type: 'progress', padding: 'x'.repeat(6 * 1024 * 1024) }) + '\n' +
+  await writeFile(join(source, 'huge-title.jsonl'), Buffer.concat([claudeFixture(), Buffer.from(JSON.stringify({ type: 'file-history-snapshot', padding: 'x'.repeat(6 * 1024 * 1024) }) + '\n' +
     JSON.stringify({ type: 'ai-title', aiTitle: '超大日志仍显示标题' }) + '\n')]))
   await connect()
   await openMatchingSession('标题回归的首条合成提问')
@@ -682,8 +682,10 @@ test('Claude 标题覆盖首问、尾部重命名和超大日志，搜索与阅�
   await openMatchingSession('尾部的最新会话名称')
   await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
-  expect(await page.evaluate(() => window.staithe.sources.page({ query: '超大日志仍显示标题' }).then(result => result.total))).toBe(0)
-  await expect(page.locator('.session-card').filter({ hasText: '超大日志仍显示标题' })).toHaveCount(0)
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: '超大日志仍显示标题' }).then(result => result.total))).toBe(1)
+  await openMatchingSession('超大日志仍显示标题')
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: '超大日志仍显示标题' }).then(result => result.total))).toBe(1)
   // 文件名仍可查找，不要求用户知道新提取出的标题。
   await openMatchingSession('renamed-title.jsonl')
   await expect(page.locator('.detail-title-row h2')).toHaveText('尾部的最新会话名称')
@@ -704,7 +706,11 @@ test('长 Claude 首问仍显示标题，预览预算外标题按需读取后同
   await connect()
   await openMatchingSession('合成长页面核对任务')
   await expect(page.locator('.detail-title-row h2')).toContainText('合成长页面核对任务')
-  await expect(page.getByRole('region', { name: '会话消息' }).getByRole('article')).toHaveCount(2)
+  await expect(page.getByRole('region', { name: '会话消息' }).getByRole('article')).toHaveCount(1)
+  await page.getByRole('button', { name: '下一段', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '正文分段导航' })).toContainText('第 16385 个字符')
+  await page.getByRole('button', { name: '上一段', exact: true }).click()
+  await expect(page.getByRole('navigation', { name: '正文分段导航' })).not.toContainText('第 16385 个字符')
   await openMatchingSession('late-prompt.jsonl')
   await expect(page.locator('.detail-title-row h2')).toHaveText('预算之外的合成标题')
   await expect(page.locator('.session-card h3').filter({ hasText: /^预算之外的合成标题$/ })).toHaveCount(1)
@@ -737,7 +743,7 @@ test('Codex 标题使用实际首问，来源阅读排除系统和环境注入�
   await expect(messages).not.toContainText('environment_context')
   await expect(messages).not.toContainText('合成规则')
   await expect(messages.getByRole('article').last()).toContainText('这是最终合成回答')
-  await expect(page.locator('.detail-meta')).toContainText('4 条消息')
+  await expect(page.locator('.detail-meta')).toContainText('4 条来源消息')
   await openMatchingSession('rollout-conversation.jsonl')
   await expect(page.locator('.detail-title-row h2')).toHaveText('核对 Codex 实际对话')
   expect(await readFile(join(directory, 'rollout-conversation.jsonl'))).toEqual(bytes)

@@ -21,6 +21,9 @@ const messageSchema = z.object({ role: z.enum(['user', 'assistant']), id: identi
 const metadata = new Set(['file-history-snapshot', 'file-history-delta', 'queue-operation', 'summary', 'last-prompt',
   'ai-title', 'custom-title', 'agent-name', 'agent-color', 'mode', 'bridge-session', 'atis-latch', 'cost-state'])
 type Node = z.infer<typeof nodeSchema>
+// 流式来源阅读共用结构门禁；单次行缓冲另有预算，档案导入的长度限制保持不变。
+export const claudeSourceSchemas = { node: nodeSchema, metadata,
+  message: messageSchema.extend({ content: z.union([z.string(), z.array(object).max(10_000)]) }) }
 
 function invalid(line: number, reason = '字段无效或类型不支持'): never {
   throw new Error(`Claude Code 第 ${line} 行${reason}；未导入。`)

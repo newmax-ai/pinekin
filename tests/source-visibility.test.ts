@@ -45,23 +45,23 @@ describe('只列出未被判定为不支持的来源会话', () => {
     await browser.refresh(connection.id); await browser.waitForScan(connection.id)
     expect((await browser.connections())[0].total).toBe(4)
   })
-  it('超限与纯辅助日志不出现在列表，但格式损坏等可重试错误保留；文件更新后恢复可见', async () => {
+  it('只过滤纯辅助日志；大文件和格式损坏的可重试条目保留，更新后重新判断', async () => {
     const { root, browser } = await setup(), input = join(root, 'logs'); await mkdir(input)
     await writeFile(join(input, 'normal.jsonl'), claudeFixture())
     await writeFile(join(input, 'helper.jsonl'), JSON.stringify({ type: 'queue-operation' }) + '\n')
     await writeFile(join(input, 'huge.jsonl'), Buffer.alloc(5 * 1024 * 1024 + 1))
     await writeFile(join(input, 'broken.jsonl'), 'not-json')
     const connection = await browser.connect('claude-code', input); await browser.waitForScan(connection.id)
-    expect((await browser.page({})).total).toBe(2)
-    expect((await browser.connections())[0]).toMatchObject({ total: 2, discovered: 2 })
+    expect((await browser.page({})).total).toBe(3)
+    expect((await browser.connections())[0]).toMatchObject({ total: 3, discovered: 3 })
     expect((await browser.page({ query: 'helper' })).total).toBe(0)
-    expect((await browser.page({ query: 'huge' })).total).toBe(0)
+    expect((await browser.page({ query: 'huge' })).total).toBe(1)
     const broken = (await browser.page({ query: 'broken' })).items[0]
     await expect(browser.read(broken.id)).rejects.toThrow()
     expect((await browser.page({ query: 'broken' })).items[0].availability).toBe('unreadable')
     await writeFile(join(input, 'helper.jsonl'), claudeFixture())
     await browser.refresh(connection.id); await browser.waitForScan(connection.id)
-    expect((await browser.page({})).total).toBe(3)
+    expect((await browser.page({})).total).toBe(4)
   })
   it('Codex 已知跨文件继承在元数据阶段排除，不依赖点击正文', async () => {
     const { root, browser } = await setup(), input = join(root, 'logs'); await mkdir(input)

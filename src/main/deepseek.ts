@@ -15,6 +15,9 @@ const eventSchema = z.object({ type: z.string().min(1).max(200), seq: z.number()
 const messageSchema = z.object({ id: identifier, role: z.enum(['user', 'assistant']),
   content: z.array(z.object({ type: z.string().max(100), text: z.string().max(200_000).optional() })).max(10_000) })
 
+export const deepseekSourceSchemas = { header: headerSchema, event: eventSchema,
+  message: messageSchema.extend({ content: z.array(z.object({ type: z.string().max(100), text: z.string().optional() })).max(10_000) }) }
+
 export function isDeepSeekLog(text: string): boolean {
   try { return JSON.parse(text.split('\n').find(line => line.trim()) ?? '{}')?.type === 'session' }
   catch { return false }

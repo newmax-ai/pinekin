@@ -68,7 +68,7 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await page.getByRole('button', { name: '验证合成页面 .', exact: true }).click()
     const detail = page.getByRole('region', { name: '会话消息', exact: true })
     await expect(page.locator('.detail-meta')).toContainText('浏览器任务')
-    await expect(page.locator('.detail-meta')).toContainText('1 条消息')
+    await expect(page.locator('.detail-meta')).toContainText('1 条来源消息')
     await expect(page.locator('.detail-meta')).toContainText('2 项工具活动')
     await expect(detail.locator('article')).toHaveCount(1)
     await expect(detail.getByText(/页面隐藏标记/)).toHaveCount(0)

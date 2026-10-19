@@ -11,13 +11,14 @@ import { MAX_BYTES } from '../core/session'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
 import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema, sourceSchema,
   type BrowsableSource, type SourceCheck, type SourceCheckResult, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceQuery } from '../core/sources'
-import { parseSourceArchive, type SourceArchive } from './source-reader'
+import type { SourceArchive } from './source-reader'
+import { readSourceLog } from './source-log-reader'
+import { inspectLogSupport } from './source-log-inspect'
 import { parseNewMaxLocal } from './newmax-local'
 import { codexFirstPrompt, sourceTitle as titleText } from './source-conversation'
 import { isCodexSubagent } from './codex'
 import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
 import { deepseekFirstPrompt } from './deepseek'
-import { decodeCompressedLog } from './codex-zstd'
 import { parseCindyLocal } from './cindy-local'
 import { CINDY_SOURCE_SCHEMA } from './cindy-source-query'
 import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError as UnsupportedContent } from './source-origin'
@@ -295,16 +296,18 @@ export class SourceBrowser {
               continue
             }
             details.updatedAt = date(stat.mtimeMs)
-            if (stat.size > MAX_BYTES) { details.availability = 'unsupported'; details.reason = '正文超过 5 MB 读取上限，仍可查找此会话' }
             if (state.saved.source === 'claude-code' && !entry.name.endsWith('.jsonl')) {
               details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
             }
             if (project.split(sep).includes('subagents')) details.kind = 'subagent'
             const promptTitle = ['claude-code', 'codex', 'deepseek'].includes(state.saved.source)
-            if (state.saved.source === 'deepseek' && /\.jsonl\.(?:zst|zstd)$/.test(entry.name) && details.availability === 'unread') {
-              // 压缩流必须从头有界解码。只提取标题/ID，不调用正文投影，不缓存展开内容。
-              const text = await decodeCompressedLog(await readBounded(path, root, MAX_BYTES))
-              this.readMetadata(Buffer.from(text), details, state.saved.source)
+            if ((state.saved.source === 'deepseek' || state.saved.source === 'codex') && /\.jsonl\.(?:zst|zstd)$/.test(entry.name)) {
+              // 流式检查完整压缩流，只保留元数据；总展开量不再决定会话可见性。
+              const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+              if (support.title) details.title = support.title
+              if (support.sourceSessionId) details.sourceSessionId = support.sourceSessionId
+              if (support.kind) details.kind = support.kind
+              if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
             }
             if (entry.name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
               const head = await readBounded(path, root, metadataBytes, true)
@@ -317,15 +320,12 @@ export class SourceBrowser {
                 const extended = await readBounded(path, root, 1024 * 1024, true)
                 origin = this.readMetadata(extended, details, state.saved.source, tail, stat.size <= 1024 * 1024)
               }
-              // 预览不能确认独立侧链或晚出现的入口；在发布条目前完成能力检查，而不是让点击改写数量。
-              // 仅处理正文预算内且归属未定的日志；不投影、保存或索引其问答内容，标题仍沿用预览预算。
-              if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined && stat.size > 1024 * 1024) {
-                const bytes = await readBounded(path, root, MAX_BYTES, false, false, currentRevision => {
-                  if (currentRevision !== details.revision) throw new Error('来源在目录检查期间变化，请刷新后重试')
-                })
-                const support = { ...details }
-                this.readMetadata(bytes, support, state.saved.source, undefined, true)
-                details.availability = support.availability; details.reason = support.reason
+              // 大日志或预览无法确定归属时，流式完成能力检查；不聚合正文，不恢复整文件大小过滤。
+              if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' &&
+                (stat.size > MAX_BYTES || origin === undefined && stat.size > 1024 * 1024)) {
+                const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+                if (support.kind) details.kind = support.kind
+                if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
               }
             }
           } catch (error) { details.availability = 'unreadable'; details.reason = failure(error) }
@@ -348,7 +348,7 @@ export class SourceBrowser {
     let custom = '', generated = '', summary = '', prompt = ''
     for (const [index, bytes] of [head, ...(tail ? [tail] : [])].entries()) for (const line of bytes.toString('utf8').split('\n')) {
       let value: Record<string, unknown>
-      try { value = JSON.parse(line) } catch { continue }
+      try { value = JSON.parse(line.trim()) } catch { continue }
       if (!value || typeof value !== 'object' || Array.isArray(value)) continue
       if (typeof value.sessionId === 'string') details.sourceSessionId = value.sessionId.slice(0, 512)
       if (value.type === 'session' && typeof value.id === 'string') details.sourceSessionId = value.id.slice(0, 512)
@@ -445,11 +445,11 @@ export class SourceBrowser {
     try {
       await checkedPath(state.saved.path, state.saved.path)
       let contentRevision: string | undefined
-      if (state.saved.source !== 'newmax' && state.saved.source !== 'cindy' && (cursor.offset || cursor.textOffset || cursor.snapshot)) throw new Error('此来源尚未支持正文分页读取')
       const parsed: SourceArchive & { window?: SourceReadWindow } = state.saved.source === 'newmax'
         ? await this.readNewMax(entry, cursor, value => { contentRevision = value })
         : state.saved.source === 'cindy' ? await this.readCindy(entry, cursor, value => { contentRevision = value })
-        : await parseSourceArchive(await readBounded(entry.path, state.saved.path, MAX_BYTES, false, false, value => { contentRevision = value }))
+        : await readSourceLog(entry.path, state.saved.path, state.saved.source, cursor,
+          () => this.states.get(state.saved.id) === state && state.entries.has(id)).then(value => { contentRevision = value.revision; return value })
       // 后台目录检查不取消正在阅读的正文；撤销授权或删除条目仍立即失效。
       if (this.states.get(state.saved.id) !== state || !state.entries.has(id)) throw new Error('来源已删除或断开，旧的正文请求已取消')
       if (parsed.session.source !== state.saved.source) throw new Error('文件内容与选择的来源不匹配')

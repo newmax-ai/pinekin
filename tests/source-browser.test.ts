@@ -61,19 +61,19 @@ describe('来源直读：发现与正文读取分离', () => {
     expect(await readdir(data)).toEqual(['connections.json'])
     expect(await readFile(join(data, 'connections.json'), 'utf8')).not.toMatch(/正文|messages|合成问题|sessionId/)
   })
-  it('过滤明确超限日志，保留可读子会话与可重试的损坏记录', async () => {
+  it('不按总大小过滤日志，保留可读子会话与可重试的损坏记录', async () => {
     const { input, browser } = await setup()
     await writeFile(join(input, 'broken.jsonl'), 'broken')
     await writeFile(join(input, 'huge.jsonl'), Buffer.alloc(5 * 1024 * 1024 + 1))
     await mkdir(join(input, 'subagents')); await writeFile(join(input, 'subagents', 'sub.jsonl'), claudeFixture())
     const connection = await browser.connect('claude-code', input)
     const page = await settle(browser, connection.id)
-    expect(page.total).toBe(2)
-    expect(page.items.find(item => item.title === 'huge.jsonl')).toBeUndefined()
+    expect(page.total).toBe(3)
+    expect(page.items.find(item => item.title === 'huge.jsonl')?.availability).toBe('unreadable')
     const broken = page.items.find(item => item.title === 'broken.jsonl')!
     await expect(browser.read(broken.id)).rejects.toThrow()
     expect((await browser.page({ connectionId: connection.id })).items.find(item => item.id === broken.id)?.availability).toBe('unreadable')
-    expect((await browser.page({ connectionId: connection.id })).total).toBe(2)
+    expect((await browser.page({ connectionId: connection.id })).total).toBe(3)
   })
   it.each(['codex', 'deepseek'] as const)('%s 支持多层目录与压缩日志的按需读取', async source => {
     const { input, browser } = await setup()

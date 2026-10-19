@@ -64,7 +64,7 @@ describe('来源列表的 Claude Code 标题', () => {
     expect((await readable.browser.read(item.id)).session.title).toBe('新标题')
     expect((await browser.page({ query: '新标题' })).total).toBe(1)
   })
-  it('读取尾部最新标题，忽略截断记录，不全读大日志或解除正文上限', async () => {
+  it('大日志保留尾部最新标题，按块检查归属，超大单行读取失败也不隐藏会话', async () => {
     const bytes = Buffer.concat([claudeFixture(), Buffer.from(jsonl({ type: 'progress', data: '填充'.repeat(1_500_000) },
       { type: 'custom-title', customTitle: '超大日志的最新标题' }))])
     const { scan, browser, path } = await setup(bytes)
@@ -80,12 +80,13 @@ describe('来源列表的 Claude Code 标题', () => {
       return handle
     })
     const page = await scan()
-    expect(page.items).toEqual([])
+    expect(page.items).toHaveLength(1)
     const id = createHash('sha256').update(page.connections[0].id).update('\0').update('session.jsonl').digest('hex')
-    expect((await browser.check({ mode: 'manual', selectedId: id })).selected).toMatchObject({ title: '超大日志的最新标题', availability: 'unsupported', sourceSessionId: claudeSessionId })
-    expect(requests.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(128 * 1024)
-    expect(requests.reduce((sum, size) => sum + size, 0)).toBeGreaterThan(64 * 1024)
-    await expect(browser.read(id)).rejects.toThrow(/5 MB/)
+    expect((await browser.check({ mode: 'manual', selectedId: id })).selected).toMatchObject({ title: '超大日志的最新标题', availability: 'unreadable', sourceSessionId: claudeSessionId })
+    expect(Math.max(...requests)).toBeLessThanOrEqual(1024 * 1024)
+    expect(requests.filter(size => size === 64 * 1024).length).toBeGreaterThan(3)
+    await expect(browser.read(id)).rejects.toThrow(/8 MiB/)
+    expect((await browser.page({})).total).toBe(1)
     expect((await readFile(path)).equals(bytes)).toBe(true)
     expect(originalOpen).toBe(filesystem.open)
   })
