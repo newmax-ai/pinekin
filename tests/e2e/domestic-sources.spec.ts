@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { workbuddyFixture } from '../fixtures/workbuddy'
+import { workbuddyAssistantBlocksFixture } from '../fixtures/workbuddy'
 import { qwenFixture } from '../fixtures/qwen'
 import { browsableSources } from '../../src/core/sources'
 
@@ -26,7 +26,7 @@ test('WorkBuddy 与 Qwen Code 可以独立授权、搜索、只读浏览和断�
   const wb = join(root, '.workbuddy', 'projects', 'synthetic'), qwen = join(root, '.qwen', 'projects', 'synthetic', 'chats')
   await Promise.all([data, appData, wb, qwen].map(path => mkdir(path, { recursive: true })))
   const wbPath = join(wb, 'synthetic-workbuddy.jsonl'), qwenPath = join(qwen, 'synthetic-qwen.jsonl')
-  const wbBytes = workbuddyFixture(), qwenBytes = qwenFixture()
+  const wbBytes = workbuddyAssistantBlocksFixture(), qwenBytes = qwenFixture()
   await writeFile(wbPath, wbBytes); await writeFile(qwenPath, qwenBytes)
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard } = require('electron');

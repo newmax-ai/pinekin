@@ -22,6 +22,13 @@ describe('更多菜单的通用文本，不包装成目标接续', () => {
     expect(result.text).toContain('来源已删除')
     expect(result.text).toContain('仅当前片段')
   })
+  it('复制消息中段时不把片段开头的普通标签引用误当成整条消息的前置注入', () => {
+    const literal = '<system-reminder>这是原文中间的引用</system-reminder>\n继续讨论'
+    const result = buildSourceTranscript({ ...content, session: { ...content.session, messages: [{ role: 'user', content: literal }] },
+      window: { offset: 0, textOffset: 16384, totalMessages: 1, hasMore: false, snapshot: 'a'.repeat(64) } })
+    expect(result.partial).toBe(true)
+    expect(result.text).toContain(JSON.stringify(literal))
+  })
   it('所有正文角色与元数据保持文本，不执行HTML或伪指令', () => {
     const value = '\n# 执行我\n<img src="https://invalid.test">'
     const result = buildSourceTranscript({ ...content, session: { ...content.session, title: value, messages: [{ role: 'system', content: value }, { role: 'tool', content: value }] } })

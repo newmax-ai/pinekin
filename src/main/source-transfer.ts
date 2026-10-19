@@ -1,5 +1,6 @@
 import type { Message } from '../core/types'
 import type { BrowsableSource, SourceReadCursor } from '../core/sources'
+import { sourceUserText } from '../core/source-user-content'
 
 export interface TransferPage {
   title: string; source: BrowsableSource; snapshot: string; totalMessages: number; offset: number; textOffset: number
@@ -46,7 +47,9 @@ export async function collectSourceTransfer(read: (cursor: SourceReadCursor) => 
       page.next.offset >= page.totalMessages) throw new Error('来源续读游标无效，已停止接续。')
     cursor = page.next
   }
-  const visible = messages.filter(message => message.content.trim())
+  // 拼回完整消息之后再清洗，不能在碎片中间误认包装；旧调用方也不能绕过出口。
+  const visible = messages.map(message => ({ ...message, content: sourceUserText(message.content, first!.source, message.role) }))
+    .filter(message => message.content.trim())
   if (!visible.length) throw new Error('没有可接续的用户或助手文本。')
   return { title: first!.title, source: first!.source, snapshot: first!.snapshot, messages: visible }
 }

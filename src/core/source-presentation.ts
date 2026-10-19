@@ -1,4 +1,5 @@
 import type { Message, Source } from './types'
+import { sourceUserContent } from './source-user-content'
 
 /** 只拆分完整的 Codex 文件列表／请求包装；附件路径和标签始终只是文本。 */
 function codexFileMessageParts(content: string): { primary: string; context: string } {
@@ -54,15 +55,14 @@ function codexFileMessageParts(content: string): { primary: string; context: str
 /** 仅识别完整、位于开头的已知包装，普通引用和代码保持原文。 */
 export function sourceMessageParts(content: string, source: Source, role: Message['role']): { primary: string; context: string } {
   if (role !== 'user') return { primary: content, context: '' }
-  if (source === 'codex') return codexFileMessageParts(content)
-  if (source !== 'claude-code') return { primary: content, context: '' }
-  let primary = content
-  const contexts: string[] = []
-  for (;;) {
-    const match = /^\s*<(system-reminder|ide_opened_file|ide_selection|local-command-caveat)>[\s\S]*?<\/\1>\s*/.exec(primary)
-    if (!match) break
-    contexts.push(match[0].trim()); primary = primary.slice(match[0].length)
+  const cleaned = sourceUserContent(content, source, role)
+  if (source === 'codex') {
+    const parts = codexFileMessageParts(cleaned.primary)
+    return { primary: parts.primary, context: [cleaned.context, parts.context].filter(Boolean).join('\n') }
   }
+  if (source !== 'claude-code') return { primary: cleaned.primary, context: cleaned.context }
+  let primary = cleaned.primary
+  const contexts: string[] = cleaned.context ? [cleaned.context] : []
   // 按行线性识别，避免宽泛正则在大量空行／缺失尾标记时二次回溯。
   if (primary.startsWith('Task:')) {
     const lines = primary.split('\n')

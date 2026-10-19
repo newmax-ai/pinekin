@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { sourcePromptTitle } from '../core/source-presentation'
+import { sourceUserText } from '../core/source-user-content'
 import { SourceActivities } from './source-activity'
 import { UnsupportedSourceError } from './source-origin'
 import type { LogRecord } from './source-log-file'
@@ -29,11 +30,12 @@ function parse(record: LogRecord, line: number) {
 export function qwenRecordText(record: LogRecord, line: number): string {
   const row = parse(record, line)
   if (!row.message) return ''
-  return row.message.parts.flatMap(part => {
+  const content = row.message.parts.flatMap(part => {
     if (part.text !== undefined && typeof part.text !== 'string') throw new Error(`Qwen Code 第 ${line} 行 text 字段无效`)
     if (part.thought !== undefined && typeof part.thought !== 'boolean') throw new Error(`Qwen Code 第 ${line} 行 thought 字段无效`)
     return typeof part.text === 'string' && part.thought !== true ? [part.text] : []
   }).join('\n')
+  return sourceUserText(content, 'qwen-code', row.type === 'assistant' ? 'assistant' : 'user')
 }
 
 /** 全文件验证 UUID 图，只保留短标识、文本长度与行号，不缓存正文或沿引用读文件。 */

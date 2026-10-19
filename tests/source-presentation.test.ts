@@ -1,13 +1,21 @@
 import { Worker } from 'node:worker_threads'
+import { readFileSync } from 'node:fs'
+import { ModuleKind, transpileModule } from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { sourceMessageParts, sourcePromptTitle } from '../src/core/source-presentation'
+
+// Worker 载入真实生产模块及其共用依赖，不能把带 import 的函数 toString 后孤立执行。
+const compile = (file: string) => transpileModule(readFileSync(new URL(file, import.meta.url), 'utf8'), { compilerOptions: { module: ModuleKind.CommonJS } }).outputText
 
 describe('来源文字包装的边界', () => {
   it('预算内的大量空行和不完整任务包装不会阻塞解析线程', async () => {
     const content = 'Task: x' + '\n'.repeat(180_000) + 'not a browser task'
     const result = await new Promise<unknown>((resolve, reject) => {
       const worker = new Worker(`const {parentPort,workerData}=require('node:worker_threads');
-        const parse=${sourceMessageParts.toString()}; parentPort.postMessage(parse(workerData,'claude-code','user'));`, { eval: true, workerData: content })
+        const context={}; new Function('exports',workerData.context)(context);
+        const presentation={}; new Function('exports','require',workerData.presentation)(presentation,()=>context);
+        parentPort.postMessage(presentation.sourceMessageParts(workerData.content,'claude-code','user'));`,
+      { eval: true, workerData: { content, context: compile('../src/core/source-user-content.ts'), presentation: compile('../src/core/source-presentation.ts') } })
       const timer = setTimeout(() => { void worker.terminate(); reject(new Error('包装识别超过两秒，可能发生正则回溯阻塞')) }, 2000)
       worker.once('message', value => { clearTimeout(timer); resolve(value) })
       worker.once('error', error => { clearTimeout(timer); reject(error) })

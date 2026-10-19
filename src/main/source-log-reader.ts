@@ -1,8 +1,10 @@
 import { basename } from 'node:path'
+import { createHash } from 'node:crypto'
 import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
 import { sessionSchema } from '../core/session'
 import { SOURCE_PAGE_MESSAGES, SOURCE_TEXT_CHARS, sourceReadCursorSchema, type SourceReadCursor, type SourceReadWindow } from '../core/sources'
 import { sourcePromptTitle } from '../core/source-presentation'
+import { SOURCE_CONTEXT_WARNING, SOURCE_TEXT_POLICY_VERSION } from '../core/source-user-content'
 import { createLogIndexer, recordText, sliceCodePoints, claudeToolEvents, type IndexedMessage, type LogSource, type ToolEvent } from './source-log-index'
 import { withSourceLog } from './source-log-file'
 import { SourceActivities } from './source-activity'
@@ -32,7 +34,8 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
   return withSourceLog(path, root, compressed, authorized, async (scan, revision) => {
     const metadata = source === 'workbuddy' ? await readWorkbuddyMetadata(path, root, authorized) : undefined
     if (metadata) revision = workbuddyRevision(revision, metadata.revision)
-    if (cursor.snapshot && cursor.snapshot !== revision) throw new Error('来源日志或元数据已变化，请从头重新读取；未混合不同版本的片段')
+    const snapshot = createHash('sha256').update(SOURCE_TEXT_POLICY_VERSION).update('\0').update(revision).digest('hex')
+    if (cursor.snapshot && cursor.snapshot !== snapshot) throw new Error('来源日志、元数据或正文规则已变化，请从头重新读取；未混合不同版本的片段')
     const parser = createLogIndexer(source, { fileId: basename(path, '.jsonl'), meta: metadata?.meta })
     await scan((record, line) => parser.accept(record, line))
     const index = parser.finish(), totalMessages = index.messages.length
@@ -45,8 +48,8 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
       const length = Math.min(message.length - start, SOURCE_TEXT_CHARS), pieces = slots(message, start, length)
       plans.push({ role: message.role, slots: pieces })
       for (const slot of pieces) if (slot.line !== undefined) selected.set(slot.line, [...(selected.get(slot.line) ?? []), slot])
-      if (start + length < message.length) { next = { offset, textOffset: start + length, snapshot: revision }; break }
-      if (offset + 1 < totalMessages) next = { offset: offset + 1, textOffset: 0, snapshot: revision }
+      if (start + length < message.length) { next = { offset, textOffset: start + length, snapshot }; break }
+      if (offset + 1 < totalMessages) next = { offset: offset + 1, textOffset: 0, snapshot }
       else next = undefined
     }
     const tools = new Map<number, ToolEvent[]>(), firstUser = index.messages.find(message => message.role === 'user')?.parts[0]?.line
@@ -78,9 +81,9 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
     return { adapterId: 'source-stream', adapterVersion: '0.1.0', sourceName: `${source} · 流式来源阅读`,
       // 仅供主进程区分首问与内部 ID 兜底，不作为新 IPC 字段或持久化标题来源。
       ...(resolvedTitle ? { resolvedTitle } : {}),
-      session: sessionSchema.parse({ ...index.session, title, messages }), warnings: [...index.warnings,
+      session: sessionSchema.parse({ ...index.session, title, messages }), warnings: [...index.warnings, SOURCE_CONTEXT_WARNING,
         ...(compressed ? ['Zstandard 完整流已检查 EOF、尾部与 8 MiB 解码窗口；总展开量不再受旧 5 MiB 限制。'] : [])],
       ...(index.presentation ? { presentation: index.presentation } : {}), revision,
-      window: { offset: cursor.offset, textOffset: cursor.textOffset, totalMessages, snapshot: revision, hasMore: !!next, ...(next ? { next } : {}) } }
+      window: { offset: cursor.offset, textOffset: cursor.textOffset, totalMessages, snapshot, hasMore: !!next, ...(next ? { next } : {}) } }
   })
 }

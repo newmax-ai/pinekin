@@ -9,6 +9,7 @@ import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import { MAX_BYTES } from '../core/session'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
+import { SOURCE_CONTEXT_WARNING } from '../core/source-user-content'
 import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema, sourceSchema,
   type BrowsableSource, type SourceCheck, type SourceCheckResult, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceQuery } from '../core/sources'
 import type { SourceArchive } from './source-reader'
@@ -116,12 +117,10 @@ function firstPrompt(value: Record<string, unknown>): string {
   const blocks = Array.isArray(content) ? content : []
   if (blocks.some(block => block?.type === 'tool_result')) return ''
   const texts = typeof content === 'string' ? [content] : blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text as string)
-  for (const raw of texts) {
-    const text = raw.trim().replace(/^(?:\s*<(system-reminder|ide_opened_file|ide_selection|local-command-caveat)>[\s\S]*?<\/\1>\s*)+/, '').trim()
-    if (!text || /^(?:<(?:local-command-stdout|session-start-hook|tick|goal)>|\[Request interrupted by user[^\]]*\])/.test(text) || text.includes('<command-name>')) continue
-    return sourcePromptTitle(text, 'claude-code')
-  }
-  return ''
+  // 与正文一致，先拼回整条消息再处理包装；不能把跨块提示词的前半截当标题。
+  const title = sourcePromptTitle(texts.join('\n'), 'claude-code')
+  if (/^(?:<(?:local-command-stdout|session-start-hook|tick|goal|command-name)>|\[Request interrupted by user[^\]]*\])/.test(title)) return ''
+  return title
 }
 
 /** 只持久化用户选择的位置；元数据索引和正文均不写入 Pinekin 档案库。 */
@@ -534,8 +533,9 @@ export class SourceBrowser {
       entry.summary.title = title
       return { revision: contentRevision, ...(parsed.presentation ? { presentation: parsed.presentation } : {}), ...(parsed.window ? { window: parsed.window } : {}), session: { ...parsed.session, title, id, archive: undefined }, warnings: [
         '正文直接读取来源，仅在当前窗口内存中展示；没有导入、备份或复制原件。以下解析说明中的原件均指来源自身文件。',
+        SOURCE_CONTEXT_WARNING,
         ...(state.saved.source === 'newmax' ? ['仅核对与既有 NewMax 1.1.22 白名单读取契约相容的数据库结构；未探测安装版本，不支持写入或原生恢复。'] : []),
-        ...parsed.warnings,
+        ...parsed.warnings.filter(warning => warning !== SOURCE_CONTEXT_WARNING),
       ] }
     } catch (error) {
       if (this.states.get(state.saved.id) === state && state.entries.get(id) === entry) {

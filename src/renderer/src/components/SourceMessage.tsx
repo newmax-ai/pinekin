@@ -13,7 +13,8 @@ function Disclosure({ label, children, defaultOpen = false }: { label: string; c
 }
 
 export function SourceMessage({ message, source, fragment = false }: { message: Message; source: Source; fragment?: boolean }) {
-  const { primary, context } = sourceMessageParts(message.content, source, message.role)
+  // 阅读器已在整条消息上处理上下文；中间片段不能再把开头的标签当作新的包装。
+  const { primary, context } = fragment ? { primary: message.content, context: '' } : sourceMessageParts(message.content, source, message.role)
   const long = primary.length > 4000
   return <>
     {primary && <MessageContent content={long ? primary.slice(0, 4000) + '\n…' : primary} />}

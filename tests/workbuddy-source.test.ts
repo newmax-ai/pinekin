@@ -57,6 +57,75 @@ describe('WorkBuddy 独立来源读取', () => {
     await browser.disconnect(result.connections[0].id)
     await expect(browser.read(page.items[0].id)).rejects.toThrow()
   })
+  it('第 3 行无 ID 的 ai-title 不阻断列表标题、搜索和正文读取', async () => {
+    const { browser, context, path, root } = await setup(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成的首条提问'),
+      { id: 'snapshot', type: 'file-history-snapshot', timestamp: 1792368000000, snapshot: {} },
+      { type: 'ai-title', timestamp: 1792368000000, aiTitle: '无 ID 的合成自动标题', sessionId: 'synthetic-workbuddy' },
+      { id: 'thought', parentId: 'u', timestamp: 1792368000000, type: 'reasoning', content: [] },
+      workbuddyRecord('a', 'thought', 'assistant', '合成的可读答复'),
+    ]))
+    const before = await readFile(path, 'utf8')
+    await autoConnectSource(browser, workbuddy, context)
+    const page = await browser.page({ source: workbuddy, query: '无 ID 的合成自动标题' })
+    expect(page.total).toBe(1)
+    expect(page.items[0]).toMatchObject({ title: '无 ID 的合成自动标题', availability: 'unread' })
+    const content = await browser.read(page.items[0].id)
+    expect(content.session.title).toBe(page.items[0].title)
+    expect(content.session.messages).toEqual([{ role: 'user', content: '合成的首条提问' }, { role: 'assistant', content: '合成的可读答复' }])
+    expect(content.presentation).toMatchObject({ textMessages: 2, omittedRecords: 1 })
+    expect(await readFile(path, 'utf8')).toBe(before)
+    expect(await readdir(join(root, 'pinekin'))).toEqual(['connections.json'])
+  })
+  it.each([
+    { type: 'ai-title', aiTitle: '合成自动标题' },
+    { type: 'custom-title', customTitle: '合成自定义标题' },
+    { type: 'topic', topic: '合成主题' },
+    { type: 'session-meta', meta: {} },
+    ...['file-history-snapshot', 'summary', 'goal-result', 'goal-progress', 'turn-metrics', 'acp-terminal-state', 'model-usage', 'credit-usage'].map(type => ({ type })),
+  ])('已知辅助记录 $type 无 ID 时不进入消息父链', async record => {
+    const content = await read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'), record, workbuddyRecord('a', 'u', 'assistant', '合成答复'),
+    ]))
+    expect(content.session.messages).toHaveLength(2)
+    expect(content.presentation).toMatchObject({ textMessages: 2, toolCalls: 0, toolResults: 0 })
+    expect(content.session.title).toBe('aiTitle' in record ? record.aiTitle : 'customTitle' in record ? record.customTitle : 'topic' in record ? record.topic : '合成首问')
+  })
+  it.each(['message', 'reasoning', 'function_call', 'function_call_output', 'function_call_result'])('正文节点 %s 缺少 ID 仍保留错误与重试', async type => {
+    const { browser, context } = await setup(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'),
+      { type, parentId: 'u', timestamp: 1792368000000, role: 'assistant', content: [{ type: 'output_text', text: '不应静默接入' }] },
+    ]))
+    await autoConnectSource(browser, workbuddy, context)
+    const page = await browser.page({})
+    expect(page.total).toBe(1)
+    expect(page.items[0].availability).toBe('unreadable')
+    await expect(browser.read(page.items[0].id)).rejects.toThrow('缺少记录 ID')
+  })
+  it.each([null, '', 42])('辅助记录显式无效的 ID %j 仍拒绝', async id => {
+    await expect(read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'), { id, type: 'ai-title', aiTitle: '无效元数据' },
+    ]))).rejects.toThrow('字段无效或类型不支持')
+  })
+  it('无 ID 的 session-meta 仍执行分叉和运行时会话归属检查', async () => {
+    await expect(read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'), { type: 'session-meta', meta: { isForkedCompactionSession: true } },
+    ]))).rejects.toThrow('分叉或压缩会话尚未支持')
+    await expect(read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'), { type: 'session-meta', sessionId: 'different-session', meta: {} },
+    ]))).rejects.toThrow('混合多个会话 ID')
+    await expect(read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'), { type: 'alien' },
+    ]))).rejects.toThrow('类型 alien 尚未支持')
+  })
+  it('无 ID 的标题记录仍保留最新自定义标题优先级', async () => {
+    const content = await read(workbuddyFixture([
+      workbuddyRecord('u', undefined, 'user', '合成首问'),
+      { type: 'custom-title', customTitle: '合成旧名称' }, { type: 'custom-title', customTitle: '合成新名称' },
+      { type: 'ai-title', aiTitle: '合成自动名称' }, { type: 'topic', topic: '合成主题' },
+    ]))
+    expect(content.session.title).toBe('合成新名称')
+  })
   it('不递归读取 subagents 或工具输出，也不读取其他数据库与凭据', async () => {
     const { browser, context, logs } = await setup()
     await mkdir(join(logs, 'synthetic-workbuddy', 'subagents'), { recursive: true })

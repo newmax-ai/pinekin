@@ -36,13 +36,35 @@
 
 - 每行是明文 JSON payload，普通消息为 `type: message`、`role: user/assistant`，文本块 `input_text/output_text`。
 - 使用 `id/parentId/logicalParentId`，**不使用 Claude 的 `uuid/parentUuid`**；不会因底层格式相似就借用 Claude 归属。
-- 自定义标题优先于自动标题、topic，再取首条真实用户输入；`session-meta`、标题、usage 和已知事实记录不是问答。
+- 自定义标题优先于自动标题、topic，再取首条真实用户输入；`session-meta`、标题、usage 和已知事实记录不是问答。这些已知辅助记录允许缺少 `id`，不生成替代 ID、不进入消息父链；若显式提供 ID，仍验证类型和重复。辅助记录仍参与会话归属、分叉／压缩检查和结构工作预算。
 - 只有已知消息类型进入投影；系统／开发者、工具、推理和带已知运行时标记的注入不冒充用户或助手答复。工具只计数，不读取工具输出引用或执行参数。
-- 无 `parentId` 的完整旧式追加记录可读；一旦出现父链，要求普通消息与工具节点按完整单链追加。缺失父节点、循环、多分支、未知类型和结构损坏保留可重试错误，不猜测修复。
+- 无 `parentId` 的完整旧式追加记录可读；一旦出现父链，先把相邻同 ID 的助手文本／推理／工具块归为一个父链节点，再检查完整单链。组内每段文本独立、按原顺序阅读，不覆盖、不按 ID 去重、不拼成快照。缺失父节点、循环、多分支、未知类型和结构损坏保留可重试错误，不猜测修复。
 - `logicalParentId`、compact 标记、重发回退 notice、内容过滤分支、文件 ID 与运行时会话 ID 不同，均在目录发布前排除。目录不递归进入 `subagents`；`cloud` 云缓存不连接。
 - 同名 `.meta.json` 只读取会话元数据白名单字段 `isForkedCompactionSession/forkedFrom/forkedAt`；侧车与行内元数据出现分叉标记都拒绝。不读 `workbuddy.db` 或凭据。
-- **官方允许某些相邻重复 ID 和缺 ID 的旧记录**。本适配器暂时拒绝，不猜测其快照／追加块语义；这是额外保守限制，不声称官方禁止重复，也不把这些错误档从来源删除。
-- 本轮仅核对该 macOS arm64 包；Windows/Linux、其他版本、外置附件、压缩／分叉／云会话完整性及目标恢复未验证。
+- **相邻同 ID 助手分块已支持**；组内要求父节点与 `providerData.messageId` 一致，工具调用 `callId` 有效且不重复。非相邻重复 ID、用户／结果节点重复 ID、身份冲突及缺 ID 的正文节点仍拒绝；已知辅助记录可缺 ID。这些是 Pinekin 的保守边界，不声称官方普通加载路径禁止其他重复形式。
+- 本轮仅核对该 macOS arm64 包并验收一条已授权普通会话；Windows/Linux、其他版本、外置附件、压缩／分叉／云会话完整性及目标恢复未验证。
+
+### 标题与助手分块回归（2026-10-19）
+
+先经用户单独授权，只读截图对应会话开头 8 条记录的字段结构，确认第 3 行是带 `aiTitle`、不带 `id` 的 `ai-title`。修正辅助记录缺 ID 后，原错误消失，但后续共享 ID 的助手文字与工具块仍触发重复 ID 拒绝；只完成开头格式验证不足以称为该会话验收。
+
+用户要求自行验证后，只读检查同一条完整会话的结构，没有扫描其他客户端数据。继续静态核对同一官方包的 `transformItemForSaveAsync`、`deserializeSessionFromPath` 与 `HistoryUtils.getActiveHistory`：保存／加载保留各块，活动父链会把连续同 ID 整组收入，不覆盖或拼接文本；桌面 `entriesStoreFor` 配置 `assignParentIds:false, absorbRedeliveries:false`。Pinekin 采用同 ID 分组并额外要求组内身份／父节点一致；非相邻重放、分支裁剪和 fork 去重语义仍不猜测支持。
+
+自动回归全部使用合成数据：`workbuddyAssistantBlocksFixture()` 构造 37 行、7 条文字、11 次工具调用及 11 条结果；`tests/workbuddy-blocks.test.ts` 覆盖目录／搜索／正文一致、同 ID 多段文字保持顺序、Unicode 续读、原件不变、不保存正文、冲突 ID 与门禁。桌面 E2E 夹具也改用该完整分块日志，但未运行会启动副本的 `npm run test:e2e`。
+
+实际验证：
+
+- WorkBuddy 两个定向文件 **58 项通过**，先复现不支持分块与多段正文的失败再修正；`npm run typecheck`、`npm run build`、`git diff --check` 通过。
+- 本轮完整 `npm run test:coverage`：**92 文件、1,347 项全部通过**；语句 **93.69%**、分支 **88.59%**、函数 **95.61%**、行 **98.48%**。没有为追求整洁输出重跑整套。
+- 真实会话仅作用户授权的只读验收，不进入自动测试夹具。读取结果的标题、7 段正文逐条与原件一致，工具计数为 11／11，原件散列不变。
+- 经用户明确允许，先关闭旧主 dev，再以原 userData 启动唯一主 dev，临时 CDP 只监听 `127.0.0.1`。`verification/workbuddy-live.mjs` 仅连接已有窗口，实测真实标题的列表／详情一致、7 条消息、6 段助手文字、22 项工具活动、最终答复和结束标记、标题搜索并从结果重新打开；未执行历史指令或操作系统剪贴板／文件选择器。
+- 窗口停留在该会话正文末尾，自动化 WebSocket 已断开，不关闭用户窗口。调试开关只用于这次启动、未写入项目配置，下次普通启动不带该接口。验收截图 `outputs/workbuddy-live-verified.png` 仅在本机，已由现有忽略规则排除，不提交到 git。
+
+### 统一上下文投影补充（2026-10-19）
+
+上面的分块阶段只验证了“原文能够完整读出”，不足以证明“系统上下文没有当作用户提问”。随后用户指出运行时身份／环境包装混入正文，现已对七种来源统一处理，详见 [统一上下文规则与验收](source-context-projection.md)。
+
+WorkBuddy 的完整前置 `system-reminder data-role="user-context"` 从问答与默认接续移除；只有已确认该前缀时，才解包其后的完整 `user_query`。实际会话的用户文字由 9,213 字符变为真实请求的 16 字符，6 段助手文字保持不变；正文、复制导出和内存目标载荷均验收通过，原件未改动。主 dev 已在用户允许后重载并停留在真实提问处，最新截图为 `outputs/all-app-context-verified.png`；上一节截图仅代表更早的分块阶段。
 
 ## Qwen Code 一手证据
 

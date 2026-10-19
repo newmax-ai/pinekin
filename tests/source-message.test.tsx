@@ -66,6 +66,13 @@ describe('来源详情按内容结构展示', () => {
     const details = screen.getByText('展开完整消息').closest('details')!; details.open = true; fireEvent(details, new Event('toggle'))
     expect(screen.getByText(/末尾唯一标记/)).toBeTruthy()
   })
+  it('长消息中间片段开头的标签引用不是新的上下文包装，不再次删除或折叠', () => {
+    const content = '<system-reminder>真实问题中间的标签引用</system-reminder>\n继续解释'
+    render(<SourceMessage message={{ role: 'user', content }} source="workbuddy" fragment />)
+    expect(screen.getByText(/真实问题中间的标签引用/)).toBeTruthy()
+    expect(screen.queryByText('附带上下文')).toBeNull()
+    expect(document.querySelector('script, iframe')).toBeNull()
+  })
   it('工具活动有明确调用/结果身份，输出默认折叠且不进入问答', () => {
     render(<SourceActivity presentation={{ kind: 'browser-task', textMessages: 1, toolCalls: 1, toolResults: 1, attachments: 0, omittedRecords: 0, activitiesTruncated: false,
       activities: [{ kind: 'call', name: 'synthetic_tool', content: '{"selector":"#play"}' }, { kind: 'result', name: 'synthetic_tool', content: '合成工具结果' }] }} />)

@@ -1,5 +1,6 @@
 import type { Message, ParsedArchive } from '../core/types'
 import { sourcePromptTitle } from '../core/source-presentation'
+import { sourceUserText } from '../core/source-user-content'
 
 export function sourceTitle(value: unknown): string {
   return typeof value === 'string' ? Array.from(value.replace(/\s+/g, ' ').trim()).slice(0, 200).join('') : ''
@@ -7,18 +8,7 @@ export function sourceTitle(value: unknown): string {
 
 /** 只剥离开头完整的已知注入包装；不执行指令，不删除普通引用或未闭合文本。 */
 export function codexUserText(value: string): string {
-  let text = value.trim(), stripped = false
-  const context = /^(?:<(?<tag>environment_context|user_instructions|codex_apps_client_time_context|external_codex_apps_open_page|recommended_plugins)>[\s\S]*?<\/\k<tag>>|# AGENTS\.md instructions(?: for [^\r\n]+)?\r?\n\s*<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>)\s*/
-  for (;;) {
-    const match = context.exec(text)
-    if (!match) break
-    text = text.slice(match[0].length).trimStart()
-    stripped = true
-  }
-  // 不用任意位置的分隔符截断正常用户讨论；必须有已知 IDE 前缀或独立开头标记。
-  const request = /^(?:# Context from my IDE setup:[\s\S]*?\r?\n)?## My request for Codex:\s*/.exec(text)
-  if (request) { text = text.slice(request[0].length); stripped = true }
-  return stripped ? text.trim() : value
+  return sourceUserText(value, 'codex', 'user')
 }
 
 export function codexFirstPrompt(record: Record<string, unknown>): string {
@@ -30,7 +20,11 @@ export function codexFirstPrompt(record: Record<string, unknown>): string {
 
 /** 来源阅读与档案导入分开：原解析器的结构校验和原始档案语义保持不变。 */
 export function sourceConversation(parsed: ParsedArchive): ParsedArchive {
-  if (parsed.session.source !== 'codex') return parsed
+  if (parsed.session.source !== 'codex') {
+    const messages = parsed.session.messages.map(message => ({ ...message, content: sourceUserText(message.content, parsed.session.source, message.role) }))
+      .filter(message => message.content.trim())
+    return { ...parsed, session: { ...parsed.session, messages } }
+  }
   let omitted = 0, cleaned = 0
   const messages: Message[] = []
   for (const message of parsed.session.messages) {

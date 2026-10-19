@@ -8,6 +8,7 @@ import { claudeSourceSchemas, ClaudeAuxiliaryLog, claudeAuxiliaryReason, isClaud
 import { codexSourceSchemas, codexUnsupportedReason, isCodexSubagent } from './codex'
 import { deepseekSourceSchemas } from './deepseek'
 import { codexUserText } from './source-conversation'
+import { sourceUserText } from '../core/source-user-content'
 import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError } from './source-origin'
 import { SourceActivities } from './source-activity'
 import type { LogRecord } from './source-log-file'
@@ -57,7 +58,8 @@ export function recordText(source: LogSource, record: LogRecord, line: number): 
   if (source === 'qwen-code') return qwenRecordText(record, line)
   if (source === 'claude-code') {
     const message = checked(claudeSourceSchemas.message, record.message, 'Claude Code', line)
-    return typeof message.content === 'string' ? message.content : textBlocks(message.content, ['text'], 'Claude Code', line)
+    const content = typeof message.content === 'string' ? message.content : textBlocks(message.content, ['text'], 'Claude Code', line)
+    return sourceUserText(content, source, message.role)
   }
   if (source === 'codex') {
     const message = checked(codexSourceSchemas.message, record.payload, 'Codex', line)
@@ -66,7 +68,7 @@ export function recordText(source: LogSource, record: LogRecord, line: number): 
   }
   const data = object(record.data)
   const message = checked(deepseekSourceSchemas.message, record.type === 'user/message' ? data : data.message, 'DeepSeek', line)
-  return textBlocks(message.content, ['text'], 'DeepSeek', line)
+  return sourceUserText(textBlocks(message.content, ['text'], 'DeepSeek', line), source, message.role)
 }
 function descriptor(line: number, text: string, role: Message['role']): IndexedMessage {
   const length = codePoints(text)

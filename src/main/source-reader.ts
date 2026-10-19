@@ -25,8 +25,8 @@ export async function parseSourceArchive(bytes: Uint8Array): Promise<SourceArchi
   if (input.subarray(0, 8).equals(Buffer.from('XDTSHARE'))) return sourceConversation(await parseArchive(input))
   const text = new TextDecoder('utf-8', { fatal: true }).decode(input)
   if (isClaudeAuxiliaryLog(text)) throw new UnsupportedSourceError(claudeAuxiliaryReason)
-  if (isClaudeCodeLog(text, true)) return parseClaudeCode(text, true)
-  if (isDeepSeekLog(text)) return parseDeepSeek(text, true)
+  if (isClaudeCodeLog(text, true)) return sourceConversation(parseClaudeCode(text, true))
+  if (isDeepSeekLog(text)) return sourceConversation(parseDeepSeek(text, true))
   if (!isCodexRollout(text)) return sourceConversation(await parseArchive(input))
   const parsed = sourceConversation(parseCodex(text, true))
   // 原解析器已验证完整日志及所有消息；这里只对允许的响应项做展示投影。

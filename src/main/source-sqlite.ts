@@ -8,11 +8,12 @@ import { promisify } from 'node:util'
 import { createHash } from 'node:crypto'
 import { sourceReadCursorSchema, type SourceReadCursor } from '../core/sources'
 import { textWindowQuery } from './source-read-window'
+import { SOURCE_TEXT_POLICY_VERSION } from '../core/source-user-content'
 import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery } from './cindy-source-query'
 
 const execute = promisify(execFile)
 export type DatabaseRow = Record<string, unknown>
-export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow; snapshot?: string }
+export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow; snapshot?: string; source?: 'newmax' | 'cindy' }
 const conversationColumns = ['id', 'title', 'source', 'created_at', 'updated_at', 'forked_from_id', 'is_private', 'message_count']
 const messageColumns = ['seq', 'id', 'conversation_id', 'role', 'content', 'timestamp', 'data']
 // SQLite 的 readOnly 仍可能写共享内存。由操作系统拒绝所有文件写入，不能回退到无沙箱读取。
@@ -122,13 +123,13 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       // 绑定文件身份、所选会话状态和完整文本投影；只复核首窗口也能检测未读尾部的等长修改。
       const digest = records.find(row => row.kind === 'snapshot')?.value
       if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) throw new Error('来源正文指纹不可用，未跳过一致性校验')
-      snapshot = createHash('sha256').update(JSON.stringify([source, rowId, held.dev, held.ino, session, digest])).digest('hex')
+      snapshot = createHash('sha256').update(JSON.stringify([SOURCE_TEXT_POLICY_VERSION, source, rowId, held.dev, held.ino, session, digest])).digest('hex')
     } else {
       const stamp = (value: Stats | undefined) => value ? [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs] : null
       const walAfter = await ordinary(path + '-wal', true)
       if (JSON.stringify([stamp(before), stamp(wal)]) !== JSON.stringify([stamp(current), stamp(walAfter)])) throw new Error('数据库在读取期间变化，请刷新；未混合不同版本的片段')
       snapshot = createHash('sha256').update(JSON.stringify([source, stamp(before), stamp(wal)])).digest('hex')
     }
-    return { snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow), session, budget }
+    return { source, snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow), session, budget }
   } finally { await handle.close() }
 }
