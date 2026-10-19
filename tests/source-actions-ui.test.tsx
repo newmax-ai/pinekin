@@ -43,8 +43,9 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择 Codex' }))
     await screen.findByText('/synthetic/.codex')
   }
-  it('选择 App 不创建，明确选择独立会话后接续；不传当前片段，可撤销', async () => {
+  it.each(['created', 'existing'] as const)('%s：选择 App 不创建，明确接续后不提供撤销入口，也不传当前片段', async status => {
     const api = enableTarget()
+    vi.mocked(api.continueInCodex!).mockResolvedValueOnce({ status, receipt: 'receipt', threadId: 'thread', app: 'Codex', messageCount: 101, opened: true })
     render(<SourceActions {...props} content={{ ...content, window: { offset: 100, textOffset: 0, totalMessages: 101, hasMore: false, snapshot: 'a'.repeat(64) } }} />)
     const target = await openTargets()
     expect(api.inspectCodexTarget).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
@@ -53,8 +54,14 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(api.inspectCodexTarget).toHaveBeenCalledExactlyOnceWith('automatic')
     expect(api.continueInCodex).toHaveBeenCalledExactlyOnceWith(props.entryId, { kind: 'standalone' })
     expect(api.configureCodex).not.toHaveBeenCalled(); expect(window.staithe.copy).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '撤销接续' }))
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已撤销'))
+    expect(screen.getByRole('status').textContent).toContain(status === 'existing' ? '已复用' : '已创建并核验')
+    expect(screen.queryByRole('button', { name: '撤销接续' })).toBeNull()
+    more()
+    expect(screen.queryByRole('menuitem', { name: '撤销接续' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '更多会话操作' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(api.rollbackTransfer).not.toHaveBeenCalled()
   })
   it('选中 App 后先问继续位置，不识别、不配置、不擅自创建独立会话', async () => {
     const api = enableTarget(false)
@@ -246,12 +253,17 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已更新'))
     expect(api.configureCodex).toHaveBeenCalledWith(preview.token); expect(api.continueInCodex).not.toHaveBeenCalled()
   })
-  it('目标打开失败区分已创建与未打开，保留撤销和再次接续入口', async () => {
+  it('目标打开失败区分已创建与未打开，不提供撤销但仍可再次接续', async () => {
     const api = enableTarget()
     vi.mocked(api.continueInCodex!).mockResolvedValueOnce({ status: 'created', receipt: 'receipt', threadId: 'thread', app: 'Codex', messageCount: 2, opened: false, error: '合成打开失败' })
     render(<SourceActions {...props} />); fireEvent.click(await openTargets())
-    expect((await screen.findByRole('alert')).textContent).toContain('已创建')
-    expect(screen.getByRole('button', { name: '撤销接续' })).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain('已创建 2 条文本历史，但未能打开 Codex')
+    expect(screen.getByRole('alert').textContent).toContain('再次接续可重试，不会重复创建')
+    expect(screen.queryByRole('button', { name: '撤销接续' })).toBeNull()
+    fireEvent.click(await openTargets())
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('101 条'))
+    expect(api.continueInCodex).toHaveBeenCalledTimes(2)
+    expect(api.rollbackTransfer).not.toHaveBeenCalled()
   })
   it.each(['旧preload', '旧主进程'])('%s 缺少识别接口时不回退到原生选择框', async kind => {
     const api = enableTarget()

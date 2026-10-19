@@ -18,7 +18,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   currentDisabled.current = disabled
   const epoch = targetEpoch.current
   const [busyId, setBusyId] = useState('')
-  const [feedback, setFeedback] = useState<{ id: string; text: string; error?: boolean; receipt?: string }>()
+  const [feedback, setFeedback] = useState<{ id: string; text: string; error?: boolean }>()
   const pending = useRef(new Set<string>())
   const currentId = useRef(entryId)
   currentId.current = entryId
@@ -66,17 +66,13 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       : event.key === 'ArrowDown' ? (index + 1) % items.length : event.key === 'ArrowUp' ? (index + items.length - 1) % items.length : undefined
     if (next !== undefined) { event.preventDefault(); items[next]?.focus() }
   }
-  async function run(kind: 'open' | 'copy' | 'export' | 'rollback') {
+  async function run(kind: 'open' | 'copy' | 'export') {
     if (pending.current.has(entryId) || disabled) return
     const id = entryId
     pending.current.add(id); setBusyId(id); setFeedback(undefined); closeMenu()
     try {
       let text: string | undefined
-      if (kind === 'rollback') {
-        if (!status?.receipt || !api?.rollbackTransfer) return
-        await api.rollbackTransfer(status.receipt)
-        text = '已撤销接续，来源未修改，备份仍保留。'
-      } else if (kind === 'open') {
+      if (kind === 'open') {
         if (!api || !capability?.value?.original.available) return
         const result = await api.openOriginal(id)
         text = `已请求 ${result.app} 打开原会话，请在原 App 查看。`
@@ -114,14 +110,13 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       onComplete={result => {
         if (currentId.current === entryId && targetEpoch.current === epoch) {
           closeTarget()
-          setFeedback({ id: entryId, receipt: result.receipt, error: !result.opened,
+          setFeedback({ id: entryId, error: !result.opened,
             text: result.opened ? `${result.status === 'existing' ? '已复用' : '已创建并核验'} ${result.messageCount} 条文本历史，已请求 ${result.app} 打开。`
               : `已创建 ${result.messageCount} 条文本历史，但未能打开 ${result.app}：${result.error}。再次接续可重试，不会重复创建。` })
         }
       }} />}</DsDialogPresence>
     {(status || capability?.error) && <div className="source-actions-feedback" role={status?.error || !status ? 'alert' : 'status'}>
       <span>{status?.text ?? capability?.error}</span>
-      {status?.receipt && api?.rollbackTransfer && <DsButton size="small" disabled={busy || disabled} onClick={() => void run('rollback')}>撤销接续</DsButton>}
       {!status && <DsButton size="small" onClick={() => setAttempt(value => value + 1)}>重试检查</DsButton>}
       {status && <DsButton variant="ghost" size="small" iconOnly aria-label="关闭操作提示" onClick={() => setFeedback(undefined)}><DesignIcon name="close" size={14} /></DsButton>}
     </div>}
