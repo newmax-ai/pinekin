@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { createQwenIndexer, qwenRecordText } from './qwen-source'
+import { createWorkbuddyIndexer, workbuddyRecordText, type WorkbuddyContext } from './workbuddy-source'
 import type { Message, Session } from '../core/types'
 import type { SourcePresentation } from '../core/sources'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
@@ -10,7 +12,7 @@ import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError } from './sour
 import { SourceActivities } from './source-activity'
 import type { LogRecord } from './source-log-file'
 
-export type LogSource = 'claude-code' | 'codex' | 'deepseek'
+export type LogSource = 'claude-code' | 'codex' | 'deepseek' | 'qwen-code' | 'workbuddy'
 export interface TextRef { line: number; length: number }
 export interface IndexedMessage { role: Message['role']; length: number; parts: TextRef[] }
 export interface ToolEvent { kind: 'call' | 'result'; id?: string; name?: string; content: string }
@@ -51,6 +53,8 @@ function textBlocks(blocks: LogRecord[], kinds: string[], source: string, line: 
   }).filter((text, index) => text !== '' || kinds.includes(String(blocks[index].type))).join('\n')
 }
 export function recordText(source: LogSource, record: LogRecord, line: number): string {
+  if (source === 'workbuddy') return workbuddyRecordText(record, line)
+  if (source === 'qwen-code') return qwenRecordText(record, line)
   if (source === 'claude-code') {
     const message = checked(claudeSourceSchemas.message, record.message, 'Claude Code', line)
     return typeof message.content === 'string' ? message.content : textBlocks(message.content, ['text'], 'Claude Code', line)
@@ -78,7 +82,9 @@ const commonWarnings = [
   '每次最多 100 条文本、每条 16,384 个 Unicode 码点；上一段／下一段从原件重读，来源变化时拒绝混合版本。',
 ]
 
-export function createLogIndexer(source: LogSource): LogIndexer {
+export function createLogIndexer(source: LogSource, context?: WorkbuddyContext): LogIndexer {
+  if (source === 'workbuddy') return createWorkbuddyIndexer(context)
+  if (source === 'qwen-code') return createQwenIndexer()
   if (source === 'claude-code') return claudeIndexer()
   const budget = new Budget(), ids = new Set<string>(), messages: IndexedMessage[] = []
   const warnings = new Set(commonWarnings), activity = new SourceActivities()

@@ -13,7 +13,7 @@ import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { SourceApp } from './SourceApp'
 import { EmptyState, resolveArchiveEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
-const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', other: '其他来源' }
+const names: Record<Source, string> = { newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', cindy: 'Cindy', deepseek: 'DeepSeek', workbuddy: 'WorkBuddy', 'qwen-code': 'Qwen Code', other: '其他来源' }
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 type LibraryView = { query: string; source: Source | 'all'; selectedId: string }
 

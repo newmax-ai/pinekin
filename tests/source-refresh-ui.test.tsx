@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { SourceApp } from '../src/renderer/src/SourceApp'
 import { mockSourcesAPI } from './fixtures/source-api'
 import { fixtureSessions } from './fixtures/sessions'
@@ -274,6 +274,70 @@ describe('不打断阅读的来源刷新', () => {
     expect(screen.getByText(/合成检查失败/)).toBeTruthy()
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+  })
+  it('连接弹窗打开时不发起聚焦或定时自动检查，关闭后恢复', async () => {
+    await open()
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
+    const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
+    for (let i = 0; i < 4; i++) fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(180_000) })
+    expect(window.staithe.sources.check).not.toHaveBeenCalled()
+    for (const control of within(dialog).getAllByRole('switch')) expect((control as HTMLButtonElement).disabled).toBe(false)
+    expect((within(dialog).getByRole('button', { name: '完成' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: '完成' }))
+    fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(window.staithe.sources.check).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ mode: 'automatic' }))
+  })
+  it('打开弹窗前已在途的自动检查不能锁住弹窗，也不在弹窗内发布迟到的统计变化', async () => {
+    await open()
+    vi.useFakeTimers()
+    let finish!: (result: SourceCheckResult) => void
+    vi.mocked(window.staithe.sources.check).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(window.staithe.sources.check).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
+    const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
+    expect(dialog.getAttribute('aria-busy')).toBe('false')
+    for (const control of within(dialog).getAllByRole('switch')) expect((control as HTMLButtonElement).disabled).toBe(false)
+    expect((within(dialog).getByRole('button', { name: '关闭连接面板' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((within(dialog).getByRole('button', { name: '完成' }) as HTMLButtonElement).disabled).toBe(false)
+    await act(async () => { finish({ ...checked(), version: 2, connections: [{ ...connection, total: 999, discovered: 999 }] }) })
+    expect(within(dialog).getByRole('region', { name: 'Claude Code 来源' }).textContent).not.toContain('999')
+    expect(within(dialog).getByRole('region', { name: 'Claude Code 来源' }).textContent).toContain('120 条会话')
+  })
+  it('弹窗打开后才失败的旧自动检查不弹出过期错误', async () => {
+    await open()
+    vi.useFakeTimers()
+    let fail!: (reason: Error) => void
+    vi.mocked(window.staithe.sources.check).mockReturnValueOnce(new Promise((_resolve, reject) => { fail = reject }))
+    fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
+    await act(async () => { fail(new Error('旧自动检查失败')) })
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+    expect(screen.queryByText('旧自动检查失败')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+  it('后台检查未结束时用户仍可主动连接，且迟到检查不覆盖新连接结果', async () => {
+    await open()
+    vi.useFakeTimers()
+    let finish!: (result: SourceCheckResult) => void
+    vi.mocked(window.staithe.sources.check).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
+    const added = { ...connection, id: '22222222-2222-4222-8222-222222222222', source: 'qwen-code' as const, total: 1, discovered: 1 }
+    vi.mocked(window.staithe.sources.autoConnect).mockResolvedValueOnce({ connections: [added], warnings: [] })
+    vi.mocked(window.staithe.sources.page).mockImplementation(async query => ({ ...page(query.offset, query.limit, query.source, query.query), connections: [connection, added] }))
+    await act(async () => { fireEvent.click(screen.getByRole('switch', { name: '连接 Qwen Code' })) })
+    expect(window.staithe.sources.autoConnect).toHaveBeenCalledExactlyOnceWith('qwen-code')
+    expect(screen.getByRole('switch', { name: '连接 Qwen Code' }).getAttribute('aria-checked')).toBe('true')
+    await act(async () => { finish(checked()) })
+    expect(screen.getByRole('switch', { name: '连接 Qwen Code' }).getAttribute('aria-checked')).toBe('true')
   })
   it('可见时低频检查，聚焦防抖合并；隐藏暂停，恢复可见补查；卸载清理', async () => {
     const messages = await open(); expect(messages).toBeTruthy()

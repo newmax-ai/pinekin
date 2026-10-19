@@ -17,7 +17,7 @@ import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
 const emptyPage: SourcePage = { items: [], total: 0, offset: 0, hasMore: false, connections: [] }
-const displaySources: BrowsableSource[] = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek']
+const displaySources = browsableSources
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
@@ -72,8 +72,8 @@ export function SourceApp() {
   const lastAutomaticCheck = useRef(0)
   const readRequest = useRef(0)
   const listRequest = useRef(0)
-  const current = useRef({ source, selected, page, content, loaded, busy, loadingMore, pendingList })
-  current.current = { source, selected, page, content, loaded, busy, loadingMore, pendingList }
+  const current = useRef({ source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList })
+  current.current = { source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList }
   const contentChanged = !!content && !!latestEntry && latestEntry.revision !== (content.revision ?? selected?.revision)
   const search = useRef<HTMLInputElement>(null)
   const searchTrigger = useRef<HTMLElement | null>(null)
@@ -291,14 +291,15 @@ export function SourceApp() {
   async function checkSources(mode: 'automatic' | 'manual', ids?: string[], refreshContent = false) {
     const view = current.current
     if (checkingRef.current || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
-    if (mode === 'automatic' && (document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
+    // 管理连接期间暂停自动目录检查，不因定时器或窗口聚焦反复刷新弹窗。
+    if (mode === 'automatic' && (view.connecting || document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
     if (mode === 'automatic') lastAutomaticCheck.current = Date.now()
     const request = listRequest.current, selectedId = view.selected?.id, selectionRead = readRequest.current
     checkingRef.current = true; setChecking(true)
     if (mode === 'manual') setError('')
     try {
       const result = await window.staithe.sources.check({ mode, ...(ids ? { connectionIds: ids } : {}), ...(selectedId ? { selectedId } : {}) })
-      if (!mounted.current || request !== listRequest.current) return
+      if (!mounted.current || request !== listRequest.current || mode === 'automatic' && current.current.connecting) return
       setPage(previous => ({ ...previous, connections: result.connections }))
       if (result.version !== current.current.page.version) setCatalogVersion(value => value + 1)
       const sameRead = selectedId === current.current.selected?.id && selectionRead === readRequest.current
@@ -332,7 +333,7 @@ export function SourceApp() {
         await readSelected(result.selected ?? view.selected, ++readRequest.current, current.current.content)
       }
     } catch (reason) {
-      if (mounted.current && request === listRequest.current) setError(errorText(reason))
+      if (mounted.current && request === listRequest.current && (mode !== 'automatic' || !current.current.connecting)) setError(errorText(reason))
     } finally { checkingRef.current = false; if (mounted.current) setChecking(false) }
   }
   async function showListUpdates() {
@@ -453,7 +454,7 @@ export function SourceApp() {
         setPage(previous => ({ ...previous, connections: [...previous.connections.filter(item => !connections.some(next => next.id === item.id)), ...connections] }))
         setReload(value => value + 1)
       }} onBusyChange={setBusy}
-      busy={busy} checking={checking} error={error} onDisconnect={disconnect}
+      busy={busy} error={error} onDisconnect={disconnect}
       onDismiss={() => setConnecting(false)} />}</DsDialogPresence>
     <DsDialogPresence>{handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>
       <DsDialogHeader titleId="target-title" title="选择接续目标" eyebrow="上下文交接" closeLabel="关闭接续面板" onDismiss={() => setHandoff(false)} />

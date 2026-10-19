@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { App } from '../src/renderer/src/App'
 import type { SourceConnection, SourceContent, SourceEntry, SourcePage } from '../src/core/sources'
 import { fixtureSessions } from './fixtures/sessions'
-import { sourceNames, type BrowsableSource } from '../src/core/sources'
+import { browsableSources, sourceNames, type BrowsableSource } from '../src/core/sources'
 
 const connection: SourceConnection = { id: '11111111-1111-4111-8111-111111111111', source: 'claude-code', label: 'projects', status: 'ready', discovered: 135, total: 135, issues: 0, ignoredLinks: 0 }
 const entry: SourceEntry = { id: 'a'.repeat(64), connectionId: connection.id, source: 'claude-code', title: '来源会话', project: 'my-project', updatedAt: '2026-10-18T00:00:00Z', availability: 'unread' }
@@ -19,7 +19,7 @@ beforeEach(() => {
   window.staithe = {
     platform: 'darwin', list: vi.fn().mockResolvedValue([]), previewImport: vi.fn(), confirmImport: vi.fn(), cancelImport: vi.fn(),
     exportSession: vi.fn(), copy: vi.fn(), onOpenSession: vi.fn().mockReturnValue(() => {}),
-    sources: { connections: vi.fn().mockResolvedValue([]), autoConnect: vi.fn().mockResolvedValue({ connections: [], warnings: ['未找到此 App 的本机会话，请先在该 App 中创建会话后重试。'] }), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(),
+    sources: { connections: vi.fn().mockResolvedValue([]), autoConnect: vi.fn().mockResolvedValue({ connections: [], warnings: [], notices: ['未找到此 App 的本机会话，可能尚未安装或尚未创建会话。'] }), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(),
       check: vi.fn().mockResolvedValue({ version: 1, connections: [connection], selected: entry }),
       page: vi.fn().mockResolvedValue({ items: [], total: 0, offset: 0, hasMore: false, connections: [] }), read: vi.fn().mockResolvedValue(content) },
   }
@@ -120,8 +120,8 @@ describe('来源逻辑沿用原有设计', () => {
     expect(dialog.querySelector('.dialog-header .dialog-icon')).toBeNull()
     expect(dialog.querySelector('.dialog-heading')?.firstElementChild?.tagName).toBe('H2')
     expect(within(dialog).queryByRole('tablist')).toBeNull()
-    expect(within(dialog).getAllByRole('switch')).toHaveLength(5)
-    expect(within(dialog).getByRole('list', { name: '来源 App' }).children).toHaveLength(5)
+    expect(within(dialog).getAllByRole('switch')).toHaveLength(browsableSources.length)
+    expect(within(dialog).getByRole('list', { name: '来源 App' }).children).toHaveLength(browsableSources.length)
     expect(dialog.textContent).not.toContain('首次自动定位暂未支持')
     expect(dialog.textContent).toContain('只读访问 · 不保存正文 · 不修改来源')
     expect(dialog.querySelectorAll('.connection-card')).toHaveLength(0)
@@ -144,7 +144,7 @@ describe('来源逻辑沿用原有设计', () => {
     fireEvent.click(close)
     expect(screen.queryByRole('dialog', { name: '连接来源 App' })).toBeNull()
   })
-  it.each(['newmax', 'claude-code', 'codex', 'deepseek', 'cindy'] as const)('%s 勾选后提交自动定位，不要求用户理解文件位置', async source => {
+  it.each(browsableSources)('%s 勾选后提交自动定位，不要求用户理解文件位置', async source => {
     render(<App />); await ready(); openConnections(); chooseSource(source)
     const body = screen.getByRole('dialog').querySelector('.dialog-content')!
     const visibleCopy = Array.from(body.querySelectorAll('label, h3, p')).filter(element => !element.closest('details')).map(element => element.textContent).join('')
@@ -153,7 +153,8 @@ describe('来源逻辑沿用原有设计', () => {
     expect(window.staithe.sources.connect).not.toHaveBeenCalled()
     expect(window.staithe.sources.read).not.toHaveBeenCalled()
     expect(window.staithe.list).not.toHaveBeenCalled()
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('未找到'))
+    expect(await within(screen.getByRole('region', { name: `${sourceNames[source]} 来源` })).findByRole('status')).toHaveProperty('textContent', expect.stringContaining('未找到'))
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(document.querySelector('.sidebar-section')?.textContent).not.toContain(sourceNames[source])
   })

@@ -52,6 +52,41 @@ async function refresh() {
   await expect(page.getByRole('button', { name: '刷新当前来源', exact: true })).toBeEnabled()
 }
 
+test('连接管理暂停自动检查，在途检查不锁住弹窗，关闭后恢复', async () => {
+  await page.clock.install()
+  const snapshot = await page.evaluate(() => window.staithe.sources.page({ offset: 0, limit: 50 }))
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    type State = { dialogAutoChecks: number; finishDialogCheck?: () => void }
+    const state = globalThis as unknown as State
+    state.dialogAutoChecks = 0
+    ipcMain.removeHandler('pinekin:sources-check')
+    ipcMain.handle('pinekin:sources-check', () => {
+      state.dialogAutoChecks++
+      return new Promise(resolve => { state.finishDialogCheck = () => resolve({ version: snapshot.version, connections: snapshot.connections }) })
+    })
+  }, snapshot)
+  const focus = () => page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    window.dispatchEvent(new Event('focus'))
+  })
+  await focus(); await page.clock.fastForward(1000)
+  await expect.poll(() => app.evaluate(() => (globalThis as unknown as { dialogAutoChecks: number }).dialogAutoChecks)).toBe(1)
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+  await expect(dialog).toHaveAttribute('aria-busy', 'false')
+  await expect(dialog.getByRole('button', { name: '完成', exact: true })).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: '关闭连接面板', exact: true })).toBeEnabled()
+  for (const control of await dialog.getByRole('switch').all()) await expect(control).toBeEnabled()
+  await app.evaluate(() => (globalThis as unknown as { finishDialogCheck: () => void }).finishDialogCheck())
+  await focus(); await page.clock.fastForward(180_000)
+  expect(await app.evaluate(() => (globalThis as unknown as { dialogAutoChecks: number }).dialogAutoChecks)).toBe(1)
+  await dialog.getByRole('button', { name: '完成', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await focus(); await page.clock.fastForward(1000)
+  await expect.poll(() => app.evaluate(() => (globalThis as unknown as { dialogAutoChecks: number }).dialogAutoChecks)).toBe(2)
+  await app.evaluate(() => (globalThis as unknown as { finishDialogCheck: () => void }).finishDialogCheck())
+})
+
 test('标题下方显示加载描述，刷新图标在请求期间旋转且遵守减少动态效果设置', async () => {
   const heading = page.locator('.list-heading')
   const button = page.getByRole('button', { name: '刷新当前来源', exact: true })

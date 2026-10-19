@@ -26,10 +26,10 @@ function openConnections() { fireEvent.click(screen.getByRole('button', { name: 
 function toggle(name = 'Claude Code') { fireEvent.click(screen.getByRole('switch', { name: `连接 ${name}` })) }
 
 describe('来源 App 级连接开关', () => {
-  it('未授权时仅侧栏所有会话，五个开关默认关闭且打开弹窗不扫描', async () => {
+  it('未授权时仅侧栏所有会话，所有已适配开关默认关闭且打开弹窗不扫描', async () => {
     render(<App />); await ready(); openConnections()
     expect(sidebar().getAllByRole('button').map(item => item.textContent)).toEqual(['连接 App', '所有会话'])
-    expect(screen.getAllByRole('switch')).toHaveLength(5)
+    expect(screen.getAllByRole('switch')).toHaveLength(browsableSources.length)
     for (const item of screen.getAllByRole('switch')) expect(item.getAttribute('aria-checked')).toBe('false')
     expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '连接所选 App' })).toBeNull()
@@ -102,7 +102,7 @@ describe('来源 App 级连接开关', () => {
     render(<App />); await ready()
     fireEvent.click(sidebar().getByRole('button', { name: /^Claude Code/ })); await ready(); openConnections()
     toggle(); await ready()
-    expect(screen.getByText('撤销失败')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'Claude Code 来源' })).getByRole('alert').textContent).toContain('撤销失败')
     expect(screen.getByRole('switch', { name: '连接 Claude Code' }).getAttribute('aria-checked')).toBe('true')
     expect(sidebar().getByRole('button', { name: /^Claude Code/ }).getAttribute('aria-pressed')).toBe('true')
     expect(connections.map(item => item.id)).toEqual(['another'])

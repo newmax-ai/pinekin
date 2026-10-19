@@ -5,7 +5,7 @@ import { SourceApp } from '../src/renderer/src/SourceApp'
 import { ArchiveApp } from '../src/renderer/src/App'
 import { mockSourcesAPI } from './fixtures/source-api'
 import { fixtureSessions } from './fixtures/sessions'
-import type { SourceConnection, SourceEntry } from '../src/core/sources'
+import { browsableSources, type SourceConnection, type SourceEntry } from '../src/core/sources'
 
 const connection: SourceConnection = { id: 'fixture', source: 'claude-code', label: '合成位置', status: 'ready', discovered: 0, total: 0, issues: 0, ignoredLinks: 0 }
 const entry: SourceEntry = { id: 'a'.repeat(64), connectionId: connection.id, source: 'claude-code', title: '合成会话', project: '', updatedAt: '2026-10-18T00:00:00Z', availability: 'unread' }
@@ -144,7 +144,7 @@ describe('来源空占位接入', () => {
     render(<SourceApp />); await sourceReady()
     fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
     const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
-    expect(within(dialog).getAllByRole('switch')).toHaveLength(5)
+    expect(within(dialog).getAllByRole('switch')).toHaveLength(browsableSources.length)
     expect(within(dialog).queryByRole('tablist')).toBeNull()
     expect(within(dialog).queryByRole('button', { name: '管理连接' })).toBeNull()
     expect(within(dialog).queryByRole('list', { name: '已连接的位置' })).toBeNull()

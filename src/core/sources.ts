@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { Session, Source } from './types'
 
-export const browsableSources = ['newmax', 'claude-code', 'codex', 'deepseek', 'cindy'] as const
+export const browsableSources = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek', 'workbuddy', 'qwen-code'] as const
 export type BrowsableSource = typeof browsableSources[number]
 export const sourceSchema = z.enum(browsableSources)
 export const connectionIdSchema = z.uuid()
@@ -63,7 +63,8 @@ export interface SourceReadWindow {
   hasMore: boolean; next?: SourceReadCursor
 }
 export interface SourceContent { session: Session; warnings: string[]; revision?: string; presentation?: SourcePresentation; window?: SourceReadWindow }
-export interface SourceConnectResult { connections: SourceConnection[]; warnings: string[] }
+/** notices 是正常状态提示，不进入错误警报或连接失败汇总；可选以兼容既有桥。 */
+export interface SourceConnectResult { connections: SourceConnection[]; warnings: string[]; notices?: string[] }
 export interface SourceBrowserAPI {
   connections(): Promise<SourceConnection[]>
   autoConnect(source: BrowsableSource): Promise<SourceConnectResult>
@@ -76,9 +77,11 @@ export interface SourceBrowserAPI {
   read(id: string, cursor?: SourceReadCursor): Promise<SourceContent>
 }
 export const sourceNames: Record<Source, string> = {
-  newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', deepseek: 'DeepSeek Harness', cindy: 'Cindy', other: '其他来源',
+  newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', deepseek: 'DeepSeek Harness', cindy: 'Cindy', workbuddy: 'WorkBuddy', 'qwen-code': 'Qwen Code', other: '其他来源',
 }
 export const sourceLocations: Record<BrowsableSource, string> = {
+  workbuddy: '默认查找 ~/.workbuddy/projects/<project>/*.jsonl，支持 WORKBUDDY_CONFIG_DIR 绝对目录覆盖；自定义选择 projects 或单项目目录。只读本地普通主会话和同名 .meta.json，不读取 workbuddy.db、凭据、云缓存或 subagents。依据官方 5.8.3 macOS arm64 包核对；其他版本、分叉、压缩与重复 ID 追加块未验证，不支持原生恢复。',
+  'qwen-code': '默认查找 ~/.qwen/projects/<project>/chats/*.jsonl；支持本进程继承的 QWEN_RUNTIME_DIR / QWEN_HOME 绝对目录覆盖。自定义位置选择 projects、单项目或 chats 目录。仅独立主会话的单根父链文本，分叉、子会话、回退、压缩与托管历史未支持；不读取凭据或工具输出文件。',
   newmax: '默认查找 ~/.newmax/newmax.db，支持本进程继承的 NEWMAX_USER_DATA_DIR 绝对目录覆盖。自定义位置请选择 newmax.db；仅查询会话与选定消息。macOS 使用禁止写入的独立只读进程读取已提交 WAL；不会复制整库、checkpoint 或删除副文件。',
   'claude-code': '选择 Claude Code 的 projects 目录或一个项目日志目录。日志格式不等于客户端归属：明确由通用 Claude Agent SDK 创建的执行日志会排除，NewMax 主会话从 NewMax 数据库读取；可验证的客户端日志与子会话按各自边界展示。',
   codex: '选择 Codex 的 sessions 或 archived_sessions 目录；可分别连接多个位置。',

@@ -31,6 +31,9 @@ export function sourceCandidates(source: BrowsableSource, context: SourceLocatio
       const home = configuredHome(context, 'CODEX_HOME', '.codex')
       return [join(home, 'sessions'), join(home, 'archived_sessions')]
     }
+    // 不沿用独立 CodeBuddy 的环境覆盖；它可能指向另一个客户端的数据根。
+    case 'workbuddy': return [join(configuredHome(context, 'WORKBUDDY_CONFIG_DIR', '.workbuddy'), 'projects')]
+    case 'qwen-code': return [join(configuredHome(context, context.env.QWEN_RUNTIME_DIR ? 'QWEN_RUNTIME_DIR' : 'QWEN_HOME', '.qwen'), 'projects')]
     case 'deepseek': return [join(configuredHome(context, 'DSH_HOME', '.dsh'), 'sessions')]
     case 'cindy': return [join(context.appData, 'Cindy'), join(context.appData, 'CindyGlobal')]
     // NewMax 源码 appDataPaths + ConversationStore 确认；不扫描旧迁移目录或推测其他进程环境。
@@ -128,7 +131,7 @@ export async function autoConnectSource(browser: SourceBrowser, rawSource: Brows
     else if (connection.status === 'cancelled') result.warnings.push(`${connection.label}：统计已暂停，可在管理连接中刷新`)
   }
   if (!result.connections.length && !result.warnings.length) {
-    result.warnings.push(`未找到 ${sourceNames[source]} 的本机会话，请先在该 App 中创建会话后重试。使用自定义位置时可手动指定。`)
+    result.notices = [`未找到 ${sourceNames[source]} 的本机会话，可能尚未安装或尚未创建会话，也可使用自定义位置。`]
   }
   result.warnings = [...new Set(result.warnings)]
   return result

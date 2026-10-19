@@ -247,30 +247,34 @@ h1, h2, h3, strong { font-weight: 500; }
 .dialog-header h2 { font-size: var(--ds-text-title); letter-spacing: -0.6px; line-height: 1.4; }
 .dialog-content { padding: 0 24px 24px; overflow: auto; min-height: 0; }
 .dialog-description { font-size: var(--ds-text-base); color: var(--ds-text-secondary); line-height: 1.8; }
-/* 所有来源共用网格；所有行等高，统一取内容最多卡片所需的高度。 */
-.ds-dialog:has(> .connection-header) { width: 920px; }
+/* 高度由自然内容测量，增高与缩小时过渡；仅超过视口才滚动，不预设大外框。 */
+.ds-dialog:has(> .connection-header) { width: 920px; transition: height 180ms ease-out, max-width 180ms ease-out, max-height 180ms ease-out; }
 .connection-header { padding: 18px 24px 16px; }
 .connection-header > .ds-button { align-self: flex-start; }
 .connection-description { margin-top: 4px; }
-.connection-content { padding-top: 0; }
+.connection-content { padding-top: 0; flex: 1; scrollbar-gutter: stable; }
+.connection-content-inner { min-width: 0; }
 .connection-app-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); grid-auto-rows: 1fr; gap: 12px; align-items: stretch; }
 .connection-app-list > li { display: flex; min-width: 0; }
 .connection-source-card { display: flex; flex-direction: column; flex: 1; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); overflow-wrap: anywhere; }
 .connection-app { display: flex; align-items: center; flex-shrink: 0; gap: 10px; min-width: 0; color: var(--ds-text-primary); text-align: left; }
 .connection-app h3 { flex: 1; min-width: 0; font-size: var(--ds-text-base); font-weight: 600; }
-.connection-summary { height: 22px; flex-shrink: 0; min-width: 0; }
+.connection-summary { position: relative; min-height: 22px; flex-shrink: 0; min-width: 0; }
 .connection-summary > .connection-intro { line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connection-summary[data-notice='true'] > .connection-intro { line-height: 18px; white-space: pre-wrap; overflow: visible; text-overflow: clip; }
+.connection-summary[data-pending='true'] > .connection-intro { visibility: hidden; }
+.connection-summary-progress { position: absolute; inset: 0; color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .connection-inline-info { min-width: 0; font-size: var(--ds-text-xs); line-height: 20px; color: var(--ds-text-secondary); }
 .connection-source-positions { display: grid; gap: 4px; min-width: 0; }
 .connection-location { display: flex; flex-wrap: wrap; gap: 8px; row-gap: 0; min-width: 0; }
 .connection-location-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .connection-location-count { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .connection-location-note { flex-basis: 100%; }
-.connection-error, .connection-feedback[data-error='true'] { color: var(--ds-danger); }
+.connection-error { color: var(--ds-danger); }
 .connection-intro { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.7; }
-.connection-error { font-size: var(--ds-text-xs); line-height: 1.7; white-space: pre-wrap; }
-.connection-error + .connection-source-positions:not(:empty), .connection-manual { margin-top: 8px; }
-.connection-feedback { height: 22px; overflow: auto; line-height: 22px; overflow-wrap: anywhere; flex-shrink: 0; margin: 0 24px 12px; }
+.connection-error, .connection-notice { font-size: var(--ds-text-xs); line-height: 1.7; white-space: pre-wrap; }
+.connection-notice { color: var(--ds-text-secondary); }
+.connection-error + .connection-source-positions:not(:empty), .connection-notice + .connection-source-positions:not(:empty), .connection-manual { margin-top: 8px; }
 .connection-card-privacy { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); }
 .import-file { padding: 14px 16px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); overflow-wrap: anywhere; }
 .import-file strong { display: block; font-size: var(--ds-text-dense); line-height: 1.7; }

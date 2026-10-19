@@ -8,6 +8,8 @@ const icons: Record<Exclude<Source, 'other'>, string> = {
   codex: new URL('../assets/clients/openai.svg', import.meta.url).href,
   cindy: new URL('../assets/clients/cindy.png', import.meta.url).href,
   deepseek: new URL('../assets/clients/deepseek.svg', import.meta.url).href,
+  'qwen-code': new URL('../assets/clients/qwen.svg', import.meta.url).href,
+  workbuddy: new URL('../assets/clients/workbuddy.png', import.meta.url).href,
 }
 
 export function SourceIcon({ source, size = 18 }: { source: Source; size?: number }) {

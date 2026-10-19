@@ -1,5 +1,5 @@
 export const legacySources = ['newmax', 'claude-code', 'codex', 'other'] as const
-export const sources = [...legacySources, 'cindy', 'deepseek'] as const
+export const sources = [...legacySources, 'cindy', 'deepseek', 'workbuddy', 'qwen-code'] as const
 export type Source = typeof sources[number]
 export type Target = '通用' | 'NewMax' | 'Claude Code' | 'Codex'
 export type ExportFormat = 'bundle' | 'markdown'

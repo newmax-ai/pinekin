@@ -1,4 +1,8 @@
 import type { SourceRecordKind } from '../core/sources'
+import { createQwenIndexer } from './qwen-source'
+import { basename } from 'node:path'
+import { createWorkbuddyIndexer } from './workbuddy-source'
+import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
 import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
 import { ClaudeLogOrigin, sdkOriginReason } from './source-origin'
 import { codexFirstPrompt, sourceTitle } from './source-conversation'
@@ -10,7 +14,22 @@ import { withSourceLog } from './source-log-file'
 /** 目录的完整归属检查只保留元数据，不创建消息索引、正文页或磁盘副本。 */
 export function inspectLogSupport(path: string, root: string, source: LogSource, expectedRevision: string, authorized: () => boolean) {
   return withSourceLog(path, root, /\.(zst|zstd)$/.test(path), authorized, async (scan, revision) => {
+    if (source === 'workbuddy') {
+      const metadata = await readWorkbuddyMetadata(path, root, authorized)
+      if (workbuddyRevision(revision, metadata.revision) !== expectedRevision) throw new Error('来源在目录检查期间变化，请刷新')
+      const fileId = basename(path, '.jsonl'), parser = createWorkbuddyIndexer({ fileId, meta: metadata.meta })
+      await scan((record, line) => parser.accept(record, line))
+      const index = parser.finish()
+      if ((await readWorkbuddyMetadata(path, root, authorized)).revision !== metadata.revision) throw new Error('WorkBuddy 元数据在检查期间变化，请刷新')
+      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: fileId, title: index.session.title }
+    }
     if (revision !== expectedRevision) throw new Error('来源在目录检查期间变化，请刷新')
+    if (source === 'qwen-code') {
+      const parser = createQwenIndexer()
+      await scan((record, line) => parser.accept(record, line))
+      const index = parser.finish()
+      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: index.session.id, title: index.session.title }
+    }
     const origin = new ClaudeLogOrigin()
     let reason: string | undefined, kind: SourceRecordKind | undefined, sourceSessionId: string | undefined, prompt = '', custom = '', auxiliary = true, records = 0
     await scan(record => {

@@ -91,12 +91,46 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toMatch(/\.connection-header > \.ds-button\s*\{[^}]*align-self: flex-start;/)
     expect(styles).not.toContain('.connection-toolbar')
   })
+  it('连接弹窗以自然内容决定高度，不预设 760px 或最小高度，仅溢出时内部滚动', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const dialog = /\.ds-dialog:has\(> \.connection-header\)\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(dialog).not.toMatch(/(?:^|[;\s])(?:min-)?height:/)
+    expect(dialog).not.toContain('760px')
+    const content = /\.connection-content\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(content).toContain('flex: 1;')
+    expect(content).toContain('scrollbar-gutter: stable;')
+    const item = /\.connection-app-list > li\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(item).not.toMatch(/(?:min-|max-)?height:/)
+  })
+  it('移除列表上方反馈及留白，尺寸过渡仅作用于连接弹窗且尊重减少动态效果', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).not.toContain('.connection-feedback')
+    const dialog = /\.ds-dialog:has\(> \.connection-header\)\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(dialog).toMatch(/transition:[^;]*height 180ms[^;]*max-width 180ms[^;]*max-height 180ms/)
+    expect(dialog).not.toContain('transition: all')
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?transition: none !important;/)
+  })
+  it('重试进度不参与布局，旧描述仅隐形保留自然高度，不设固定大占位', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const summary = /\.connection-summary\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(summary).toContain('position: relative;')
+    const pending = /\.connection-summary\[data-pending='true'\] > \.connection-intro\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(pending).toContain('visibility: hidden;')
+    expect(pending).not.toMatch(/display: none|height:|position: absolute/)
+    const progress = /\.connection-summary-progress\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(progress).toMatch(/position: absolute;[^}]*inset: 0;/)
+    expect(progress).not.toMatch(/(?:^|[;\s])(?:min-|max-)?height:/)
+  })
   it('位置和错误撑开卡片，由弹窗内容区滚动，small 开关规格不变', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const switches = readFileSync(resolve('src/renderer/src/components/DsSwitch.css'), 'utf8')
-    expect(styles).toMatch(/\.connection-summary\s*\{[^}]*height: 22px;/)
+    const summary = /\.connection-summary\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(summary).toContain('min-height: 22px;')
+    expect(summary).not.toMatch(/(?:^|[;\s])height:/)
+    expect(styles).toMatch(/\.connection-summary\[data-notice='true'\] > \.connection-intro\s*\{[^}]*line-height: 18px;[^}]*white-space: pre-wrap;[^}]*overflow: visible;/)
+    expect(styles).toMatch(/\.connection-summary > \.connection-intro\s*\{[^}]*line-height: 22px;/)
     expect(styles).not.toContain('.connection-state')
-    expect(styles).toMatch(/\.connection-feedback\s*\{[^}]*height: 22px;[^}]*overflow: auto;/)
+    expect(styles).not.toContain('.connection-feedback')
     const info = /\.connection-inline-info\s*\{([^}]*)\}/.exec(styles)![1]
     expect(info).not.toMatch(/(?:^|[;\s])(?:(?:min-|max-)?height|overflow|flex):/)
     expect(styles).toMatch(/\.dialog-content\s*\{[^}]*overflow: auto;/)

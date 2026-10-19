@@ -14,6 +14,7 @@ import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema
 import type { SourceArchive } from './source-reader'
 import { readSourceLog } from './source-log-reader'
 import { inspectLogSupport } from './source-log-inspect'
+import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
 import { parseNewMaxLocal } from './newmax-local'
 import { codexFirstPrompt, sourceTitle as titleText } from './source-conversation'
 import { codexUnsupportedReason, isCodexSubagent } from './codex'
@@ -126,6 +127,9 @@ export class SourceBrowser {
   private version = 0
   private mutations: Promise<unknown> = Promise.resolve()
   constructor(private readonly dataDirectory: string) {}
+  private assertLocation(saved: Pick<SavedConnection, 'source' | 'path'>) {
+    if (saved.source === 'workbuddy' && (basename(saved.path) === 'cloud' || saved.path.split(sep).some((part, index, parts) => part === 'cloud' && parts[index - 1] === 'projects'))) throw new Error('WorkBuddy 云会话缓存尚未支持；请选择本地 projects 或普通项目目录')
+  }
   private load() {
     return this.loaded ??= (async () => {
       let text: string
@@ -175,10 +179,12 @@ export class SourceBrowser {
     return this.mutate(async () => {
       await this.load()
       const selected = resolve(input)
+      this.assertLocation({ source, path: selected })
       if ((await lstat(selected)).isSymbolicLink()) throw new Error('不读取符号链接来源')
       // 文件对话框选择的根规范化一次；自动定位已经校验的真实路径不得再次跟随被替换的父目录。
       const path = await realpath(selected)
       if (requireCanonicalPath && path !== selected) throw new Error('会话位置在连接期间变化，拒绝读取新的目标')
+      this.assertLocation({ source, path })
       const stat = await checkedPath(path, path)
       const sqlite = source === 'newmax' || source === 'cindy'
       if (sqlite ? !stat.isFile() : !stat.isDirectory()) throw new Error(sqlite ? '请选择会话数据库普通文件' : '请选择会话日志目录')
@@ -237,6 +243,7 @@ export class SourceBrowser {
       try {
         await setImmediate()
         if (!active()) return
+        this.assertLocation(state.saved)
         await checkedPath(state.saved.path, state.saved.path)
         if (state.saved.source === 'newmax' || state.saved.source === 'cindy') {
           const stamp = await databaseStamp(state.saved.path)
@@ -282,13 +289,22 @@ export class SourceBrowser {
           if (!active()) return
           const path = join(directory, entry.name)
           if (entry.isSymbolicLink()) { state.view.ignoredLinks += 1; continue }
-          if (entry.isDirectory()) { queue.push(path); continue }
+          if (entry.isDirectory()) {
+            // Qwen 项目根还包含工具输出与工作流；只进入固定 chats 层，不递归读取其他数据。
+            if (state.saved.source === 'workbuddy') {
+              if (directory === root && basename(root) === 'projects' && entry.name !== 'cloud') queue.push(path)
+            } else if (state.saved.source !== 'qwen-code' || basename(directory) !== 'chats' && (entry.name === 'chats' || directory === root && basename(root) === 'projects')) queue.push(path)
+            continue
+          }
           if (!entry.isFile() || !/\.jsonl(?:\.(?:zst|zstd))?$/.test(entry.name)) continue
+          if (state.saved.source === 'qwen-code' && (basename(directory) !== 'chats' || !entry.name.endsWith('.jsonl'))) continue
+          if (state.saved.source === 'workbuddy' && (!entry.name.endsWith('.jsonl') || directory === root && basename(root) === 'projects')) continue
           const project = relative(root, dirname(path)) || '.'
           const details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'> = { title: entry.name, project, updatedAt: date(0), availability: 'unread' }
           try {
             const stat = await checkedPath(path, root)
             details.revision = fileRevision(stat)
+            if (state.saved.source === 'workbuddy') details.revision = workbuddyRevision(details.revision, (await readWorkbuddyMetadata(path, root, active)).revision)
             const old = cached.get(path)
             if (old?.summary.revision === details.revision && old.summary.availability !== 'unreadable') {
               if (!active()) return
@@ -296,6 +312,10 @@ export class SourceBrowser {
               continue
             }
             details.updatedAt = date(stat.mtimeMs)
+            if (state.saved.source === 'qwen-code' || state.saved.source === 'workbuddy') {
+              const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+              details.title = support.title; details.sourceSessionId = support.sourceSessionId; details.kind = support.kind
+            }
             if (state.saved.source === 'claude-code' && !entry.name.endsWith('.jsonl')) {
               details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
             }
@@ -309,7 +329,7 @@ export class SourceBrowser {
               if (support.kind) details.kind = support.kind
               if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
             }
-            if (entry.name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
+            if (state.saved.source !== 'qwen-code' && state.saved.source !== 'workbuddy' && entry.name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
               const head = await readBounded(path, root, metadataBytes, true)
               const tail = (state.saved.source === 'claude-code' || state.saved.source === 'deepseek') && stat.size > metadataBytes
                 ? await readBounded(path, root, metadataBytes, true, true) : undefined
@@ -328,7 +348,7 @@ export class SourceBrowser {
                 if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
               }
             }
-          } catch (error) { details.availability = 'unreadable'; details.reason = failure(error) }
+          } catch (error) { details.availability = error instanceof UnsupportedContent ? 'unsupported' : 'unreadable'; details.reason = failure(error) }
           if (!active()) return
           this.add(state, relative(root, path), details, path)
         }

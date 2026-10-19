@@ -11,6 +11,7 @@
 | 桌面主进程 | `src/main/index.ts` | 窗口、顶层 frame 与 IPC 校验、系统位置选择框、档案深链路由 |
 | 来源契约 | `src/core/sources.ts` | 连接状态、目录条目、查询与响应 schema；将发现、正文能力和总数状态分开 |
 | 来源服务 | `src/main/source-browser.ts` | 位置授权配置、全量目录发现、分页搜索、取消、刷新、断开、正文按需读取、只读数据库门禁 |
+| 国内 Harness 来源 | `src/main/qwen-source.ts`、`src/main/workbuddy-source.ts`、`src/main/workbuddy-metadata.ts` | 独立格式及父链门禁、本地普通会话、侧车有界只读与联合快照；[契约与证据](domestic-sources.md) |
 | 安全桥 | `src/preload/index.ts` | `window.staithe.sources` 的具名方法；旧档案 API 保留；不暴露 Node、任意 IPC 或路径读写 |
 | 默认界面 | `src/renderer/src/SourceApp.tsx` | 来源列表、元数据搜索、分页、连接管理、正文、能力检查与过期请求隔离 |
 | 页面路由／兼容界面 | `src/renderer/src/App.tsx` | 默认 `SourceApp`，显式切换 `ArchiveApp`；旧深链进入档案入口 |

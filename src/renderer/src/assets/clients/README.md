@@ -10,6 +10,11 @@
 | `deepseek.svg` | DeepSeek 鲸鱼 | 同上 `deepseek` 分支；viewBox `0 0 512 509.64` |
 | `cindy.png` | Cindy 桌面应用图标 | `/Applications/Cindy.app/Contents/Info.plist` 指定的 `Resources/electron.icns`，用系统 `sips` 转为 64×64 PNG；没有读取会话或凭据 |
 
+新增国内来源静态资源（2026-10-19）：
+
+- `qwen.svg`：来自官方 `QwenLM/qwen-code` 提交 `62c86c594fb2a0f68bf66b157e953790188cbeaa` 的 `packages/desktop/bootstrap/qwen-code-logo.svg`；只含 viewBox、fill 和 path，无外部引用或脚本。
+- `workbuddy.png`：来自官方已签名 WorkBuddy `5.8.3.41334564-db0e9b51` macOS arm64 分发包内 `cli/vendor/assets/icon.png`，150×150 静态 PNG。它是该包内的标识资源，不声称提取自桌面应用专属 icns。包来源与 SHA-256 见 `docs/domestic-sources.md`；未扫描用户安装目录。
+
 SVG 只提取静态 viewBox、fill 和 path 数值，不复制 TSX 组件、脚本、事件、外链或宿主依赖。NewMax / OpenAI 为单色，在系统深色主题下反色；Claude、DeepSeek 和 Cindy 保留原色。`其他来源` 使用通用档案图标，不伪造品牌。
 
 品牌名称与标识属于相应权利人。这里记录来源，不为上游素材授予新许可证；发布再分发时需核对适用的品牌与资产使用条款。

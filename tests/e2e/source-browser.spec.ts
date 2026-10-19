@@ -50,8 +50,10 @@ async function connect(sourceId: BrowsableSource = 'claude-code', manual = false
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   await selectSource(sourceId)
   if (manual) {
-    await expect(page.getByRole('alert')).toBeVisible()
-    await page.getByRole('button', { name: '使用自定义位置…' }).click()
+    const card = page.getByRole('region', { name: `${sourceNames[sourceId]} 来源`, exact: true })
+    await expect(card.getByRole('status')).toContainText('未找到')
+    await expect(card.getByRole('alert')).toHaveCount(0)
+    await card.getByRole('button', { name: '使用自定义位置…' }).click()
   }
   await expect(page.getByRole('switch', { name: `连接 ${sourceNames[sourceId]}`, exact: true })).toBeChecked()
   await submit()
@@ -368,14 +370,26 @@ test('连接开关浅深主题、键盘、减少动画与忙碌保护一致，�
       (globalThis as unknown as { finishSwitchTest: () => void }).finishSwitchTest = () => resolve({ connections: [], warnings: ['合成连接失败'] })
     }))
   })
+  const stableFrame = await dialog.boundingBox(), stableFooter = await dialog.locator('.dialog-footer').boundingBox()
   await control.click()
   await expect(control).toBeDisabled(); await expect(control).not.toBeChecked()
+  await expect(dialog.getByRole('region', { name: 'Claude Code 来源', exact: true }).getByRole('status')).toHaveText('正在连接…')
+  await expect(dialog.locator('.connection-feedback')).toHaveCount(0)
+  expect(await dialog.boundingBox()).toEqual(stableFrame)
+  expect(await dialog.locator('.dialog-footer').boundingBox()).toEqual(stableFooter)
   await expect(control).toHaveCSS('opacity', '0.4')
   await expect(dialog.getByRole('button', { name: '完成', exact: true })).toBeDisabled()
   await page.keyboard.press('Escape'); await expect(dialog).toBeVisible()
   await app.evaluate(() => (globalThis as unknown as { finishSwitchTest: () => void }).finishSwitchTest())
   await expect(control).toBeEnabled(); await expect(control).not.toBeChecked()
   await expect(dialog.getByRole('alert')).toContainText('合成连接失败')
+  await expect.poll(async () => (await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(stableFrame!.height)
+  expect((await dialog.boundingBox())!.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight - 64))
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect(dialog).toHaveCSS('transition-property', 'height, max-width, max-height')
+  await expect(dialog).toHaveCSS('transition-duration', '0.18s, 0.18s, 0.18s')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(dialog).toHaveCSS('transition-duration', '0s')
   await background()
 })
 
@@ -392,19 +406,26 @@ test('卡片按最大内容统一高度，跨行等高，长错误由弹窗内�
       await expect(dialog.getByRole('tablist')).toHaveCount(0)
       const card = dialog.getByRole('region', { name: 'Claude Code 来源', exact: true })
       const initialHeight = (await card.boundingBox())!.height
+      const frame = (await dialog.boundingBox())!
       expect(initialHeight).toBeLessThan(144)
+      if (width === 1200) expect(frame.height).toBeLessThan(await page.evaluate(() => innerHeight - 64))
+      await expect(dialog.locator('.connection-feedback')).toHaveCount(0)
       await expect(card.locator('.connection-inline-info')).toBeHidden()
       await selectSource('claude-code')
       await expect(card.getByRole('switch')).toBeChecked()
       await expect(card.locator('.connection-inline-info')).toBeVisible()
       expect((await card.boundingBox())!.height).toBeGreaterThan(initialHeight)
+      await expect.poll(async () => (await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(frame.height)
+      expect((await dialog.boundingBox())!.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight - 64))
+      expect((await dialog.boundingBox())!.width).toBe(frame.width)
       const boxes = await dialog.locator('.connection-source-card').evaluateAll(cards => cards.map(card => {
         const { y, height } = card.getBoundingClientRect(); return { y, height }
       }))
       for (const box of boxes) expect(box.height).toBeCloseTo(boxes[0].height, 1)
       await selectSource('claude-code')
       await expect(card.locator('.connection-inline-info')).toBeHidden()
-      expect((await card.boundingBox())!.height).toBe(initialHeight)
+      await expect.poll(async () => (await card.boundingBox())!.height).toBe(initialHeight)
+      await expect(dialog).toHaveCSS('height', `${frame.height}px`)
       await page.keyboard.press('Escape')
     }
   }
@@ -419,9 +440,12 @@ test('卡片按最大内容统一高度，跨行等高，长错误由弹窗内�
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
     const card = dialog.getByRole('region', { name: 'NewMax 来源', exact: true })
     const initialHeight = (await card.boundingBox())!.height
+    const frame = (await dialog.boundingBox())!
     await selectSource('newmax')
     await expect(card.getByRole('alert')).toContainText('合成错误')
     expect((await card.boundingBox())!.height).toBeGreaterThan(initialHeight)
+    await expect(dialog).toHaveCSS('height', `${await page.evaluate(() => innerHeight - 64)}px`)
+    expect((await dialog.boundingBox())!.height).toBeGreaterThanOrEqual(frame.height)
     const heights = await dialog.locator('.connection-source-card').evaluateAll(cards => cards.map(element => element.getBoundingClientRect().height))
     for (const height of heights) expect(height).toBeCloseTo(heights[0], 1)
     const body = card.locator('.connection-inline-info')
@@ -447,7 +471,8 @@ test('开关即时生效且失败可直接重试，不需要批量提交，完�
     await expect(dialog.getByRole('button', { name: /连接所选|重试所选|断开连接/ })).toHaveCount(0)
     await selectSource('newmax')
     await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).not.toBeChecked()
-    await expect(dialog.getByRole('alert')).toContainText('未找到')
+    await expect(dialog.getByRole('region', { name: 'NewMax 来源', exact: true }).getByRole('status')).toContainText('未找到')
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
     await selectSource('claude-code')
     await expect(dialog.getByRole('switch', { name: '连接 Claude Code', exact: true })).toBeChecked()
     await selectSource('newmax')
@@ -485,7 +510,7 @@ test('多选列表保留原关闭规格，初始不聚焦关闭按钮，键盘�
     await expect(dialog.locator('.ds-dialog-close')).toHaveCSS('height', '32px')
     await expect(dialog.locator('.ds-dialog-close')).toHaveCSS('width', '42px')
     await expect(dialog.locator('.ds-dialog-close svg')).toHaveCSS('width', '18px')
-    await expect(dialog.getByRole('list', { name: '来源 App' }).getByRole('switch')).toHaveCount(5)
+    await expect(dialog.getByRole('list', { name: '来源 App' }).getByRole('switch')).toHaveCount(7)
     await expect(dialog.locator('.connection-card')).toHaveCount(0)
     await expect(dialog.locator('.connection-card-privacy')).toHaveText('只读访问 · 不保存正文 · 不修改来源')
     await expect(dialog.locator('select')).toHaveCount(0)
@@ -512,7 +537,7 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
     await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).toBeFocused()
     const list = dialog.getByRole('list', { name: '来源 App' })
-    await expect(list.getByRole('switch')).toHaveCount(5)
+    await expect(list.getByRole('switch')).toHaveCount(7)
     const box = (await dialog.boundingBox())!, viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
     expect(box.x).toBeGreaterThanOrEqual(8); expect(box.y).toBeGreaterThanOrEqual(8)
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8)
@@ -530,7 +555,7 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     await expect(dialog).toHaveCount(0)
     await expect(page.getByRole('button', { name: /^Claude Code\s*66$/ })).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
-    await expect(list.getByRole('switch')).toHaveCount(5)
+    await expect(list.getByRole('switch')).toHaveCount(7)
     await expect(control).toBeChecked()
     await expect(dialog).toBeVisible()
     await selectSource('claude-code')
@@ -1043,10 +1068,56 @@ test('Codex 一次连接当前与归档会话，不弹文件选择器，重复�
   expect(JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections).toHaveLength(2)
 })
 
-test('未找到来源可改选其他 App，保留失败原因，不擅自打开系统选择器', async () => {
+test('已有 Qwen 多行提示时重复连接不收缩再展开弹窗、网格或卡片', async () => {
+  const notice = '未找到 Qwen Code 的本机会话，可能尚未安装或尚未创建会话，也可使用自定义位置。'
+  await app.evaluate(({ ipcMain }, notice) => {
+    let calls = 0
+    ipcMain.removeHandler('pinekin:sources-auto-connect')
+    ipcMain.handle('pinekin:sources-auto-connect', () => {
+      const result = { connections: [], warnings: [], notices: [notice] }
+      if (++calls === 1) return result
+      return new Promise(resolve => {
+        (globalThis as unknown as { finishRetryLayout: () => void }).finishRetryLayout = () => resolve(result)
+      })
+    })
+  }, notice)
+  await manageConnections(); await selectSource('qwen-code')
+  const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+  const card = dialog.getByRole('region', { name: 'Qwen Code 来源', exact: true })
+  await expect(card.getByRole('status')).toHaveText(notice)
+  await expect(card.locator('.connection-summary > p')).toHaveCSS('line-height', '18px')
+  await expect(card.locator('.connection-summary')).not.toContainText('自动查找本机会话')
+  await expect.poll(() => dialog.evaluate(element => {
+    const header = element.querySelector<HTMLElement>('.connection-header')!, footer = element.querySelector<HTMLElement>('.dialog-footer')!
+    const inner = element.querySelector<HTMLElement>('.connection-content-inner')!, viewport = element.querySelector<HTMLElement>('.connection-content')!
+    const style = getComputedStyle(viewport)
+    const natural = header.offsetHeight + footer.offsetHeight + inner.offsetHeight + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+    return Math.abs(element.getBoundingClientRect().height - Math.min(Math.ceil(natural), innerHeight - 64))
+  })).toBeLessThan(1)
+  const layout = () => dialog.evaluate(element => [element, ...element.querySelectorAll('.connection-app-list, .connection-source-card, .connection-summary, .dialog-footer')].map(node => {
+    const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height }
+  }))
+  const before = await layout(), control = card.getByRole('switch')
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await control.click(); await expect(control).toBeDisabled()
+    await expect(card.getByRole('status')).toHaveText('正在连接…')
+    await expect(card.locator('.connection-summary')).toHaveAttribute('data-notice', 'true')
+    await expect(card.locator('.connection-summary > p')).toHaveText(notice)
+    await expect(card.locator('.connection-summary > p')).toHaveAttribute('aria-hidden', 'true')
+    await expect(card.locator('.connection-summary > p')).toHaveCSS('visibility', 'hidden')
+    expect(await layout()).toEqual(before)
+    await app.evaluate(() => (globalThis as unknown as { finishRetryLayout: () => void }).finishRetryLayout())
+    await expect(control).toBeEnabled(); await expect(card.getByRole('status')).toHaveText(notice)
+    expect(await layout()).toEqual(before)
+  }
+  expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+})
+
+test('未找到来源仅显示中性提示，可改选其他 App，不擅自打开系统选择器', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   await selectSource('codex')
-  await expect(page.getByRole('alert')).toContainText('未找到 Codex')
+  await expect(page.getByRole('region', { name: 'Codex 来源', exact: true }).getByRole('status')).toContainText('未找到 Codex')
+  await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByRole('switch', { name: '连接 Codex', exact: true })).not.toBeChecked()
   await expect(page.getByRole('button', { name: '使用自定义位置…' })).toBeVisible()
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
@@ -1066,8 +1137,8 @@ test('来源卡片直接整合位置统计与 small 开关，适配三列两列�
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })
   const grid = dialog.getByRole('list', { name: '来源 App' })
   await expect(dialog.getByRole('list')).toHaveCount(1)
-  await expect(grid.locator(':scope > li')).toHaveCount(5)
-  await expect(grid.getByRole('switch')).toHaveCount(5)
+  await expect(grid.locator(':scope > li')).toHaveCount(7)
+  await expect(grid.getByRole('switch')).toHaveCount(7)
   await expect(grid.getByRole('button', { name: /刷新连接|断开连接|暂停统计/ })).toHaveCount(0)
   const codex = grid.getByRole('region', { name: 'Codex 来源', exact: true })
   await expect(codex.getByRole('region')).toHaveCount(2)
@@ -1078,7 +1149,7 @@ test('来源卡片直接整合位置统计与 small 开关，适配三列两列�
   await expect(codex.getByRole('switch')).toHaveCSS('width', '28px')
   await expect(codex.getByRole('switch')).toHaveCSS('height', '16px')
   const originalCards = await grid.locator(':scope > li').elementHandles()
-  await expect(grid.getByRole('switch')).toHaveCount(5)
+  await expect(grid.getByRole('switch')).toHaveCount(7)
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     for (const [width, columns] of [[1200, 3], [760, 2], [520, 1]]) {

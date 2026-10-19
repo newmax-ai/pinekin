@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+import { readWorkbuddyMetadata, workbuddyRevision } from './workbuddy-metadata'
 import { sessionSchema } from '../core/session'
 import { SOURCE_PAGE_MESSAGES, SOURCE_TEXT_CHARS, sourceReadCursorSchema, type SourceReadCursor, type SourceReadWindow } from '../core/sources'
 import { sourcePromptTitle } from '../core/source-presentation'
@@ -26,9 +28,12 @@ function slots(message: IndexedMessage, start: number, length: number): Slot[] {
 export function readSourceLog(path: string, root: string, source: LogSource, input: SourceReadCursor,
   authorized: () => boolean): Promise<SourceArchive & { window: SourceReadWindow; revision: string; resolvedTitle?: string }> {
   const cursor = sourceReadCursorSchema.parse(input), compressed = /\.(zst|zstd)$/.test(path)
+  if ((source === 'workbuddy' || source === 'qwen-code') && compressed) throw new Error('此来源的压缩日志尚未支持')
   return withSourceLog(path, root, compressed, authorized, async (scan, revision) => {
-    if (cursor.snapshot && cursor.snapshot !== revision) throw new Error('来源日志已变化，请从头重新读取；未混合不同版本的片段')
-    const parser = createLogIndexer(source)
+    const metadata = source === 'workbuddy' ? await readWorkbuddyMetadata(path, root, authorized) : undefined
+    if (metadata) revision = workbuddyRevision(revision, metadata.revision)
+    if (cursor.snapshot && cursor.snapshot !== revision) throw new Error('来源日志或元数据已变化，请从头重新读取；未混合不同版本的片段')
+    const parser = createLogIndexer(source, { fileId: basename(path, '.jsonl'), meta: metadata?.meta })
     await scan((record, line) => parser.accept(record, line))
     const index = parser.finish(), totalMessages = index.messages.length
     if (cursor.offset > totalMessages || cursor.offset === totalMessages && totalMessages > 0) throw new Error('日志窗口超出消息范围，请刷新')
@@ -65,6 +70,7 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
       index.presentation.activities = activity.presentation.activities
       index.presentation.activitiesTruncated ||= activity.presentation.activitiesTruncated
     }
+    if (metadata && (await readWorkbuddyMetadata(path, root, authorized)).revision !== metadata.revision) throw new Error('WorkBuddy 元数据在读取期间变化，请刷新')
     const messages = plans.map(plan => ({ role: plan.role, content: plan.slots.map(slot => {
       if (slot.value === undefined) throw new Error('来源片段不完整，请重新读取')
       return slot.value
