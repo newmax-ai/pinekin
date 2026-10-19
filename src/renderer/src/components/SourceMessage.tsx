@@ -18,7 +18,10 @@ export function SourceMessage({ message, source, fragment = false }: { message: 
   return <>
     {primary && <MessageContent content={long ? primary.slice(0, 4000) + '\n…' : primary} />}
     {long && <Disclosure label={fragment ? '展开当前片段' : '展开完整消息'}><MessageContent content={primary} /></Disclosure>}
-    {context && <Disclosure label={/^Page snapshot:/m.test(context) ? '页面上下文' : '附带上下文'}><MessageContent content={context} /></Disclosure>}
+    {context && (source === 'codex' ? <>
+      <p className="privacy-note">附件预览暂未支持；未读取附件路径。</p>
+      <Disclosure label="附件与上下文"><div>{context}</div></Disclosure>
+    </> : <Disclosure label={/^Page snapshot:/m.test(context) ? '页面上下文' : '附带上下文'}><MessageContent content={context} /></Disclosure>)}
     {!primary && !context && <MessageContent content="" />}
   </>
 }

@@ -1,18 +1,21 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { zstdCompressSync } from 'node:zlib'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SourceBrowser } from '../src/main/source-browser'
 import { parseArchive } from '../src/main/imports'
 import { claudeFixture, claudeRecords } from './fixtures/claude-code'
-import { codexFixture, codexMessage, codexMeta, codexRecord } from './fixtures/codex'
+import { codexFixture, codexMessage, codexMeta, codexRecord, codexPluginContext, codexFilesPrompt, codexActualRequest, codexImageContext } from './fixtures/codex'
+import { sourceMessageParts } from '../src/core/source-presentation'
+import { parseSourceArchive } from '../src/main/source-reader'
 import type { BrowsableSource } from '../src/core/sources'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
-async function connect(bytes: Buffer, source: BrowsableSource = 'codex') {
+async function connect(bytes: Buffer, source: BrowsableSource = 'codex', name = 'rollout-synthetic.jsonl') {
   const root = await mkdtemp(join(tmpdir(), 'pinekin-conversation-')); roots.push(root)
-  const input = join(root, 'source'), data = join(root, 'data'), name = 'rollout-synthetic.jsonl'
+  const input = join(root, 'source'), data = join(root, 'data')
   await mkdir(input); await writeFile(join(input, name), bytes)
   const browser = new SourceBrowser(data), connection = await browser.connect(source, input)
   await browser.waitForScan(connection.id)
@@ -64,6 +67,27 @@ describe('来源标题和对话投影回归', () => {
     // 档案导入仍保留系统历史，不把来源阅读规则静默应用到旧档案。
     expect((await parseArchive(bytes)).session.messages.map(message => message.role)).toEqual(['system', 'system', 'user', 'user', 'user', 'assistant'])
   })
+  it.each([false, true])('Codex 附件包装与插件注入不污染首次标题，正文保留可折叠原文（压缩：%s）', async compressed => {
+    const prompt = `${codexFilesPrompt}\n${codexImageContext}`
+    const bytes = codexFixture([codexMeta(), user(codexPluginContext), user(`${codexPluginContext}\n${prompt}`), answer])
+    const inputBytes = compressed ? zstdCompressSync(bytes) : bytes
+    const { browser, entry, input, name } = await connect(inputBytes, 'codex', `attachments.jsonl${compressed ? '.zstd' : ''}`)
+    expect(entry.title).toBe(codexActualRequest)
+    expect((await browser.page({ query: codexActualRequest })).total).toBe(1)
+    expect((await browser.page({ query: 'recommended_plugins' })).total).toBe(0)
+    const result = await browser.read(entry.id)
+    expect(result.session.title).toBe(entry.title)
+    expect(result.session.messages).toEqual([{ role: 'user', content: prompt }, { role: 'assistant', content: '合成答复' }])
+    expect(sourceMessageParts(result.session.messages[0].content, 'codex', 'user').primary).toBe(codexActualRequest)
+    expect((await parseSourceArchive(bytes)).session.messages).toEqual(result.session.messages)
+    expect((await parseArchive(bytes)).session.messages[0].content).toBe(codexPluginContext)
+    expect(await readFile(join(input, name))).toEqual(inputBytes)
+  })
+  it('纯插件注入不伪造成问答，未知和未闭合插件标签仍保留', async () => {
+    const { browser, entry } = await connect(codexFixture([codexMeta(), user(codexPluginContext)]))
+    expect(entry.title).not.toContain('recommended_plugins')
+    expect((await browser.read(entry.id)).session.messages).toEqual([])
+  })
   it('Codex 超过 64 KiB 的前置上下文不遮住后面的首问', async () => {
     const { browser, entry } = await connect(codexFixture([codexMeta({ base_instructions: { text: 'x'.repeat(80_000) } }),
       user(instructions), user('长前缀之后的真实问题'), answer]))
@@ -72,6 +96,10 @@ describe('来源标题和对话投影回归', () => {
   })
   it.each([
     ['<environment_context>环境</environment_context>\n实际问题', '实际问题'],
+    [codexPluginContext + '\n<environment_context>环境</environment_context>\n实际问题', '实际问题'],
+    ['<recommended_plugins>未闭合', '<recommended_plugins>未闭合'],
+    ['请解释 <recommended_plugins>插件</recommended_plugins>', '请解释 <recommended_plugins>插件</recommended_plugins>'],
+    ['```xml\n' + codexPluginContext + '\n```', '```xml\n' + codexPluginContext + '\n```'],
     [instructions + '\n实际问题', '实际问题'],
     ['# AGENTS.md instructions\n\n<INSTRUCTIONS>多根约束</INSTRUCTIONS>\n实际问题', '实际问题'],
     ['  保留普通用户输入的缩进\n    代码示例  ', '  保留普通用户输入的缩进\n    代码示例  '],

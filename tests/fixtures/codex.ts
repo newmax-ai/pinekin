@@ -15,6 +15,13 @@ export function codexMeta(patch: Record<string, unknown> = {}) {
 export function codexMessage(role = 'user', content: unknown = [{ type: 'input_text', text: '<script>不执行</script> 合成 Codex 问题' }], patch: Record<string, unknown> = {}) {
   return codexRecord('response_item', { type: 'message', role, content, ...patch })
 }
+export const codexPluginContext = '<recommended_plugins>合成插件建议，不是用户提问</recommended_plugins>'
+export const codexImagePlaceholder = '[未映射内容块，保留在原件中]'
+export const codexFilesContext = '# Files mentioned by the user:\n\n## screenshot.png (/synthetic/attachments/screenshot.png)\nImage attachment: true'
+export const codexActualRequest = '查查合成问题，看看是怎么回事。'
+export const codexFilesPrompt = `${codexFilesContext}\n\n# My request:\n${codexActualRequest}`
+export const codexImageContext = `<image 1>\n${codexImagePlaceholder}\n</image 1>`
+
 export function codexPaginatedFixture(): Buffer {
   const rows = codexFixture().toString().trim().split('\n').map(line => JSON.parse(line))
   rows[0].payload.history_mode = 'paginated'

@@ -8,7 +8,7 @@ export function sourceTitle(value: unknown): string {
 /** 只剥离开头完整的已知注入包装；不执行指令，不删除普通引用或未闭合文本。 */
 export function codexUserText(value: string): string {
   let text = value.trim(), stripped = false
-  const context = /^(?:<(?<tag>environment_context|user_instructions|codex_apps_client_time_context|external_codex_apps_open_page)>[\s\S]*?<\/\k<tag>>|# AGENTS\.md instructions(?: for [^\r\n]+)?\r?\n\s*<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>)\s*/
+  const context = /^(?:<(?<tag>environment_context|user_instructions|codex_apps_client_time_context|external_codex_apps_open_page|recommended_plugins)>[\s\S]*?<\/\k<tag>>|# AGENTS\.md instructions(?: for [^\r\n]+)?\r?\n\s*<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>)\s*/
   for (;;) {
     const match = context.exec(text)
     if (!match) break

@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { zstdCompressSync } from 'node:zlib'
 import { deepseekFixture, deepseekRecords } from '../fixtures/deepseek'
-import { codexFixture, codexMeta, codexMessage } from '../fixtures/codex'
+import { codexFixture, codexMeta, codexMessage, codexPluginContext, codexFilesPrompt, codexActualRequest } from '../fixtures/codex'
 import { createCindyDatabase } from '../fixtures/cindy-database'
 
 let app: ElectronApplication | undefined, root: string
@@ -28,9 +28,13 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
   const compressed = zstdCompressSync(deepseekFixture(records))
   await writeFile(join(deepseek, 'session.v4.jsonl.zstd'), compressed)
   const meta = codexMeta(); meta.payload = { ...meta.payload as object, source: { subagent: 'review' } }
-  await writeFile(join(codex, 'subagent.jsonl'), codexFixture([meta,
-    codexMessage('user', [{ type: 'input_text', text: '合成子会话问题' }]),
-    codexMessage('assistant', [{ type: 'output_text', text: '子会话的实际答复' }])]))
+  const codexBytes = codexFixture([meta,
+    codexMessage('user', [{ type: 'input_text', text: codexPluginContext }]),
+    codexMessage('user', [{ type: 'input_text', text: codexFilesPrompt + '\n<image 1>' },
+      { type: 'input_image', image_url: 'file:///synthetic/attachments/screenshot.png' },
+      { type: 'input_text', text: '</image 1>' }]),
+    codexMessage('assistant', [{ type: 'output_text', text: '子会话的实际答复' }])])
+  await writeFile(join(codex, 'subagent.jsonl'), codexBytes)
   const writer = new DatabaseSync(database); createCindyDatabase(writer)
   writer.exec(`INSERT INTO sessions(id,title,parent_session_id,updated_at) VALUES('fork','不支持的分叉会话','parent',2100);
     INSERT INTO sessions(id,title,source,updated_at) VALUES('bot','不支持的 Bot 会话','bot',2200);
@@ -77,9 +81,18 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail.locator('.code-block code')).toHaveText('const value = 1')
     await expect(detail.locator('a,img,script,iframe,[href],[src]')).toHaveCount(0)
     expect(await page.evaluate(() => 'untrustedExecuted' in window)).toBe(false)
-    await page.locator('.session-card').filter({ hasText: '合成子会话问题' }).click()
+    await expect(page.locator('.session-card').filter({ hasText: 'recommended_plugins' })).toHaveCount(0)
+    await page.locator('.session-card').filter({ hasText: codexActualRequest }).click()
     await expect(page.locator('.detail-meta')).toContainText('子会话')
     await expect(detail.locator('article')).toHaveCount(2)
+    await expect(detail.getByText(codexActualRequest, { exact: true })).toBeVisible()
+    await expect(detail.getByText('附件预览暂未支持；未读取附件路径。', { exact: true })).toBeVisible()
+    await expect(detail).not.toContainText('Files mentioned by the user:')
+    await expect(detail).not.toContainText('未映射内容块')
+    await detail.getByText('附件与上下文', { exact: true }).click()
+    await expect(detail).toContainText('Files mentioned by the user:')
+    await expect(detail).toContainText('未映射内容块')
+    await expect(detail.locator('h1,h2,h3,a,img,script,iframe,[src],[href]')).toHaveCount(0)
     await expect(detail.getByText('子会话的实际答复', { exact: true })).toBeVisible()
     await page.locator('.session-card').filter({ hasText: 'Cindy 合成正文' }).click()
     await expect(detail.locator('article')).toHaveCount(2)
@@ -101,5 +114,6 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
   }
   expect((await readFile(database)).equals(beforeDatabase)).toBe(true)
   expect(await readFile(join(deepseek, 'session.v4.jsonl.zstd'))).toEqual(compressed)
+  expect(await readFile(join(codex, 'subagent.jsonl'))).toEqual(codexBytes)
   expect(await readdir(data)).not.toContain('imports')
 })

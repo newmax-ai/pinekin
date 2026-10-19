@@ -1,8 +1,61 @@
 import type { Message, Source } from './types'
 
+/** 只拆分完整的 Codex 文件列表／请求包装；附件路径和标签始终只是文本。 */
+function codexFileMessageParts(content: string): { primary: string; context: string } {
+  const text = content.trimStart()
+  if (!/^#{1,2} Files mentioned by the user:[ \t]*(?:\r?\n|$)/.test(text)) return { primary: content, context: '' }
+  const lines = text.split('\n')
+  let file = false, request = -1
+  for (let index = 1; index < lines.length; index++) {
+    // 代码示例或不完整文件列表不能靠后面的同名标题误匹配。
+    if (/^[ \t]*(`{3,}|~{3,})/.test(lines[index])) break
+    if (/^#{1,2} My request(?: for Codex)?:[ \t]*\r?$/.test(lines[index])) { request = index; break }
+    if (/^##[ \t]+\S/.test(lines[index])) file = true
+  }
+  if (!file || request < 0) return { primary: content, context: '' }
+  const context = lines.slice(0, request).join('\n').trim()
+  const body = lines.slice(request + 1)
+  const requestText = (end = body.length) => {
+    let start = 0
+    while (start < end && !body[start].trim()) start += 1
+    while (end > start && !body[end - 1].trim()) end -= 1
+    return body.slice(start, end).join('\n').replace(/\r$/, '')
+  }
+  const placeholder = '[未映射内容块，保留在原件中]'
+  const image = /^<(\/?)(image(?:[ \t]+(?:[0-9]+|\([0-9]+\)))?)>$/
+  let cut = body.length, hasPlaceholder = false
+  while (cut > 0) {
+    const line = body[cut - 1].replace(/\r$/, '')
+    if (line === placeholder) hasPlaceholder = true
+    else if (line.trim() && !image.test(line)) break
+    cut -= 1
+  }
+  // 只移动生成占位所在的完整尾部，不吞掉代码里的同名文字或不匹配标签。
+  const stack: string[] = []
+  let valid = true, fence = ''
+  for (const line of body.slice(0, cut)) {
+    if (!fence) fence = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)?.[1] ?? ''
+    else {
+      const close = /^[ \t]{0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line)?.[1]
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = ''
+    }
+  }
+  for (const line of body.slice(cut)) {
+    const tag = image.exec(line.replace(/\r$/, ''))
+    if (!tag) continue
+    const key = tag[2].replace(/[ \t]+/g, ' ')
+    if (!tag[1]) stack.push(key)
+    else if (stack.pop() !== key) valid = false
+  }
+  if (!hasPlaceholder || fence || !valid || stack.length) return { primary: requestText(), context }
+  return { primary: requestText(cut), context: context + '\n' + body.slice(cut).join('\n').trim() }
+}
+
 /** 仅识别完整、位于开头的已知包装，普通引用和代码保持原文。 */
 export function sourceMessageParts(content: string, source: Source, role: Message['role']): { primary: string; context: string } {
-  if (source !== 'claude-code' || role !== 'user') return { primary: content, context: '' }
+  if (role !== 'user') return { primary: content, context: '' }
+  if (source === 'codex') return codexFileMessageParts(content)
+  if (source !== 'claude-code') return { primary: content, context: '' }
   let primary = content
   const contexts: string[] = []
   for (;;) {
