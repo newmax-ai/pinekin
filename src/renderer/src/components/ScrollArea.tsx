@@ -29,12 +29,14 @@ export function buildScrollMask(direction: 'to bottom' | 'to right', start: bool
 }
 
 type Viewport = HTMLDivElement | HTMLPreElement
-type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport>; bottomOverlayHeight?: number }
+type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport>; bottomOverlayHeight?: number; revealSelector?: string }
 
 // 不增加布局包装层：原生滚动、键盘、选择与业务事件仍由同一个视口承载。
-export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bottomOverlayHeight = 0, ...props }: ScrollAreaProps) {
+export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bottomOverlayHeight = 0, revealSelector, ...props }: ScrollAreaProps) {
   const viewport = useRef<Viewport | null>(null)
   const refresh = useRef<(() => void) | null>(null)
+  const scrollDestination = useRef<number | null>(null)
+  const revealed = useRef<{ target: Element; width: number; height: number; targetHeight: number } | null>(null)
   useImperativeHandle(ref, () => viewport.current!, [Tag])
 
   useLayoutEffect(() => {
@@ -42,6 +44,41 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
     let active = true
     let frame: number | undefined
     const observed = new Set<Element>()
+    const revealSelection = (force = false) => {
+      const target = revealSelector ? element.querySelector(revealSelector) : null
+      const { clientWidth: width, clientHeight: height } = element
+      if (!target || width <= 0 || height <= 0) { revealed.current = null; return }
+      const rect = target.getBoundingClientRect()
+      if (rect.height <= 0) { revealed.current = null; return }
+      const previous = revealed.current
+      if (!force && previous?.target === target && previous.width === width && previous.height === height && previous.targetHeight === rect.height) return
+      revealed.current = { target, width, height, targetHeight: rect.height }
+      const maxScroll = Math.max(0, element.scrollHeight - height)
+      const current = element.scrollTop
+      const top = rect.top - element.getBoundingClientRect().top - element.clientTop + current
+      const bottom = top + rect.height
+      const startInset = current > EDGE_THRESHOLD ? FADE_SIZE : 0
+      const endInset = bottomOverlayHeight > 0 ? bottomOverlayHeight : maxScroll - current > EDGE_THRESHOLD ? FADE_SIZE : 0
+      let next = current
+      // 不调用 scrollIntoView，避免同时移动外层页面；超高项优先展示开头。
+      if (top < current + startInset || rect.height > height - startInset - endInset) next = top - FADE_SIZE
+      else if (bottom > current + height - endInset) next = bottom - height + (bottomOverlayHeight || FADE_SIZE)
+      next = Math.max(0, Math.min(maxScroll, next))
+      // 到达边界容差时直接贴边，让该端 mask 确实关闭。
+      if (next <= EDGE_THRESHOLD) next = 0
+      else if (!bottomOverlayHeight && maxScroll - next <= EDGE_THRESHOLD) next = maxScroll
+      if (next !== current) {
+        if (typeof element.scrollTo === 'function') {
+          const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+          element.scrollTo({ top: next, behavior })
+          scrollDestination.current = behavior === 'smooth' ? next : null
+        } else element.scrollTop = next
+      } else if (scrollDestination.current !== null) {
+        // 新选中项已在安全区时，停止旧动画，避免它继续把新选中项带入 mask。
+        if (scrollDestination.current !== current) element.scrollTo({ top: current, behavior: 'instant' })
+        scrollDestination.current = null
+      }
+    }
     const update = () => {
       frame = undefined
       if (!active) return
@@ -67,7 +104,13 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
     const schedule = () => {
       if (active && frame === undefined) frame = requestAnimationFrame(update)
     }
-    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(schedule)
+    const refreshSelection = () => { revealSelection(); schedule() }
+    const revealInteracted = (event: Event) => {
+      if (revealSelector && event.target instanceof Element && event.target.closest(revealSelector) === element.querySelector(revealSelector)) {
+        revealSelection(true); schedule()
+      }
+    }
+    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(refreshSelection)
     const observeChildren = () => {
       const current = new Set<Element>([element, ...element.children])
       for (const child of observed) {
@@ -77,14 +120,17 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
         if (!observed.has(child)) { resize?.observe(child); observed.add(child) }
       }
     }
-    const mutation = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(() => { observeChildren(); schedule() })
+    const mutation = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(() => { observeChildren(); refreshSelection() })
     observeChildren()
     // 不监听自身 style，避免写入 mask 触发观察器循环；文本原地更新也需要重测。
     mutation?.observe(element, { childList: true, subtree: true, characterData: true })
     element.addEventListener('scroll', schedule, { passive: true })
-    window.addEventListener('resize', schedule)
-    document.fonts?.ready.then(schedule)
-    refresh.current = schedule
+    window.addEventListener('resize', refreshSelection)
+    element.addEventListener('click', revealInteracted)
+    element.addEventListener('focusin', revealInteracted)
+    document.fonts?.ready.then(() => { if (active) refreshSelection() })
+    refresh.current = refreshSelection
+    revealSelection()
     update()
     return () => {
       active = false
@@ -93,9 +139,11 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
       resize?.disconnect()
       mutation?.disconnect()
       element.removeEventListener('scroll', schedule)
-      window.removeEventListener('resize', schedule)
+      window.removeEventListener('resize', refreshSelection)
+      element.removeEventListener('click', revealInteracted)
+      element.removeEventListener('focusin', revealInteracted)
     }
-  }, [Tag, bottomOverlayHeight])
+  }, [Tag, bottomOverlayHeight, revealSelector])
   useLayoutEffect(() => { refresh.current?.() }, [children])
 
   return <Tag {...props} ref={(element: Viewport | null) => { viewport.current = element }} className={`ds-scroll-area ${className}`}>{children}</Tag>

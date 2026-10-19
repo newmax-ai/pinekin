@@ -209,7 +209,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
         <SessionPane label="会话列表">
           {!separateNavigation && <header className="topbar">{navigationButtons}</header>}
           <div className="list-heading"><h2>{source === 'all' ? '所有会话' : names[source]}</h2><span>{loadError ? '读取失败' : !loaded && !sessions.length ? '正在读取…' : `${visible.length} 段会话`}</span></div>
-          <ScrollArea className="session-list" aria-busy={!loaded && !loadError}>
+          <ScrollArea className="session-list" revealSelector=".session-card[aria-pressed='true']" aria-busy={!loaded && !loadError}>
             {loadError && visible.length > 0 && <EmptyState kind="archive-error" layout="quiet" description={loadError} action={emptyAction('archive-error')} />}
             {visible.map(s => <button key={s.id} className={`session-card ${selected?.id === s.id ? 'selected' : ''}`} aria-pressed={selected?.id === s.id} onClick={() => navigate({ selectedId: s.id })}>
               <div className="card-meta"><span><SourceIcon source={s.source} size={14} />{names[s.source]}</span><SessionTime dateTime={s.updatedAt} now={now} /></div>
