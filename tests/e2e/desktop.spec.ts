@@ -1107,6 +1107,12 @@ test('紧凑阅读留白不变，导入改为左侧图标加文字菜单且键�
     await expect(page.locator('.detail-footer')).toHaveCSS('padding-bottom', '12px')
     await expect(page.locator('.detail-header .read-only')).toHaveCount(0)
     await expect(page.locator('.detail-header .reader-state')).toHaveText('本地档案')
+    const titleGroup = page.locator('.detail-title-group')
+    await expect(titleGroup).toHaveCSS('gap', '8px')
+    const titleBox = (await titleGroup.locator('h2').boundingBox())!, badgeBox = (await titleGroup.locator('.archive-badge').boundingBox())!
+    expect(badgeBox.x - titleBox.x - titleBox.width).toBeCloseTo(8, 0)
+    await expect(page.locator('.detail-header').getByRole('button', { name: 'Pin 走这段对话' })).toBeVisible()
+    await expect(page.locator('.detail-footer').getByRole('button', { name: 'Pin 走这段对话' })).toHaveCount(0)
     await expect(page.locator('.detail-meta')).toContainText('仅文本 · 非原生会话')
     const pane = page.getByRole('region', { name: '会话列表' })
     await expect(pane.getByRole('heading', { name: '会话库' })).toHaveCount(0)

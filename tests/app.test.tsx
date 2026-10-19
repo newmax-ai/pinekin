@@ -473,7 +473,13 @@ describe('档案界面', () => {
     const reader = screen.getByRole('region', { name: '会话详情' })
     const header = reader.querySelector('.detail-header') as HTMLElement
     expect(within(header).getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeTruthy()
-    expect(within(header).getByText('本地档案')).toBeTruthy()
+    const title = within(header).getByRole('heading', { level: 2, name: demoSessions[0].title })
+    expect(title.closest('.detail-title-group')?.querySelector('.archive-badge')?.textContent).toBe('本地档案')
+    const pin = within(header).getByRole('button', { name: 'Pin 走这段对话' })
+    expect(pin.closest('.detail-title-row')).not.toBeNull()
+    const footer = reader.querySelector('.detail-footer') as HTMLElement
+    expect(within(footer).queryByRole('button', { name: 'Pin 走这段对话' })).toBeNull()
+    expect(within(footer).getByRole('button', { name: '复制本地链接' })).toBeTruthy()
     expect(within(header).queryByText('只读')).toBeNull()
     expect(header.querySelector('.read-only, .reader-state svg')).toBeNull()
     expect(within(header).getByText('仅文本 · 非原生会话')).toBeTruthy()

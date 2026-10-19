@@ -98,6 +98,113 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+test('页头在延迟读取、成功、切换和失败时保持位置，元信息自然宽度且小点两侧均为 8px', async () => {
+  await connect()
+  // 只挂起隔离测试的正文 IPC，不接触真实来源、剪贴板或文件选择器。
+  await app.evaluate(({ ipcMain }, session) => {
+    type Pending = { resolve: () => void; reject: () => void }
+    const state = globalThis as unknown as { headerReadPending?: Pending }
+    ipcMain.removeHandler('pinekin:sources-read')
+    ipcMain.handle('pinekin:sources-read', (_event, id: string) => new Promise((resolve, reject) => {
+      state.headerReadPending = {
+        resolve: () => { state.headerReadPending = undefined; resolve({ session: { ...session, id, title: '合成问题：整理项目计划' }, warnings: [] }) },
+        reject: () => { state.headerReadPending = undefined; reject(new Error('合成页头读取失败')) },
+      }
+    }))
+  }, fixtureSessions[0])
+  const header = page.locator('.detail-header')
+  const pin = header.getByRole('button', { name: 'Pin 走这段对话' })
+  const count = header.locator('.detail-message-count')
+  async function layout() {
+    return header.evaluate(element => [element, ...element.querySelectorAll('.detail-title-group, .detail-meta, .detail-title-row > button')].map(node => {
+      const { x, y, width, height } = node.getBoundingClientRect()
+      return { x, y, width, height }
+    }))
+  }
+  async function pending() {
+    await expect.poll(() => app.evaluate(() => !!(globalThis as unknown as { headerReadPending?: unknown }).headerReadPending)).toBe(true)
+  }
+  async function spacing() {
+    const meta = header.locator('.detail-meta')
+    await expect(meta).toHaveCSS('column-gap', '8px')
+    const gaps = await meta.evaluate(element => Array.from(element.children).slice(1).map(item => {
+      const previous = item.previousElementSibling!.getBoundingClientRect()
+      const box = item.getBoundingClientRect()
+      const text = document.createRange()
+      text.selectNodeContents(item)
+      const bounds = text.getBoundingClientRect()
+      const dotWidth = parseFloat(getComputedStyle(item, '::before').width)
+      return { left: box.x - previous.right, right: bounds.x - box.x - dotWidth, trailing: box.right - bounds.right }
+    }))
+    for (const gap of gaps) {
+      expect(gap.left).toBeCloseTo(8, 1)
+      expect(gap.right).toBeCloseTo(8, 1)
+      expect(gap.trailing).toBeCloseTo(0, 1)
+    }
+  }
+  for (const { width, colorScheme } of [{ width: 1440, colorScheme: 'light' }, { width: 1000, colorScheme: 'dark' }] as const) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 800), width)
+    await page.emulateMedia({ colorScheme })
+    await openMatchingSession('synthetic-0')
+    await pending()
+    await expect(pin).toBeDisabled()
+    await expect(count).toHaveText('— 条消息')
+    await spacing()
+    const node = await header.elementHandle()
+    const loading = await layout()
+    await expect(header.locator('.detail-meta')).toHaveCSS('margin-top', '2px')
+    expect(await count.evaluate(element => ({ width: getComputedStyle(element, '::before').width, height: getComputedStyle(element, '::before').height }))).toEqual({ width: '2px', height: '2px' })
+    await app.evaluate(() => (globalThis as unknown as { headerReadPending: { resolve: () => void } }).headerReadPending.resolve())
+    await expect(pin).toBeEnabled()
+    await expect(count).toHaveText(`${fixtureSessions[0].messages.length} 条消息`)
+    await spacing()
+    expect(await layout()).toEqual(loading)
+    await openMatchingSession('synthetic-64')
+    await pending()
+    await expect(pin).toBeDisabled()
+    await expect(count).toHaveText('— 条消息')
+    expect(await node!.evaluate(element => element === document.querySelector('.detail-header'))).toBe(true)
+    expect(await layout()).toEqual(loading)
+    await app.evaluate(() => (globalThis as unknown as { headerReadPending: { reject: () => void } }).headerReadPending.reject())
+    await expect(page.getByText(/合成页头读取失败/)).toBeVisible()
+    await expect(pin).toBeDisabled()
+    await spacing()
+    expect(await layout()).toEqual(loading)
+    await node!.dispose()
+  }
+  await background()
+})
+
+test('详情标签紧跟标题 8px，接续按钮位于右上角且来源详情无底栏', async () => {
+  await connect()
+  await openMatchingSession('synthetic-0')
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+  for (const { width, colorScheme } of [
+    { width: 1440, colorScheme: 'light' },
+    { width: 1000, colorScheme: 'dark' },
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 800), width)
+    await page.emulateMedia({ colorScheme })
+    const header = page.locator('.detail-header')
+    const group = header.locator('.detail-title-group')
+    await expect(group).toHaveCSS('gap', '8px')
+    const title = (await group.locator('h2').boundingBox())!
+    const badge = (await group.locator('.archive-badge').boundingBox())!
+    expect(badge.x - title.x - title.width).toBeCloseTo(8, 0)
+    const pin = header.getByRole('button', { name: 'Pin 走这段对话' })
+    await expect(pin).toBeVisible()
+    const bounds = (await header.boundingBox())!, button = (await pin.boundingBox())!
+    expect(bounds.x + bounds.width - button.x - button.width).toBeCloseTo(24, 0)
+    expect(button.y).toBeGreaterThanOrEqual(bounds.y)
+    await expect(page.locator('.detail-footer')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '重新读取正文' })).toHaveCount(0)
+    expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  }
+  await page.locator('.detail-header').getByRole('button', { name: 'Pin 走这段对话' }).click()
+  await expect(page.getByRole('heading', { name: '选择接续目标' })).toBeVisible()
+  await background()
+})
+
 test('连接弹窗默认点击遮罩关闭，内部点击和拖出不误关并恢复焦点', async () => {
   const trigger = page.getByRole('button', { name: '连接 App', exact: true })
   for (const connected of [false, true]) {
@@ -811,7 +918,7 @@ test('空档案库直接连接、完整计数、分页搜索、按需正文，�
   await expect(page.locator('.session-card')).toHaveCount(66)
   await openMatchingSession('synthetic-64')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
-  await expect(page.getByText('未导入 Pinekin', { exact: true })).toBeVisible()
+  await expect(page.getByText('未导入 Pinekin', { exact: true })).toHaveCount(0)
   const files = await readdir(data)
   expect(files).not.toContain('library.json'); expect(files).not.toContain('imports')
   const config = await readFile(join(data, 'connections.json'), 'utf8')

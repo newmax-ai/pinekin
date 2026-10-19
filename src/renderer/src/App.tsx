@@ -221,7 +221,10 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
         <section className="detail" aria-label="会话详情" key={selected?.id ?? 'empty'}>
           {selected ? <>
             <div className="detail-header">
-              <div className="detail-title-row"><h2>{selected.title}</h2><div className="reader-state"><span className="archive-badge">本地档案</span></div></div>
+              <div className="detail-title-row">
+                <div className="detail-title-group"><h2>{selected.title}</h2><div className="reader-state"><span className="archive-badge">本地档案</span></div></div>
+                <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton>
+              </div>
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{names[selected.source]}</span><span>{selected.messages.length} 条消息</span><time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>仅文本 · 非原生会话</span></div>
             </div>
             {selected.archive && <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>导入报告 · 仅文本档案</span><span className="report-count">{selected.archive.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary>
@@ -234,8 +237,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
                 <MessageContent content={message.content} />
               </div>
             </article>) : <EmptyState kind="messages" />}{selected.messages.length > 0 && <div className="conversation-end"><span />档案到这里，思考可以继续<span /></div>}</div></ScrollArea>
-            <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton>
-              <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
+            <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton></footer>
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'archive-error' ? loadError : undefined}
             action={emptyKind ? emptyAction(emptyKind) : undefined} />}

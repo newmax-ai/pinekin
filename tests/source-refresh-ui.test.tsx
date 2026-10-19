@@ -37,11 +37,96 @@ async function refresh() {
 }
 
 describe('不打断阅读的来源刷新', () => {
+  it('首次读取期间预留接续按钮和消息数，成功后复用同一页头与控件', async () => {
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    render(<SourceApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
+    const header = document.querySelector('.detail-header')!
+    const pin = screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement
+    const count = header.querySelector('.detail-message-count')!
+    expect(pin.disabled).toBe(true)
+    expect(count.textContent).toBe('— 条消息')
+    fireEvent.click(pin)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await act(async () => { finish(content) })
+    expect(document.querySelector('.detail-header')).toBe(header)
+    expect(screen.getByRole('button', { name: 'Pin 走这段对话' })).toBe(pin)
+    expect(header.querySelector('.detail-message-count')).toBe(count)
+    expect(pin.disabled).toBe(false)
+    expect(count.textContent).toBe(`${content.session.messages.length} 条消息`)
+  })
+  it('切换会话保留页头节点，不复用上一会话的标题、消息数或交接内容', async () => {
+    await open()
+    const header = document.querySelector('.detail-header')!
+    const pin = screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    expect(document.querySelector('.detail-header')).toBe(header)
+    expect(screen.getByRole('heading', { level: 2, name: '会话 1' })).toBeTruthy()
+    expect(header.querySelector('.detail-message-count')?.textContent).toBe('— 条消息')
+    expect(screen.getByRole('button', { name: 'Pin 走这段对话' })).toBe(pin)
+    expect(pin.disabled).toBe(true)
+    await act(async () => { finish({ ...content, session: { ...content.session, id: entries[1].id, title: '会话 1', messages: [] } }) })
+    expect(document.querySelector('.detail-header')).toBe(header)
+    expect(header.querySelector('.detail-message-count')?.textContent).toBe('0 条消息')
+    expect(pin.disabled).toBe(false)
+  })
+  it('首次读取失败仍保留禁用接续按钮和未知消息数，不伪造可交接内容', async () => {
+    vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('合成正文读取失败'))
+    render(<SourceApp />)
+    fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
+    await screen.findByText('合成正文读取失败')
+    expect((screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(document.querySelector('.detail-message-count')?.textContent).toBe('— 条消息')
+  })
   it('来源详情保留来源直读标签，不显示只读文案和锁图标', async () => {
     await open()
     const header = screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-header')!
     expect(header.querySelector('.reader-state')?.textContent).toBe('来源直读')
     expect(header.querySelector('.read-only, .reader-state svg')).toBeNull()
+  })
+  it('加载描述归于标题下方的文案组，刷新入口只显示图标并保留可访问名称', async () => {
+    await open()
+    const title = screen.getByRole('heading', { name: '所有会话' })
+    const count = screen.getByText('50 / 120 条已加载')
+    expect(title.parentElement?.classList.contains('list-heading-copy')).toBe(true)
+    expect(count.parentElement).toBe(title.parentElement)
+    expect(count.getAttribute('role')).toBe('status')
+    const button = screen.getByRole('button', { name: '刷新当前来源' })
+    expect(button.textContent).toBe('')
+    expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(button.getAttribute('aria-busy')).toBe('false')
+    expect(button.classList.contains('ds-button-icon')).toBe(true)
+  })
+  it.each(['成功', '失败'])('刷新%s后退出旋转忙碌态，期间禁止重复点击', async outcome => {
+    await open()
+    let finish!: (result: SourceCheckResult) => void
+    let fail!: (reason: Error) => void
+    vi.mocked(window.staithe.sources.check).mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject }))
+    const button = screen.getByRole('button', { name: '刷新当前来源' })
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(button)
+    expect(window.staithe.sources.check).toHaveBeenCalledOnce()
+    await act(async () => { if (outcome === '成功') finish(checked()); else fail(new Error('合成检查失败')) })
+    expect(button.getAttribute('aria-busy')).toBe('false')
+    expect(button.hasAttribute('disabled')).toBe(false)
+  })
+  it('首次扫描也显示忙碌图标，扫描结束后恢复可操作', async () => {
+    vi.mocked(window.staithe.sources.page).mockResolvedValueOnce({ ...page(), connections: [{ ...connection, status: 'scanning' }] })
+    render(<SourceApp />)
+    await screen.findByRole('status', { name: '发现 120 条，加载中' })
+    expect(document.querySelector('.list-heading .loading-mark')).toBeTruthy()
+    expect(document.querySelector('.list-heading [role="status"]')?.textContent).toBe('发现 120 条')
+    const button = screen.getByRole('button', { name: '刷新当前来源' })
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.hasAttribute('disabled')).toBe(true)
+    await screen.findByText('50 / 120 条已加载')
+    expect(button.getAttribute('aria-busy')).toBe('false')
+    expect(button.hasAttribute('disabled')).toBe(false)
   })
   it('手动刷新保留正文、选择、分页及两个滚动位置；向下翻找时仅提示列表更新', async () => {
     const messages = await open()
@@ -57,7 +142,7 @@ describe('不打断阅读的来源刷新', () => {
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
     expect(list.scrollTop).toBe(350); expect(messages.scrollTop).toBe(160)
     expect(screen.queryByRole('button', { name: '新会话 .' })).toBeNull()
-    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: '列表有更新，点击查看' }))
     await screen.findByRole('button', { name: '新会话 .' })
     expect(document.querySelectorAll('.session-card')).toHaveLength(100)
@@ -88,10 +173,11 @@ describe('不打断阅读的来源刷新', () => {
     expect(list.style.maskImage).toContain('calc(100% - 48px)')
     expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
   })
-  it('正文变化只提示，点击查看更新保留正文容器及阅读位置，失败保留原文', async () => {
+  it('后台正文变化只提示，点击查看更新保留正文容器及阅读位置，失败保留原文', async () => {
     const messages = await open(); messages.scrollTop = 120
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
-    await refresh()
+    fireEvent.focus(window)
+    await screen.findByText('此对话有更新')
     expect(screen.getByText('此对话有更新')).toBeTruthy()
     expect(window.staithe.sources.read).toHaveBeenCalledOnce()
     vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('来源仍在写入'))
@@ -105,6 +191,68 @@ describe('不打断阅读的来源刷新', () => {
     expect(messages.scrollTop).toBe(120)
     expect(screen.queryByText('此对话有更新')).toBeNull()
     expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+  })
+  it('手动刷新即使目录版本不变也重读正文，正文等待期间保持忙碌且不重复请求', async () => {
+    const messages = await open(); messages.scrollTop = 120
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const button = screen.getByRole('button', { name: '刷新当前来源' })
+    fireEvent.click(button)
+    await waitFor(() => expect(window.staithe.sources.read).toHaveBeenCalledTimes(2))
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    fireEvent.click(button)
+    expect(window.staithe.sources.check).toHaveBeenCalledOnce()
+    await act(async () => { finish({ ...content, session: { ...content.session, messages: [...content.session.messages, { role: 'assistant', content: '手动刷新追加正文' }] } }) })
+    await screen.findByText('手动刷新追加正文')
+    expect(button.hasAttribute('disabled')).toBe(false)
+    expect(messages.scrollTop).toBe(120)
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+    expect(document.querySelector('.detail-footer')).toBeNull()
+    expect(screen.queryByRole('button', { name: '重新读取正文' })).toBeNull()
+  })
+  it('手动刷新重读失败保留原文与位置，支持就地重试且不递归重读', async () => {
+    const messages = await open(); messages.scrollTop = 120
+    vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('合成重读失败'))
+    await refresh()
+    await screen.findByText('合成重读失败')
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    expect(messages.scrollTop).toBe(120)
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, session: { ...content.session, title: '重试后的标题' } })
+    fireEvent.click(screen.getByRole('button', { name: '重试读取' }))
+    await screen.findByRole('heading', { level: 2, name: '重试后的标题' })
+    expect(screen.queryByText('合成重读失败')).toBeNull()
+    expect(messages.scrollTop).toBe(120)
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(3)
+  })
+  it('手动检查期间切换会话，不因迟到检查重复读取或覆盖新会话', async () => {
+    await open()
+    let finish!: (result: SourceCheckResult) => void
+    vi.mocked(window.staithe.sources.check).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前来源' }))
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, session: { ...content.session, id: entries[1].id, title: entries[1].title } })
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    await screen.findByRole('heading', { level: 2, name: '会话 1' })
+    await act(async () => { finish(checked()) })
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('heading', { level: 2, name: '会话 1' })).toBeTruthy()
+  })
+  it('手动重读期间切换会话，旧正文响应不回写新会话', async () => {
+    await open()
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前来源' }))
+    await waitFor(() => expect(window.staithe.sources.read).toHaveBeenCalledTimes(2))
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, session: { ...content.session, id: entries[1].id, title: entries[1].title } })
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    await screen.findByRole('heading', { level: 2, name: '会话 1' })
+    await act(async () => { finish({ ...content, session: { ...content.session, title: '过期旧正文' } }) })
+    expect(screen.queryByText('过期旧正文')).toBeNull()
+    expect(screen.getByRole('heading', { level: 2, name: '会话 1' })).toBeTruthy()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(3)
   })
   it('来源删除保留带明确提示的阅读快照，不再把旧内容当作最新或自动读取', async () => {
     const messages = await open()

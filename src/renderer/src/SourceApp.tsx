@@ -49,7 +49,9 @@ export function SourceApp() {
   const [connecting, setConnecting] = useState(false)
   const [connectionNotice, setConnectionNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [content, setContent] = useState<SourceContent>()
+  const [readContent, setContent] = useState<{ entryId: string; value: SourceContent }>()
+  // 会话切换的首次渲染就隔离旧结果，不等待 effect 清理后再隐藏上一条正文。
+  const content = readContent?.entryId === selected?.id ? readContent?.value : undefined
   const [readError, setReadError] = useState('')
   const [reading, setReading] = useState(false)
   const [handoff, setHandoff] = useState(false)
@@ -113,8 +115,12 @@ export function SourceApp() {
     if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
-    setReading(true)
-    window.staithe.sources.read(selected.id).then(result => {
+    void readSelected(selected, request, previous)
+    return () => { readRequest.current += 1 }
+  }, [selected?.id, readAttempt])
+  async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent) {
+    setReading(true); setReadError(''); setHandoff(false); setNewMessageIndex(undefined)
+    return window.staithe.sources.read(entry.id).then(result => {
       if (request === readRequest.current) {
         if (previous) {
           restoreScroll.current = messagesViewport.current?.scrollTop
@@ -122,8 +128,8 @@ export function SourceApp() {
           // 只有旧消息逐条保持不变才称为追加；编辑、删除或分支切换不能冒充新消息。
           if (after.length > before.length && before.every((message, index) => JSON.stringify(message) === JSON.stringify(after[index]))) setNewMessageIndex(before.length)
         }
-        setContent(result)
-        setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === selected.id
+        setContent({ entryId: entry.id, value: result })
+        setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === entry.id
           ? { ...item, title: result.session.title, availability: 'readable', reason: undefined } : item) }))
       }
     }).catch(async reason => {
@@ -131,11 +137,10 @@ export function SourceApp() {
         // 正文读取已经结束，不能让后续来源检查延长加载态并与失败占位叠加。
         setReading(false); setReadError(errorText(reason))
         // 用主进程的能力状态区分不支持与暂时失败，不靠错误文案猜测或删除条目。
-        await checkSources('manual', [selected.connectionId])
+        await checkSources('manual', [entry.connectionId])
       }
     }).finally(() => { if (request === readRequest.current) setReading(false) })
-    return () => { readRequest.current += 1 }
-  }, [selected?.id, readAttempt])
+  }
   useLayoutEffect(() => {
     if (restoreScroll.current !== undefined && messagesViewport.current) {
       messagesViewport.current.scrollTop = restoreScroll.current
@@ -238,7 +243,7 @@ export function SourceApp() {
       }
     })
   }
-  function refresh(ids = relevant.map(item => item.id)) { void checkSources('manual', ids) }
+  function refresh(ids = relevant.map(item => item.id)) { void checkSources('manual', ids, true) }
   async function replaceLoadedList(request: number, resetPosition = false) {
     const view = current.current
     const limit = Math.max(50, view.page.items.length)
@@ -261,7 +266,7 @@ export function SourceApp() {
     }
     throw new Error('来源仍在更新，请稍后重试；已保留当前列表')
   }
-  async function checkSources(mode: 'automatic' | 'manual', ids?: string[]) {
+  async function checkSources(mode: 'automatic' | 'manual', ids?: string[], refreshContent = false) {
     const view = current.current
     if (checkingRef.current || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
     if (mode === 'automatic' && (document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
@@ -296,6 +301,13 @@ export function SourceApp() {
           if (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement)))) setPendingList(true)
           else await replaceLoadedList(request)
         }
+      }
+      // 仅显式刷新重读本次范围内的选中会话；后台／失败后的能力检查仍只检查目录。
+      // 导航或新的读取已经发生时，迟到检查不得重读、更不得覆盖当前会话。
+      if (refreshContent && view.selected && result.selected !== null &&
+        (!ids || ids.includes(view.selected.connectionId)) && mounted.current && request === listRequest.current &&
+        selectedId === current.current.selected?.id && selectionRead === readRequest.current) {
+        await readSelected(result.selected ?? view.selected, ++readRequest.current, current.current.content)
       }
     } catch (reason) {
       if (mounted.current && request === listRequest.current) setError(errorText(reason))
@@ -371,11 +383,14 @@ export function SourceApp() {
           </ScrollArea>
           {pendingList && <DsButton className="source-list-update" size="small" aria-label="列表有更新，点击查看" disabled={checking || loadingMore} onClick={() => void showListUpdates()}>列表有更新，点击查看</DsButton>}
         </SessionPane>
-        <section className="detail" aria-label="来源会话详情" key={selected?.id ?? 'empty'}>
+        <section className="detail" aria-label="来源会话详情">
           {selected ? <>
             <div className="detail-header">
-              <div className="detail-title-row"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span></div></div>
-              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span>{content ? `${content.session.messages.length} 条消息` : '正文按需读取'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>未导入 Pinekin</span></div>
+              <div className="detail-title-row">
+                <div className="detail-title-group"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span></div></div>
+                <DsButton variant="primary" disabled={busy || !content} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton>
+              </div>
+              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
             </div>
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
             {contentChanged && <div className="source-update-notice" role="status"><span>此对话有更新</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '查看更新'}</DsButton></div>}
@@ -383,7 +398,7 @@ export function SourceApp() {
               messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' }); setNewMessageIndex(undefined)
             }}>跳到新增消息</DsButton></div>}
             {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
-            {readError && (content ? <div className="source-update-notice" role="alert">{readError}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
+            {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
               <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>读取报告 · 仅文本投影</span><span className="report-count">{content.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary><ScrollArea className="report-body"><ul>{content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea></details>
               <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{!content.session.messages.length && !content.presentation && <EmptyState kind="messages" />}{content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
@@ -392,7 +407,6 @@ export function SourceApp() {
                   <SourceMessage message={message} source={content.session.source} />
                 </div>
               </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
-              <footer className="detail-footer"><DsButton variant="ghost" disabled={busy || reading || latestEntry === null} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '重新读取正文'}</DsButton><DsButton variant="primary" disabled={busy} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton></footer>
             </>}
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'list-error' ? listError : undefined}

@@ -42,6 +42,31 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(floating).toContain('background: var(--ds-surface-300);')
     expect(styles).toContain('.ds-button:not(.ds-button-ghost):hover:not(:disabled) { opacity: 0.8; }')
   })
+  it('详情标签紧跟标题 8px，右上角主操作不收缩且窄阅读区允许换行', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.detail-title-group\s*\{[^}]*display: flex;[^}]*align-items: center;[^}]*gap: 8px;[^}]*min-width: 0;/)
+    expect(styles).toMatch(/\.detail-title-row\s*\{[^}]*flex-wrap: wrap;/)
+    expect(styles).toMatch(/\.detail-title-row > \.ds-button\s*\{[^}]*flex-shrink: 0;[^}]*margin-left: auto;[^}]*padding: 0 16px;/)
+    expect(styles).not.toContain('.detail-footer .ds-button-primary')
+  })
+  it('详情元信息以居中的小圆点分隔，首项无分隔符且不再使用竖线', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const item = /\.detail-meta > :not\(:first-child\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(item).toBeDefined()
+    expect(item).not.toMatch(/border-left:|padding-left:/)
+    expect(item).toMatch(/display: inline-flex;[^}]*align-items: center;[^}]*gap: 8px;/)
+    expect(styles).toMatch(/\.detail-meta\s*\{[^}]*gap: 4px 8px;/)
+    const dot = /\.detail-meta > :not\(:first-child\)::before\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(dot).toBeDefined()
+    expect(dot).toMatch(/content: '';[^}]*width: 2px;[^}]*height: 2px;/)
+    expect(styles).toMatch(/\.detail-meta\s*\{[^}]*margin-top: 2px;/)
+    const count = /\.detail-message-count\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(count).toMatch(/flex-shrink: 0;[^}]*font-variant-numeric: tabular-nums;/)
+    expect(count).not.toMatch(/(?:^|[;\s])(?:width|min-width|flex-basis):/)
+    expect(dot).toContain('flex-shrink: 0;')
+    expect(dot).toContain('border-radius: 50%;')
+    expect(dot).toContain('background: currentColor;')
+  })
   it('所有来源共用固定 App 卡片网格，位置仅在卡片内部排列而不另起一组', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.ds-dialog:has\(> \.connection-header\)\s*\{[^}]*width: 920px;/)

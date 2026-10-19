@@ -159,12 +159,16 @@ h1, h2, h3, strong { font-weight: 500; }
 .detail { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--ds-surface-200); }
 /* 标题和状态合并为两行轻量页头，让消息而非档案说明成为视觉主角。 */
 .detail-header { padding: 16px 24px 12px; flex-shrink: 0; }
-.detail-title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.detail-title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.detail-title-group { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 180px; }
+.detail-title-row > .ds-button { flex-shrink: 0; margin-left: auto; padding: 0 16px; }
 .detail-header h2 { min-width: 0; font-size: var(--ds-text-dense); line-height: 24px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .reader-state { display: flex; align-items: center; flex-shrink: 0; gap: 10px; }
-.detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: var(--ds-text-tertiary); font-size: var(--ds-text-xs); line-height: 18px; margin-top: 6px; }
+.detail-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--ds-text-tertiary); font-size: var(--ds-text-xs); line-height: 18px; margin-top: 2px; }
+.detail-message-count { flex-shrink: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .detail-meta > span:first-child { display: flex; align-items: center; gap: 6px; }
-.detail-meta > :not(:first-child) { border-left: 1px solid var(--ds-divider); padding-left: 10px; }
+.detail-meta > :not(:first-child) { display: inline-flex; align-items: center; gap: 8px; }
+.detail-meta > :not(:first-child)::before { content: ''; width: 2px; height: 2px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
 .archive-report { flex-shrink: 0; margin: 12px 24px 0; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); color: var(--ds-text-secondary); font-size: var(--ds-text-sm); background: var(--ds-surface-200); }
 .archive-report summary { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 12px; list-style: none; border-radius: var(--ds-radius-md); }
 .archive-report summary::-webkit-details-marker { display: none; }
@@ -195,7 +199,6 @@ h1, h2, h3, strong { font-weight: 500; }
 .conversation-end { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 32px 0 0; color: color-mix(in srgb, var(--ds-text-tertiary) 60%, transparent); font-size: var(--ds-text-xs); }
 .conversation-end span { width: 32px; border-top: 1px solid currentColor; }
 .detail-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 12px 24px; gap: 12px; }
-.detail-footer .ds-button-primary { padding: 0 16px; }
 /* 空占位只替换空区内容，沿用三栏、字体与表面；同屏插画与主行动由阅读区承载。 */
 .empty-state { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 10px; width: 100%; min-width: 0; padding: 28px 16px; text-align: center; color: var(--ds-text-tertiary); font-weight: 400; line-height: 1.7; overflow-wrap: anywhere; }
 .empty-state h3 { color: var(--ds-text-tertiary); font-size: var(--ds-text-base); font-weight: 400; line-height: 1.6; }

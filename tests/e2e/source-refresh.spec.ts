@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
+import { DatabaseSync } from 'node:sqlite'
+import { createCindySchema } from '../fixtures/cindy-database'
 
 let app: ElectronApplication, page: Page, root: string, source: string, selectedPath: string
 
@@ -126,12 +128,12 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await writeFile(join(source, 'new.jsonl'), claudeFixture([...claudeRecords(), { type: 'custom-title', customTitle: '新出现的会话' }]))
   await appendFile(selectedPath, JSON.stringify({ ...claudeRecords()[1], uuid: 'u2', parentUuid: 'a2', message: { role: 'user', content: '刷新后新增的合成消息' } }) + '\n')
   await refresh()
-  await expect(page.getByText('此对话有更新', { exact: true })).toBeVisible()
-  await expect(messages).not.toContainText('刷新后新增的合成消息')
+  await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
+  await expect(messages).toContainText('刷新后新增的合成消息')
   await expect(page.locator('.session-card')).toHaveCount(65)
   expect(await page.evaluate(() => ({ list: document.querySelector('.session-list')!.scrollTop, messages: document.querySelector('.messages')!.scrollTop }))).toEqual({ list: 360, messages: 180 })
-  await page.getByRole('button', { name: '查看更新', exact: true }).click()
-  await expect(messages).toContainText('刷新后新增的合成消息')
+  await expect(page.locator('.detail-footer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '重新读取正文', exact: true })).toHaveCount(0)
   expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
   await expect(page.getByRole('button', { name: '跳到新增消息', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '列表有更新，点击查看', exact: true }).click()
@@ -144,7 +146,31 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await rm(selectedPath); await refresh()
   await expect(page.getByText('来源会话已删除，当前显示的是上次读取的内容', { exact: true })).toBeVisible()
   await expect(messages).toContainText('刷新后新增的合成消息')
-  await expect(page.getByRole('button', { name: '重新读取正文', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '重试读取', exact: true })).toHaveCount(0)
+})
+
+test('后台检查仍只提示正文更新，主动查看才加载且不改变阅读位置', async () => {
+  await page.getByRole('button', { name: '刷新验收会话 .', exact: true }).click()
+  const messages = page.getByRole('region', { name: '会话消息' })
+  await expect(messages).toBeVisible()
+  await messages.evaluate(element => { element.scrollTop = 180 })
+  await appendFile(selectedPath, JSON.stringify({ ...claudeRecords()[1], uuid: 'u2', parentUuid: 'a2', message: { role: 'user', content: '后台发现的合成新消息' } }) + '\n')
+  await page.clock.install()
+  // 推进隔离主进程时钟以越过首次扫描后的 15 秒冷却，不等待真实时间。
+  await app.evaluate(() => { const now = Date.now; Date.now = () => now() + 60_000 })
+  // 仅合成隔离页面的可见性和 focus 事件，不显示或聚焦测试窗口。
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+    window.dispatchEvent(new Event('focus'))
+  })
+  await page.clock.fastForward(1000)
+  await expect(page.getByText('此对话有更新', { exact: true })).toBeVisible()
+  await expect(messages).not.toContainText('后台发现的合成新消息')
+  expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
+  await page.getByRole('button', { name: '查看更新', exact: true }).click()
+  await expect(messages).toContainText('后台发现的合成新消息')
+  expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
+  await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
 })
 
 test('微型流动点替代列表文字，保持紧凑布局并支持静态降级', async () => {
@@ -299,6 +325,46 @@ test('扫描在侧栏右侧数量位置显示微型流动点，不影响其他�
   await expect(mark).toHaveCount(0)
   await expect(count).toHaveText('65')
   expect((await source.boundingBox())!.height).toBe(rowHeight)
+})
+
+test('Cindy 旧会话不受其他 App 更新影响，真正变化才提示且保留滚动和正文', async () => {
+  const directory = join(root, 'appData', 'Cindy'); await mkdir(directory, { recursive: true })
+  const db = new DatabaseSync(join(directory, 'cindy-synthetic.db'))
+  try {
+    createCindySchema(db)
+    const insert = db.prepare('INSERT INTO sessions(id,title,updated_at) VALUES(?,?,?)')
+    for (let index = 0; index < 65; index++) insert.run(`old-${index}`, `旧 Cindy 会话 ${index}`, 1000 + index)
+    db.exec("INSERT INTO messages(id,session_id,role,content,created_at) VALUES('u','old-64','user','合成旧问题',1050),('a','old-64','assistant','合成旧回答',1060)")
+    await page.getByRole('button', { name: '连接 App', exact: true }).click()
+    await page.getByRole('switch', { name: '连接 Cindy', exact: true }).click()
+    await expect(page.getByRole('switch', { name: '连接 Cindy', exact: true })).toBeChecked()
+    await page.getByRole('button', { name: '完成', exact: true }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.getByRole('button', { name: '旧 Cindy 会话 64', exact: true }).click()
+    const messages = page.getByRole('region', { name: '会话消息' })
+    await expect(messages).toBeVisible()
+    await page.locator('.session-list').evaluate(element => { element.scrollTop = 240 })
+    const claude = await page.evaluate(async () => (await window.staithe.sources.connections()).find(item => item.source === 'claude-code')!)
+    await writeFile(join(source, 'unrelated.jsonl'), claudeFixture([...claudeRecords(), { type: 'custom-title', customTitle: '其他 App 的新会话' }]))
+    // 只推进隔离来源的目录，再由正常刷新入口核对全局版本；不唤起系统窗口。
+    await page.evaluate(id => window.staithe.sources.check({ mode: 'manual', connectionIds: [id] }), claude.id)
+    await refresh()
+    await expect(page.getByRole('button', { name: '列表有更新，点击查看' })).toHaveCount(0)
+    await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
+    expect(await page.locator('.session-list').evaluate(element => element.scrollTop)).toBe(240)
+    await expect(messages).toBeVisible()
+    await page.getByRole('button', { name: '加载更多', exact: true }).click()
+    await expect(page.locator('.session-card')).toHaveCount(65)
+    // 点击分页按钮会自然滚到按钮所在位置；重新设定本轮要验证的阅读位置。
+    await page.locator('.session-list').evaluate(element => { element.scrollTop = 240 })
+    db.exec("UPDATE sessions SET title='Cindy 真正有变化',updated_at=2000 WHERE id='old-64'")
+    await refresh()
+    await expect(page.getByRole('button', { name: '列表有更新，点击查看' })).toBeVisible()
+    await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
+    expect(await page.locator('.session-list').evaluate(element => element.scrollTop)).toBe(240)
+    await expect(page.getByRole('heading', { level: 2, name: 'Cindy 真正有变化', exact: true })).toBeVisible()
+    await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
+  } finally { db.close() }
 })
 
 test('隐藏窗口不检查，恢复可见后后台检查授权目录而不唤起窗口', async () => {
