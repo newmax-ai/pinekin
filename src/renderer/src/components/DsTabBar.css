@@ -1,0 +1,9 @@
+.ds-tab-bar { position: relative; display: inline-flex; align-items: center; flex-shrink: 0; height: 32px; padding: 3px; border-radius: var(--ds-radius-pill); background: var(--ds-on-surface); }
+.ds-tab-bar-indicator { position: absolute; top: 3px; border-radius: var(--ds-radius-pill); background: var(--ds-surface-100); box-shadow: var(--ds-elevation-100); pointer-events: none; z-index: 0; }
+.ds-tab-bar-indicator[data-animated='true'] { transition: left var(--ds-motion-soft), width var(--ds-motion-soft); }
+.ds-tab-bar > button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; height: 26px; padding: 0 12px; border: 0; border-radius: var(--ds-radius-pill); background: transparent; color: var(--ds-icon); font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer; transition: color var(--ds-motion-swift); }
+.ds-tab-bar > button[aria-selected='true'] { color: var(--ds-text-primary); }
+.ds-tab-bar > button:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  .ds-tab-bar-indicator[data-animated='true'], .ds-tab-bar > button { transition: none; }
+}
