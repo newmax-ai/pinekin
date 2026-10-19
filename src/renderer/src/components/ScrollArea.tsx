@@ -16,12 +16,12 @@ function color(alpha: number) {
 }
 
 // 本地适配 NewMax smoothMaskGradient 的 16 段 smootherstep，不依赖宿主运行时。
-export function buildScrollMask(direction: 'to bottom' | 'to right', start: boolean, end: boolean, fadeSize = FADE_SIZE) {
+export function buildScrollMask(direction: 'to bottom' | 'to right', start: boolean, end: boolean, fadeSize = FADE_SIZE, endFadeSize = fadeSize) {
   if (!start && !end) return undefined
   const stops = start ? samples.map(({ ratio, alpha }) => `${color(alpha)} ${pixels(fadeSize * ratio)}`) : ['black 0px']
   if (end) {
     for (const { ratio, alpha } of samples) {
-      const remaining = fadeSize * (1 - ratio)
+      const remaining = endFadeSize * (1 - ratio)
       stops.push(`${color(1 - alpha)} ${remaining <= 0.005 ? '100%' : `calc(100% - ${pixels(remaining)})`}`)
     }
   } else stops.push('black 100%')
@@ -29,10 +29,10 @@ export function buildScrollMask(direction: 'to bottom' | 'to right', start: bool
 }
 
 type Viewport = HTMLDivElement | HTMLPreElement
-type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport> }
+type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport>; bottomOverlayHeight?: number }
 
 // 不增加布局包装层：原生滚动、键盘、选择与业务事件仍由同一个视口承载。
-export function ScrollArea({ as: Tag = 'div', ref, className = '', children, ...props }: ScrollAreaProps) {
+export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bottomOverlayHeight = 0, ...props }: ScrollAreaProps) {
   const viewport = useRef<Viewport | null>(null)
   const refresh = useRef<(() => void) | null>(null)
   useImperativeHandle(ref, () => viewport.current!, [Tag])
@@ -47,8 +47,12 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, ...
       if (!active) return
       const { clientWidth, clientHeight, scrollWidth, scrollHeight } = element
       const visible = clientWidth > 0 && clientHeight > 0
-      const vertical = visible && scrollHeight - clientHeight > EDGE_THRESHOLD
-        ? buildScrollMask('to bottom', element.scrollTop > EDGE_THRESHOLD, scrollHeight - clientHeight - element.scrollTop > EDGE_THRESHOLD)
+      const verticalOverflow = scrollHeight - clientHeight > EDGE_THRESHOLD
+      // 底部有悬浮操作时，即使已滚到底或不足一屏，也淡出其下方内容；上沿与横轴不变。
+      const vertical = visible && (verticalOverflow || bottomOverlayHeight > 0)
+        ? buildScrollMask('to bottom', verticalOverflow && element.scrollTop > EDGE_THRESHOLD,
+          bottomOverlayHeight > 0 || scrollHeight - clientHeight - element.scrollTop > EDGE_THRESHOLD,
+          FADE_SIZE, bottomOverlayHeight > 0 ? bottomOverlayHeight : FADE_SIZE)
         : undefined
       const horizontal = visible && scrollWidth - clientWidth > EDGE_THRESHOLD
         ? buildScrollMask('to right', element.scrollLeft > EDGE_THRESHOLD, scrollWidth - clientWidth - element.scrollLeft > EDGE_THRESHOLD)
@@ -91,7 +95,7 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, ...
       element.removeEventListener('scroll', schedule)
       window.removeEventListener('resize', schedule)
     }
-  }, [Tag])
+  }, [Tag, bottomOverlayHeight])
   useLayoutEffect(() => { refresh.current?.() }, [children])
 
   return <Tag {...props} ref={(element: Viewport | null) => { viewport.current = element }} className={`ds-scroll-area ${className}`}>{children}</Tag>

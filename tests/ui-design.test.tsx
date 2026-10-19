@@ -34,6 +34,14 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('列表更新浮层悬停及按下时保持不透明，不覆盖其他按钮的交互反馈', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const floating = /\.ds-button\.source-list-update:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(floating).toBeDefined()
+    expect(floating).toContain('opacity: 1;')
+    expect(floating).toContain('background: var(--ds-surface-300);')
+    expect(styles).toContain('.ds-button:not(.ds-button-ghost):hover:not(:disabled) { opacity: 0.8; }')
+  })
   it('所有来源共用固定 App 卡片网格，位置仅在卡片内部排列而不另起一组', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.ds-dialog:has\(> \.connection-header\)\s*\{[^}]*width: 920px;/)

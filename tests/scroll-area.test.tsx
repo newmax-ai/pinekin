@@ -60,6 +60,39 @@ describe('NewMax ScrollArea mask 本地适配', () => {
     fireEvent.scroll(element); flushFrames()
     expect(mask(element).match(/black 48px/g)).toHaveLength(2)
   })
+  it('底部悬浮操作只加高下沿 mask，出现和消失均保留视口与滚动位置', () => {
+    height = 300; contentHeight = 900; contentWidth = 300
+    const view = render(<ScrollArea>内容</ScrollArea>)
+    const element = view.container.firstElementChild as HTMLElement
+    element.scrollTop = 100
+    fireEvent.scroll(element); flushFrames()
+    const normal = mask(element)
+    view.rerender(<ScrollArea bottomOverlayHeight={96}>内容</ScrollArea>); flushFrames()
+    expect(view.container.firstElementChild).toBe(element)
+    expect(element.scrollTop).toBe(100)
+    expect(mask(element)).toBe([
+      buildScrollMask('to bottom', true, true, 48, 96),
+      buildScrollMask('to right', false, true),
+    ].join(', '))
+    expect(element.hasAttribute('bottomOverlayHeight')).toBe(false)
+    view.rerender(<ScrollArea>内容</ScrollArea>); flushFrames()
+    expect(mask(element)).toBe(normal)
+    expect(element.scrollTop).toBe(100)
+  })
+  it('悬浮操作显示时到达列表底部或内容不足一屏仍保留下沿遮罩，隐藏视口不设置遮罩', () => {
+    height = 300; contentHeight = 900
+    const view = render(<ScrollArea bottomOverlayHeight={96}>内容</ScrollArea>)
+    const element = view.container.firstElementChild as HTMLElement
+    element.scrollTop = 600
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe(buildScrollMask('to bottom', true, true, 48, 96))
+    contentHeight = 200; element.scrollTop = 0
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe(buildScrollMask('to bottom', false, true, 48, 96))
+    width = height = 0
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe('none')
+  })
   it('4px 边界容差内保持该侧完全可见，双轴使用交集而非覆盖', () => {
     contentWidth = 300
     const view = render(<ScrollArea>内容</ScrollArea>)

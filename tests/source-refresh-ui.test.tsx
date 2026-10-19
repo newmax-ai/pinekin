@@ -64,6 +64,30 @@ describe('不打断阅读的来源刷新', () => {
     expect(messages.scrollTop).toBe(160)
     expect(screen.getByRole('button', { name: '原会话 .' }).getAttribute('aria-pressed')).toBe('true')
   })
+  it('列表更新按钮出现时加高下沿 mask，查看更新后恢复普通渐隐', async () => {
+    const masks = new WeakMap<CSSStyleDeclaration, string>()
+    const declaration = Object.getPrototypeOf(document.createElement('div').style) as CSSStyleDeclaration
+    vi.spyOn(declaration, 'maskImage', 'get').mockImplementation(function (this: CSSStyleDeclaration) { return masks.get(this) ?? '' })
+    vi.spyOn(declaration, 'maskImage', 'set').mockImplementation(function (this: CSSStyleDeclaration, value: string) { masks.set(this, value) })
+    for (const [name, size] of Object.entries({ clientWidth: 280, clientHeight: 300, scrollWidth: 280, scrollHeight: 2000 })) {
+      vi.spyOn(HTMLElement.prototype, name as 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('session-list') ? size : 0 })
+    }
+    await open()
+    const list = document.querySelector('.session-list') as HTMLElement
+    await waitFor(() => expect(list.style.maskImage).toContain('calc(100% - 48px)'))
+    list.scrollTop = 350
+    rows = [{ ...entry, id: 'f'.repeat(64), title: '遮罩验收新会话' }, ...rows]; version++
+    await refresh()
+    await screen.findByRole('button', { name: '列表有更新，点击查看' })
+    await waitFor(() => expect(list.style.maskImage).toContain('calc(100% - 96px)'))
+    expect(document.querySelector('.session-list')).toBe(list)
+    expect(list.scrollTop).toBe(350)
+    fireEvent.click(screen.getByRole('button', { name: '列表有更新，点击查看' }))
+    await screen.findByRole('button', { name: '遮罩验收新会话 .' })
+    await waitFor(() => expect(list.style.maskImage).not.toContain('calc(100% - 96px)'))
+    expect(list.style.maskImage).toContain('calc(100% - 48px)')
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+  })
   it('正文变化只提示，点击查看更新保留正文容器及阅读位置，失败保留原文', async () => {
     const messages = await open(); messages.scrollTop = 120
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++

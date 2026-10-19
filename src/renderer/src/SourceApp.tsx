@@ -361,7 +361,7 @@ export function SourceApp() {
             <div className="list-heading-copy"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status" aria-label={!listError && (!loaded || scanning) ? count : undefined}>{!listError && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={scanning ? '加载中' : '正在读取'} /></span> : count}</span></div>
             <DsRefreshButton className="source-refresh-button" aria-label="刷新当前来源" loading={checking || scanning} disabled={!loaded || busy || !relevant.length} onClick={() => refresh()} />
           </div>
-          <ScrollArea ref={listViewport} className="session-list" aria-busy={!loaded || scanning}>
+          <ScrollArea ref={listViewport} className="session-list" bottomOverlayHeight={pendingList ? 96 : 0} aria-busy={!loaded || scanning}>
             {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
               <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><FadeText as="h3" text={entry.title} lines={2} />{entry.kind && entry.kind !== 'conversation' && <span className="source-kind">{sourceKindNames[entry.kind]}</span>}
             </button>)}

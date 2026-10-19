@@ -122,6 +122,7 @@ h1, h2, h3, strong { font-weight: 500; }
 @keyframes ds-refresh-turn { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes source-refresh-spin { to { transform: rotate(360deg); } }
 .source-list-update { position: absolute; z-index: 2; bottom: 16px; left: 20px; right: 20px; background: var(--ds-surface-300); box-shadow: var(--ds-input-shadow); }
+.ds-button.source-list-update:not(:disabled):is(:hover, :active, :focus-visible) { opacity: 1; background: var(--ds-surface-300); }
 .source-update-notice { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 24px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); background: var(--ds-surface-200); }
 .search { display: flex; align-items: center; gap: 8px; width: 100%; padding: 0 8px 0 12px; height: 40px; border-radius: var(--ds-radius-md); background: var(--ds-surface-input); color: var(--ds-icon); box-shadow: var(--ds-input-shadow); }
 .search:focus-within { box-shadow: var(--ds-input-shadow-focus); }
