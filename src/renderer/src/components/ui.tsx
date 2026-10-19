@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
 import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Inbox, Info, Link, LockKeyhole, MessageSquareText, PanelLeft, PanelLeftClose, Plus, Search, ShieldCheck, X } from 'lucide-react'
 
 import { Tooltip } from './Tooltip'
@@ -27,9 +27,42 @@ export function DsDialogHeader({ titleId, title, eyebrow, description, closeLabe
   </div>
 }
 
-export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dismissOnBackdrop = false }: { titleId: string; onDismiss: () => void; busy: boolean; children: ReactNode; returnFocus?: HTMLElement | null; dismissOnBackdrop?: boolean }) {
+const DialogPresenceContext = createContext<{ present: boolean; finishExit: () => void } | null>(null)
+
+// 业务关闭立即生效，仅保留最后一次弹窗子树完成退场，不复制 DOM 或推迟业务回调。
+export function DsDialogPresence({ children }: { children: ReactNode }) {
+  const present = Boolean(children)
+  const [retained, setRetained] = useState(children)
+  const finishExit = useCallback(() => setRetained(null), [])
+  useLayoutEffect(() => { if (present) setRetained(children) }, [present, children])
+  useEffect(() => {
+    if (present || !retained) return
+    const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    if (motion?.matches) { finishExit(); return }
+    // CSS 退场为 140ms；事件丢失或样式被覆盖时仍能释放原生 modal。
+    const timer = window.setTimeout(finishExit, 180)
+    const reduce = () => { if (motion?.matches) finishExit() }
+    motion?.addEventListener('change', reduce)
+    return () => { window.clearTimeout(timer); motion?.removeEventListener('change', reduce) }
+  }, [present, retained, finishExit])
+  const presence = useMemo(() => ({ present, finishExit }), [present, finishExit])
+  return <DialogPresenceContext.Provider value={presence}>{present ? children : retained}</DialogPresenceContext.Provider>
+}
+
+export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dismissOnBackdrop = true }: { titleId: string; onDismiss: () => void; busy: boolean; children: ReactNode; returnFocus?: HTMLElement | null; dismissOnBackdrop?: boolean }) {
+  const presence = useContext(DialogPresenceContext)
+  const present = presence?.present ?? true
   const dialog = useRef<HTMLDialogElement>(null)
   const backdropPress = useRef(false)
+  useEffect(() => {
+    if (present) return
+    const modal = dialog.current!
+    const finish = (event: AnimationEvent) => {
+      if (event.target === modal && !event.pseudoElement && event.animationName === 'ds-dialog-exit') presence?.finishExit()
+    }
+    modal.addEventListener('animationend', finish)
+    return () => modal.removeEventListener('animationend', finish)
+  }, [present, presence])
   function isBackdrop(event: MouseEvent<HTMLDialogElement>) {
     if (event.target !== event.currentTarget) return false
     const { left, right, top, bottom } = event.currentTarget.getBoundingClientRect()
@@ -57,13 +90,14 @@ export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dism
     return () => { queueMicrotask(() => { if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus() }) }
   }, [returnFocus])
   return <dialog ref={dialog} tabIndex={-1} className="ds-dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={busy}
-    onCancel={event => { event.preventDefault(); if (!busy) onDismiss() }}
+    data-state={present ? 'open' : 'closing'} inert={!present} aria-hidden={!present || undefined}
+    onCancel={event => { event.preventDefault(); if (present && !busy) onDismiss() }}
     onPointerDown={event => { backdropPress.current = dismissOnBackdrop && event.button === 0 && isBackdrop(event) }}
     onClick={event => {
       // 必须在遮罩按下并释放，避免内部留白或选中文字后拖出时误关。
       const dismiss = backdropPress.current && isBackdrop(event)
       backdropPress.current = false
-      if (dismissOnBackdrop && !busy && dismiss) onDismiss()
+      if (present && dismissOnBackdrop && !busy && dismiss) onDismiss()
     }}>{children}</dialog>
 }
 

@@ -98,6 +98,30 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+test('连接弹窗默认点击遮罩关闭，内部点击和拖出不误关并恢复焦点', async () => {
+  const trigger = page.getByRole('button', { name: '连接 App', exact: true })
+  for (const connected of [false, true]) {
+    if (connected) await connect()
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme })
+      await trigger.click()
+      const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+      const heading = dialog.getByRole('heading', { name: '连接来源 App', exact: true })
+      await heading.click()
+      const box = (await dialog.boundingBox())!
+      const outside = { x: box.x - 12, y: box.y + box.height / 2 }
+      await page.mouse.click(box.x + 4, box.y + 4)
+      await expect(dialog).toBeVisible()
+      await heading.hover(); await page.mouse.down()
+      await page.mouse.move(outside.x, outside.y); await page.mouse.up()
+      await expect(dialog).toBeVisible()
+      await page.mouse.click(outside.x, outside.y)
+      await expect(dialog).toHaveCount(0)
+      await expect(trigger).toBeFocused()
+    }
+  }
+})
+
 test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来源与档案一致', async () => {
   const title = '合成播放任务 file:///synthetic/' + 'WorkspacePath'.repeat(4)
   const shortTitle = '合成短标题'

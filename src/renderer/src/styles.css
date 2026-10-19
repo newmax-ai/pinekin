@@ -226,10 +226,16 @@ h1, h2, h3, strong { font-weight: 500; }
 
 /* 原生 modal 负责焦点圈定；布局与视觉取自 NewMax DS。 */
 .ds-dialog { width: 660px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 64px); margin: auto; padding: 0; border: 0; border-radius: var(--ds-radius-lg); color: var(--ds-text-primary); background: var(--ds-surface-200); box-shadow: var(--ds-elevation-300); overflow: hidden; }
-.ds-dialog[open] { display: flex; flex-direction: column; }
+.ds-dialog[open] { display: flex; flex-direction: column; animation: ds-dialog-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: center; }
+.ds-dialog[data-state='closing'] { animation: ds-dialog-exit 140ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
 /* 无输入的弹窗仅将焦点停在容器；内部键盘操作仍保留各自的焦点环。 */
 .ds-dialog:focus { outline: none; }
-.ds-dialog::backdrop { background: var(--ds-overlay); }
+.ds-dialog::backdrop { background: var(--ds-overlay); animation: ds-dialog-backdrop-enter 180ms ease-out both; }
+.ds-dialog[data-state='closing']::backdrop { animation: ds-dialog-backdrop-exit 140ms ease-in both; }
+@keyframes ds-dialog-enter { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes ds-dialog-exit { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.97); } }
+@keyframes ds-dialog-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ds-dialog-backdrop-exit { from { opacity: 1; } to { opacity: 0; } }
 .dialog-header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 18px; flex-shrink: 0; }
 .dialog-header > .ds-button { margin-left: auto; align-self: flex-start; }
 .dialog-heading { min-width: 0; }
@@ -292,5 +298,5 @@ h1, h2, h3, strong { font-weight: 500; }
   .shell { --sidebar-width: 240px; --list-width: 280px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  *, *::before, *::after, .ds-dialog::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }

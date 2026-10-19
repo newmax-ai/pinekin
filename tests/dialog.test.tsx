@@ -2,7 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
-import { DsButton, DsDialog, DsDialogClose, DsDialogHeader } from '../src/renderer/src/components/ui'
+import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DsDialogPresence } from '../src/renderer/src/components/ui'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 beforeEach(() => {
   // 模拟 showModal 的原生初始聚焦：优先 autofocus，否则落到首个控件。
@@ -73,6 +75,194 @@ describe('共享弹窗标题', () => {
     expect(onDismiss).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(screen.getByRole('textbox', { name: '来源输入' }))
     expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+})
+
+describe('共享弹窗遮罩关闭', () => {
+  function mount({ busy = false, dismissOnBackdrop }: { busy?: boolean; dismissOnBackdrop?: boolean } = {}) {
+    const onDismiss = vi.fn()
+    render(<DsDialog titleId="title" busy={busy} onDismiss={onDismiss} dismissOnBackdrop={dismissOnBackdrop}>
+      <h2 id="title">测试弹窗</h2><button>内部操作</button>
+    </DsDialog>)
+    const dialog = screen.getByRole('dialog', { name: '测试弹窗' })
+    vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 400, 300))
+    return { dialog, onDismiss }
+  }
+  function press(target: HTMLElement, clientX: number, clientY: number, button = 0) {
+    fireEvent(target, new MouseEvent('pointerdown', { bubbles: true, clientX, clientY, button }))
+  }
+  it.each([[50, 200], [550, 200], [200, 50], [200, 450]])('默认点击外侧遮罩 %s, %s 时关闭一次', (clientX, clientY) => {
+    const { dialog, onDismiss } = mount()
+    press(dialog, clientX, clientY)
+    fireEvent.click(dialog, { clientX, clientY })
+    expect(onDismiss).toHaveBeenCalledOnce()
+    fireEvent.click(dialog, { clientX, clientY })
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+  it('点击内容、内部留白或边框不关闭', () => {
+    const { dialog, onDismiss } = mount()
+    const button = screen.getByRole('button', { name: '内部操作' })
+    press(button, 200, 200); fireEvent.click(button, { clientX: 200, clientY: 200 })
+    for (const [clientX, clientY] of [[110, 110], [100, 200], [500, 200], [200, 100], [200, 400]]) {
+      press(dialog, clientX, clientY); fireEvent.click(dialog, { clientX, clientY })
+    }
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+  it('从内部拖到遮罩，或从遮罩拖回内部不关闭', () => {
+    const { dialog, onDismiss } = mount()
+    press(screen.getByRole('button', { name: '内部操作' }), 200, 200)
+    fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    press(dialog, 110, 110); fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    press(dialog, 50, 200); fireEvent.click(dialog, { clientX: 110, clientY: 110 })
+    fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+  it.each([{ busy: true }, { dismissOnBackdrop: false }])('忙碌或显式关闭遮罩退出时不关闭：%j', options => {
+    const { dialog, onDismiss } = mount(options)
+    press(dialog, 50, 200); fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+  it('非主按键点击遮罩不关闭', () => {
+    const { dialog, onDismiss } = mount()
+    press(dialog, 50, 200, 2); fireEvent.click(dialog, { clientX: 50, clientY: 200, button: 2 })
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('Escape 保留忙碌保护：busy=%s', busy => {
+    const { dialog, onDismiss } = mount({ busy })
+    const event = new Event('cancel', { cancelable: true })
+    fireEvent(dialog, event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(onDismiss).toHaveBeenCalledTimes(busy ? 0 : 1)
+  })
+})
+
+describe('共享弹窗进退场', () => {
+  function mount(initiallyOpen = true, busy = false) {
+    const onDismiss = vi.fn()
+    function Example() {
+      const [open, setOpen] = useState(initiallyOpen)
+      return <><button onClick={() => setOpen(true)}>打开动画弹窗</button><button onClick={() => setOpen(false)}>外部关闭</button>
+        <DsDialogPresence>{open && <DsDialog titleId="motion-title" busy={busy} onDismiss={() => { onDismiss(); setOpen(false) }}>
+          <h2 id="motion-title">动画弹窗</h2><DsDialogClose onClick={() => { onDismiss(); setOpen(false) }} />
+          <input aria-label="编辑内容" defaultValue="保留内容" />
+          <button onClick={() => setOpen(false)}>返回</button>
+        </DsDialog>}</DsDialogPresence></>
+    }
+    return { ...render(<Example />), onDismiss }
+  }
+  function finish(dialog: HTMLElement, animationName = 'ds-dialog-exit', target = dialog) {
+    fireEvent(target, Object.assign(new Event('animationend', { bubbles: true }), { animationName }))
+  }
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('首次关闭不挂载弹窗，打开时进入共享进场状态', () => {
+    const { container } = mount(false)
+    expect(container.querySelector('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '打开动画弹窗' }))
+    expect(screen.getByRole('dialog').getAttribute('data-state')).toBe('open')
+    expect(screen.getByRole('dialog').hasAttribute('inert')).toBe(false)
+  })
+  it.each(['关闭', '返回', '外部关闭', 'Escape', '遮罩'])('%s 立即更新业务状态，保留原节点和内容直到退场完成', method => {
+    const { container, onDismiss } = mount()
+    const dialog = screen.getByRole('dialog')
+    const input = screen.getByRole('textbox', { name: '编辑内容' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '退场时不闪回' } })
+    if (method === 'Escape') fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    else if (method === '遮罩') {
+      vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 400, 300))
+      fireEvent(dialog, new MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 200, button: 0 }))
+      fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    } else fireEvent.click(screen.getByRole('button', { name: method }))
+    expect(onDismiss).toHaveBeenCalledTimes(['关闭', 'Escape', '遮罩'].includes(method) ? 1 : 0)
+    expect(container.querySelector('dialog')).toBe(dialog)
+    expect(dialog.getAttribute('data-state')).toBe('closing')
+    expect(dialog.hasAttribute('inert')).toBe(true)
+    expect(dialog.getAttribute('aria-hidden')).toBe('true')
+    expect(dialog.querySelector('input')).toBe(input)
+    expect(input.value).toBe('退场时不闪回')
+    finish(dialog)
+    expect(container.querySelector('dialog')).toBeNull()
+  })
+  it('子元素、进场动画及重复关闭事件不会提前结束退场或重复通知', () => {
+    const { container, onDismiss } = mount()
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    finish(dialog, 'ds-dialog-exit', dialog.querySelector('input')!)
+    finish(dialog, 'ds-dialog-enter')
+    fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    expect(container.querySelector('dialog')).toBe(dialog)
+    expect(onDismiss).toHaveBeenCalledOnce()
+    finish(dialog)
+    expect(container.querySelector('dialog')).toBeNull()
+  })
+  it('遗漏 animationend 时也能兜底卸载，不让透明弹窗锁住界面', () => {
+    vi.useFakeTimers()
+    const { container } = mount()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    act(() => { vi.advanceTimersByTime(139) })
+    expect(container.querySelector('dialog')).not.toBeNull()
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(container.querySelector('dialog')).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('退场过程中重新打开时保留弹窗，不会被上一次的计时器卸载', () => {
+    vi.useFakeTimers()
+    const { container } = mount()
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开动画弹窗' }))
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    expect(dialog.getAttribute('data-state')).toBe('open')
+    expect(dialog.hasAttribute('inert')).toBe(false)
+    finish(dialog)
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(container.querySelector('dialog')).toBe(dialog)
+  })
+  it.each([false, true])('减少动态效果在关闭前或退场中启用时立即卸载：%s', reduced => {
+    const media = new EventTarget() as EventTarget & { matches: boolean }
+    media.matches = reduced
+    vi.stubGlobal('matchMedia', vi.fn(() => media))
+    const { container } = mount()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    if (!reduced) {
+      expect(container.querySelector('dialog')).not.toBeNull()
+      media.matches = true
+      act(() => { media.dispatchEvent(new Event('change')) })
+    }
+    expect(container.querySelector('dialog')).toBeNull()
+    expect(window.matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)')
+  })
+  it('忙碌时 Escape 不进入退场', () => {
+    const { onDismiss } = mount(true, true)
+    const dialog = screen.getByRole('dialog')
+    fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    expect(onDismiss).not.toHaveBeenCalled()
+    expect(dialog.getAttribute('data-state')).toBe('open')
+  })
+  it('完整退场后才恢复触发焦点，卸载后重新打开不会保留输入状态', async () => {
+    const { container } = mount(false)
+    const trigger = screen.getByRole('button', { name: '打开动画弹窗' })
+    trigger.focus(); fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog')
+    const input = screen.getByRole('textbox', { name: '编辑内容' })
+    fireEvent.change(input, { target: { value: '临时内容' } })
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(document.activeElement).not.toBe(trigger)
+    finish(dialog)
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    expect(container.querySelector('dialog')).toBeNull()
+    fireEvent.click(trigger)
+    expect((screen.getByRole('textbox', { name: '编辑内容' }) as HTMLInputElement).value).toBe('保留内容')
+  })
+  it('面板轻微缩放并淡入淡出，遮罩只渐变，减少动态效果覆盖伪元素', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.ds-dialog\[open\]\s*\{[^}]*animation: ds-dialog-enter 180ms/)
+    expect(styles).toMatch(/\.ds-dialog\[data-state=['"]closing['"]\]\s*\{[^}]*animation: ds-dialog-exit 140ms/)
+    expect(styles).toMatch(/@keyframes ds-dialog-enter\s*\{\s*from\s*\{\s*opacity: 0;\s*transform: scale\(0\.97\);/)
+    expect(styles).toMatch(/@keyframes ds-dialog-exit\s*\{\s*from\s*\{\s*opacity: 1;\s*transform: scale\(1\);/)
+    expect(styles).toMatch(/\.ds-dialog::backdrop\s*\{[^}]*animation: ds-dialog-backdrop-enter 180ms/)
+    expect(styles).toMatch(/\.ds-dialog\[data-state=['"]closing['"]\]::backdrop\s*\{[^}]*animation: ds-dialog-backdrop-exit 140ms/)
+    expect(styles).toMatch(/@media\s*\(prefers-reduced-motion: reduce\)\s*\{[^]*?\.ds-dialog::backdrop\s*\{[^}]*animation: none !important;/)
   })
 })
 

@@ -286,7 +286,8 @@ describe('档案界面', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: `打开档案：${demoSessions[1].title}` }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.getByRole('heading', { level: 2, name: demoSessions[1].title })).toBeTruthy()
-    expect(screen.queryByLabelText('搜索会话')).toBeNull()
+    // 业务选中立即完成，原弹窗节点在淡出结束后才卸载。
+    await waitFor(() => expect(screen.queryAllByLabelText('搜索会话')).toHaveLength(0))
   })
   it('返回前进恢复会话与组合筛选，不重复记录当前位置且新导航截断前进历史', async () => {
     await open()

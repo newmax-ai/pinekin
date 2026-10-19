@@ -8,7 +8,7 @@ import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { FadeText } from './components/FadeText'
-import { DsButton, DsDialog, DsDialogHeader, DesignIcon } from './components/ui'
+import { DsButton, DsDialog, DsDialogHeader, DsDialogPresence, DesignIcon } from './components/ui'
 import { DsRefreshButton } from './components/DsRefreshButton'
 import { LoadingMark } from './components/LoadingMark'
 import { SourceMessage, SourceActivity } from './components/SourceMessage'
@@ -402,22 +402,22 @@ export function SourceApp() {
       {(error || connectionNotice) && !searchOpen && !connecting && <div className="toast" role="alert"><DesignIcon name="info" /><span>{error || connectionNotice}</span><DsButton onClick={openConnections}>检查连接</DsButton><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭提示" onClick={() => { setError(''); setConnectionNotice('') }}><DesignIcon name="close" /></DsButton></div>}
       </main>
     </div>
-    {searchOpen && <SourceSearchDialog source={source} query={query} revision={reload + catalogVersion} onQueryChange={setQuery} inputRef={search} returnFocus={searchTrigger.current}
-      onDismiss={() => setSearchOpen(false)} onSelect={entry => { navigate({ selected: entry }); setSearchOpen(false) }} getEmptyAction={emptyAction} />}
-    {connecting && <ConnectSourcesDialog connections={page.connections} returnFocus={connectionTrigger.current}
+    <DsDialogPresence>{searchOpen && <SourceSearchDialog source={source} query={query} revision={reload + catalogVersion} onQueryChange={setQuery} inputRef={search} returnFocus={searchTrigger.current}
+      onDismiss={() => setSearchOpen(false)} onSelect={entry => { navigate({ selected: entry }); setSearchOpen(false) }} getEmptyAction={emptyAction} />}</DsDialogPresence>
+    <DsDialogPresence>{connecting && <ConnectSourcesDialog connections={page.connections} returnFocus={connectionTrigger.current}
       onConnected={connected} onChanged={connections => {
         setPage(previous => ({ ...previous, connections: [...previous.connections.filter(item => !connections.some(next => next.id === item.id)), ...connections] }))
         setReload(value => value + 1)
       }} onBusyChange={setBusy}
       busy={busy} checking={checking} error={error} onDisconnect={disconnect}
-      onDismiss={() => setConnecting(false)} />}
-    {handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>
+      onDismiss={() => setConnecting(false)} />}</DsDialogPresence>
+    <DsDialogPresence>{handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>
       <DsDialogHeader titleId="target-title" title="选择接续目标" eyebrow="上下文交接" closeLabel="关闭接续面板" onDismiss={() => setHandoff(false)} />
       <ScrollArea className="dialog-content"><label className="target-label">目标 App<select aria-label="目标 App" value={target} onChange={event => setTarget(event.target.value as BrowsableSource)}>{browsableSources.map(id => <option key={id} value={id}>{sourceNames[id]}</option>)}</select></label>
         <div className="notice"><DesignIcon name="info" /><div><strong>自动接续暂未支持</strong><p>尚未完成目标客户端的创建、打开与接续验证。当前不写入目标，不自动发送历史，也不把复制文本当作同步成功。</p></div></div>
         <p className="privacy-note">{target === 'codex' ? '已发现官方历史注入接口，但仍需验证版本、持久化回读、打开链路、冲突与回滚，尚未启用。' : '此目标尚无经过 Pinekin 验证的外部历史创建与打开链路。'}</p>
         <p className="privacy-note">来源文本的读取成功，不代表工具、附件、分支或运行状态可以迁移。</p>
       </ScrollArea><div className="dialog-footer"><DsButton onClick={() => setHandoff(false)}>返回会话</DsButton><DsButton variant="primary" disabled>自动接续暂未支持</DsButton></div>
-    </DsDialog>}
+    </DsDialog>}</DsDialogPresence>
   </div>
 }
