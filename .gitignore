@@ -9,3 +9,6 @@ playwright-report/
 .env.*
 *.log
 *.tsbuildinfo
+
+# 本地界面验收截图
+/outputs/**/*.png
