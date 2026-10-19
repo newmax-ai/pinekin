@@ -5,7 +5,11 @@ import type { DatabaseProjection, DatabaseRow } from './source-sqlite'
 export function textWindowQuery(select: string, input: SourceReadCursor): string {
   const cursor = sourceReadCursorSchema.parse(input)
   const start = `CASE WHEN position=${cursor.offset} THEN ${cursor.textOffset} ELSE 0 END`
-  return `WITH projected AS (${select}), page AS (SELECT * FROM projected ORDER BY position LIMIT ${SOURCE_PAGE_MESSAGES} OFFSET ${cursor.offset})
+  // 在同一 SQLite 事务中流式散列所选会话的完整白名单投影，包含尚未展示的尾部。
+  // 只返回定长摘要；不拼接整段正文、不扩大分页输出，也不读取配置或凭据。
+  const fingerprintQuery = `${select} ORDER BY position`.replaceAll("'", "''")
+  return `SELECT json_object('kind','snapshot','value',lower(hex(sha3_query('${fingerprintQuery}',256))));
+    WITH projected AS (${select}), page AS (SELECT * FROM projected ORDER BY position LIMIT ${SOURCE_PAGE_MESSAGES} OFFSET ${cursor.offset})
     SELECT json_object('kind','row','value',json_object(
       'position',position,'seq',seq,'id',id,'role',role,'content',substr(display,(${start})+1,${SOURCE_TEXT_CHARS}),
       'text_length',length(display),'text_offset',${start},'has_nul',instr(display,char(0))>0,'timestamp',timestamp,'created_at',timestamp,

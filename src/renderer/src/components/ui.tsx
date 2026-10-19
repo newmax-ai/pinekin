@@ -49,11 +49,35 @@ export function DsDialogPresence({ children }: { children: ReactNode }) {
   return <DialogPresenceContext.Provider value={presence}>{present ? children : retained}</DialogPresenceContext.Provider>
 }
 
-export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dismissOnBackdrop = true }: { titleId: string; onDismiss: () => void; busy: boolean; children: ReactNode; returnFocus?: HTMLElement | null; dismissOnBackdrop?: boolean }) {
+export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dismissOnBackdrop = true, animateHeight = false }: { titleId: string; onDismiss: () => void; busy: boolean; children: ReactNode; returnFocus?: HTMLElement | null; dismissOnBackdrop?: boolean; animateHeight?: boolean }) {
   const presence = useContext(DialogPresenceContext)
   const present = presence?.present ?? true
   const dialog = useRef<HTMLDialogElement>(null)
+  const sizeContent = useRef<HTMLDivElement>(null)
+  const heightOwned = useRef(false)
   const backdropPress = useRef(false)
+  useLayoutEffect(() => {
+    const modal = dialog.current!
+    if (!animateHeight) {
+      if (heightOwned.current) modal.style.removeProperty('height')
+      heightOwned.current = false
+      return
+    }
+    heightOwned.current = true
+    if (!present || typeof ResizeObserver === 'undefined') return
+    const content = sizeContent.current!
+    let active = true
+    const update = () => {
+      if (!active) return
+      // 内容不随外框的动画高度收缩，避免观察器反馈循环；offsetHeight 不包含进场 scale。
+      const height = content.offsetHeight
+      if (height > 0) modal.style.height = `${height}px`
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(content)
+    update()
+    return () => { active = false; observer.disconnect() }
+  }, [animateHeight, present])
   useEffect(() => {
     if (present) return
     const modal = dialog.current!
@@ -90,7 +114,7 @@ export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dism
     return () => { queueMicrotask(() => { if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus() }) }
   }, [returnFocus])
   return <dialog ref={dialog} tabIndex={-1} className="ds-dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={busy}
-    data-state={present ? 'open' : 'closing'} inert={!present} aria-hidden={!present || undefined}
+    data-state={present ? 'open' : 'closing'} data-animate-height={animateHeight || undefined} inert={!present} aria-hidden={!present || undefined}
     onCancel={event => { event.preventDefault(); if (present && !busy) onDismiss() }}
     onPointerDown={event => { backdropPress.current = dismissOnBackdrop && event.button === 0 && isBackdrop(event) }}
     onClick={event => {
@@ -98,7 +122,7 @@ export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dism
       const dismiss = backdropPress.current && isBackdrop(event)
       backdropPress.current = false
       if (present && dismissOnBackdrop && !busy && dismiss) onDismiss()
-    }}>{children}</dialog>
+    }}>{animateHeight ? <div className="ds-dialog-size-content" ref={sizeContent}>{children}</div> : children}</dialog>
 }
 
 // 静态具名导入便于按需打包；品牌来源图标由 SourceIcon 单独管理。

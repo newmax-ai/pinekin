@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "test:codex-contract": "vitest run --config verification/vitest.codex.config.ts",
     "pack": "npm run build && electron-builder --dir"
   },
   "dependencies": {

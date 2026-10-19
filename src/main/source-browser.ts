@@ -436,6 +436,42 @@ export class SourceBrowser {
       await setImmediate()
     }
   }
+  async getEntry(rawId: string): Promise<SourceEntry> {
+    const id = entryIdSchema.parse(rawId)
+    await this.load()
+    for (const state of this.states.values()) {
+      const entry = state.entries.get(id)
+      if (entry && visibleEntry(entry)) return { ...entry.summary }
+    }
+    throw new Error('来源会话不存在、已过滤或已断开，请重新选择。')
+  }
+  /** 目标接续专用：读取完整文本且保留长消息内的空白，不复用 renderer 当前片段。 */
+  async transfer(rawId: string, assertAllowed = () => {}) {
+    const { collectSourceTransfer } = await import('./source-transfer')
+    const id = entryIdSchema.parse(rawId)
+    const original = await this.getEntry(id)
+    if (original.kind && original.kind !== 'conversation') throw new Error('仅支持普通主会话的文本接续。')
+    return collectSourceTransfer(async cursor => {
+      const content = await this.read(id, cursor)
+      const window = content.window
+      if (!window) throw new Error('来源未提供完整读取边界。')
+      let fragments: { position: number; role: 'user' | 'assistant'; content: string }[]
+      if (original.source === 'newmax' || original.source === 'cindy') {
+        const state = this.states.get(original.connectionId), entry = state?.entries.get(id)
+        if (!state || !entry) throw new Error('来源已断开。')
+        const projection = await readSourceDatabase(entry.path, original.source, entry.rowId!, { ...cursor, snapshot: window.snapshot })
+        const raw = sourceReadWindow(projection, { ...cursor, snapshot: window.snapshot })
+        fragments = raw.messages.filter(row => row.internal !== 1).map(row => ({ position: Number(row.position),
+          role: z.enum(['user', 'assistant']).parse(row.role), content: z.string().parse(row.content) }))
+      } else {
+        fragments = content.session.messages.map((message, index) => ({ position: cursor.offset + index,
+          role: z.enum(['user', 'assistant']).parse(message.role), content: message.content }))
+      }
+      await this.getEntry(id)
+      return { title: content.session.title, source: original.source, snapshot: window.snapshot, totalMessages: window.totalMessages,
+        offset: window.offset, textOffset: window.textOffset, fragments, next: window.next }
+    }, assertAllowed)
+  }
   async page(input: SourceQuery): Promise<SourcePage> {
     const query = sourceQuerySchema.parse(input)
     await this.load()

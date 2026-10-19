@@ -202,8 +202,8 @@ describe('来源逻辑沿用原有设计', () => {
     expect(window.staithe.list).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Claude Code.*135/ })).toBeTruthy()
     expect(screen.getByText('1 / 135 条已加载')).toBeTruthy()
-    expect(document.querySelector('.reader-state')?.textContent).toBe('来源直读')
-    expect(document.querySelector('.reader-state .read-only, .reader-state svg')).toBeNull()
+    expect(screen.queryByText('来源直读')).toBeNull()
+    expect(document.querySelector('.reader-state')).toBeNull()
     const header = screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-header') as HTMLElement
     const metadata = header.querySelector('.detail-meta') as HTMLElement
     expect(within(metadata).queryByText('未导入 Pinekin')).toBeNull()
@@ -212,8 +212,8 @@ describe('来源逻辑沿用原有设计', () => {
     expect(metadata.querySelector('time')?.getAttribute('datetime')).toBe(entry.updatedAt)
     expect(metadata.lastElementChild?.tagName).toBe('TIME')
     const title = within(header).getByRole('heading', { level: 2, name: entry.title })
-    expect(title.closest('.detail-title-group')?.querySelector('.archive-badge')?.textContent).toBe('来源直读')
-    const pin = within(header).getByRole('button', { name: 'Pin 走这段对话' })
+    expect(title.closest('.detail-title-group')?.querySelector('.archive-badge')).toBeNull()
+    const pin = within(header).getByRole('button', { name: '更多会话操作' })
     expect(pin.closest('.detail-title-row')).not.toBeNull()
     expect(screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-footer')).toBeNull()
     expect(screen.queryByRole('button', { name: '重新读取正文' })).toBeNull()
@@ -431,14 +431,21 @@ describe('来源逻辑沿用原有设计', () => {
     await screen.findByText('分叉结构尚未支持')
     expect(window.staithe.sources.read).not.toHaveBeenCalled()
   })
-  it('原接续按钮只打开能力检查，未支持目标依然禁用', async () => {
+  it('复制退到更多菜单，不弹目标表单、不要求确认、不读取额外正文或档案', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Pin 走这段对话' }))
-    expect(screen.getByRole('dialog', { name: '选择接续目标' }).textContent).toContain('尚未完成目标客户端的创建、打开与接续验证')
-    expect((screen.getByRole('button', { name: '自动接续暂未支持' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(await screen.findByRole('button', { name: '更多会话操作' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByRole('button', { name: '在另一个 App 继续' })).toBeNull()
     expect(window.staithe.copy).not.toHaveBeenCalled()
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+    expect(window.staithe.list).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制会话文本' }))
+    await waitFor(() => expect(window.staithe.copy).toHaveBeenCalledOnce())
+    expect(vi.mocked(window.staithe.copy).mock.calls[0][0]).toContain('当前已读取的文本投影')
   })
   it('切换会话和浏览历史时，过期正文不会覆盖新选择', async () => {
     const second = { ...entry, id: 'b'.repeat(64), title: '第二段' }

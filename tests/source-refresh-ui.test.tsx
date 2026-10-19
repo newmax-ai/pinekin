@@ -43,7 +43,7 @@ describe('不打断阅读的来源刷新', () => {
     render(<SourceApp />)
     fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
     const header = document.querySelector('.detail-header')!
-    const pin = screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement
+    const pin = screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement
     const count = header.querySelector('.detail-message-count')!
     expect(pin.disabled).toBe(true)
     expect(count.textContent).toBe('— 条消息')
@@ -51,7 +51,7 @@ describe('不打断阅读的来源刷新', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     await act(async () => { finish(content) })
     expect(document.querySelector('.detail-header')).toBe(header)
-    expect(screen.getByRole('button', { name: 'Pin 走这段对话' })).toBe(pin)
+    expect(screen.getByRole('button', { name: '更多会话操作' })).toBe(pin)
     expect(header.querySelector('.detail-message-count')).toBe(count)
     expect(pin.disabled).toBe(false)
     expect(count.textContent).toBe(`${content.session.messages.length} 条消息`)
@@ -59,33 +59,33 @@ describe('不打断阅读的来源刷新', () => {
   it('切换会话保留页头节点，不复用上一会话的标题、消息数或交接内容', async () => {
     await open()
     const header = document.querySelector('.detail-header')!
-    const pin = screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement
+    const pin = screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement
     let finish!: (result: SourceContent) => void
     vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
     expect(document.querySelector('.detail-header')).toBe(header)
     expect(screen.getByRole('heading', { level: 2, name: '会话 1' })).toBeTruthy()
     expect(header.querySelector('.detail-message-count')?.textContent).toBe('— 条消息')
-    expect(screen.getByRole('button', { name: 'Pin 走这段对话' })).toBe(pin)
+    expect(screen.getByRole('button', { name: '更多会话操作' })).toBe(pin)
     expect(pin.disabled).toBe(true)
     await act(async () => { finish({ ...content, session: { ...content.session, id: entries[1].id, title: '会话 1', messages: [] } }) })
     expect(document.querySelector('.detail-header')).toBe(header)
     expect(header.querySelector('.detail-message-count')?.textContent).toBe('0 条消息')
-    expect(pin.disabled).toBe(false)
+    expect(pin.disabled).toBe(true)
   })
   it('首次读取失败仍保留禁用接续按钮和未知消息数，不伪造可交接内容', async () => {
     vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('合成正文读取失败'))
     render(<SourceApp />)
     fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
     await screen.findByText('合成正文读取失败')
-    expect((screen.getByRole('button', { name: 'Pin 走这段对话' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement).disabled).toBe(true)
     expect(document.querySelector('.detail-message-count')?.textContent).toBe('— 条消息')
   })
-  it('来源详情保留来源直读标签，不显示只读文案和锁图标', async () => {
+  it('来源详情标题不附加直读标签、只读文案或锁图标', async () => {
     await open()
     const header = screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-header')!
-    expect(header.querySelector('.reader-state')?.textContent).toBe('来源直读')
-    expect(header.querySelector('.read-only, .reader-state svg')).toBeNull()
+    expect(screen.queryByText('来源直读')).toBeNull()
+    expect(header.querySelector('.reader-state, .archive-badge, .read-only')).toBeNull()
   })
   it('加载描述归于标题下方的文案组，刷新入口只显示图标并保留可访问名称', async () => {
     await open()

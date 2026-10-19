@@ -414,7 +414,6 @@ describe('Staithe 中性主题与图标契约', () => {
   })
   it.each([
     { file: 'App.tsx', titles: ['import-title', 'handoff-title'] },
-    { file: 'SourceApp.tsx', titles: ['target-title'] },
     { file: 'components/ConnectSourcesDialog.tsx', titles: ['connect-title'] },
   ])('$file 的全部常规弹窗使用共享标题组件，不再自行拼装标题图标', ({ file, titles }) => {
     const source = readFileSync(resolve('src/renderer/src', file), 'utf8')

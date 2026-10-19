@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceReadCursor } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
+import { SourceActions } from './components/SourceActions'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { FadeText } from './components/FadeText'
-import { DsButton, DsDialog, DsDialogHeader, DsDialogPresence, DesignIcon } from './components/ui'
+import { DsButton, DsDialogPresence, DesignIcon } from './components/ui'
 import { DsRefreshButton } from './components/DsRefreshButton'
 import { LoadingMark } from './components/LoadingMark'
 import { SourceMessage, SourceActivity } from './components/SourceMessage'
@@ -56,8 +57,6 @@ export function SourceApp() {
   const [reading, setReading] = useState(false)
   const [windowHistory, setWindowHistory] = useState<SourceReadCursor[]>([])
   const [windowError, setWindowError] = useState('')
-  const [handoff, setHandoff] = useState(false)
-  const [target, setTarget] = useState<BrowsableSource>('newmax')
   const [checking, setChecking] = useState(false)
   const [pendingList, setPendingList] = useState(false)
   const [catalogVersion, setCatalogVersion] = useState(0)
@@ -113,7 +112,7 @@ export function SourceApp() {
     const sameConversation = displayedId.current === selected?.id
     const previous = sameConversation ? current.current.content : undefined
     displayedId.current = selected?.id
-    setReadError(''); setHandoff(false); setReading(false); setNewMessageIndex(undefined); setWindowError('')
+    setReadError(''); setReading(false); setNewMessageIndex(undefined); setWindowError('')
     if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); setWindowHistory([]); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
@@ -121,7 +120,7 @@ export function SourceApp() {
     return () => { readRequest.current += 1 }
   }, [selected?.id, readAttempt])
   async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent) {
-    setReading(true); setReadError(''); setHandoff(false); setNewMessageIndex(undefined)
+    setReading(true); setReadError(''); setNewMessageIndex(undefined)
     return window.staithe.sources.read(entry.id).then(result => {
       if (request === readRequest.current) {
         if (previous) {
@@ -198,7 +197,7 @@ export function SourceApp() {
   useEffect(() => { if (searchOpen) { search.current?.focus(); search.current?.select() } }, [searchOpen])
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || !loaded || busy || connecting || handoff) return
+      if (event.defaultPrevented || event.isComposing || !loaded || busy || connecting) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         if (searchOpen) { search.current?.focus(); search.current?.select() }
@@ -207,7 +206,7 @@ export function SourceApp() {
     }
     window.addEventListener('keydown', shortcut)
     return () => window.removeEventListener('keydown', shortcut)
-  }, [loaded, busy, connecting, handoff, searchOpen])
+  }, [loaded, busy, connecting, searchOpen])
 
   function navigate(update: Partial<BrowserView>) {
     setNavigation(previous => {
@@ -224,7 +223,7 @@ export function SourceApp() {
     })
   }
   function clearSelection(unsupportedId?: string) {
-    readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setHandoff(false); setLatestEntry(undefined)
+    readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setLatestEntry(undefined)
     // 新增／撤销授权清空旧选择；能力变更只清理被过滤会话，不影响其他浏览历史。
     setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => !unsupportedId || view.selected?.id === unsupportedId
       ? { ...view, selected: undefined } : view) }))
@@ -408,10 +407,13 @@ export function SourceApp() {
         </SessionPane>
         <section className="detail" aria-label="来源会话详情">
           {selected ? <>
-            <div className="detail-header">
+            <div className="detail-header source-detail-header">
               <div className="detail-title-row">
-                <div className="detail-title-group"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span></div></div>
-                <DsButton variant="primary" disabled={busy || !content} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton>
+                <div className="detail-title-group"><h2>{content?.session.title ?? selected.title}</h2></div>
+                <SourceActions entryId={selected.id} content={content} disabled={busy || reading}
+                  snapshotNotice={latestEntry === null ? '来源会话已删除，当前为上次读取的快照。'
+                    : contentChanged ? '来源已有更新，当前为旧快照。'
+                      : readError || windowError ? '最近一次读取未完成，当前为保留的快照。' : undefined} />
               </div>
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? content.window ? `${content.window.totalMessages} 条来源消息 · 当前片段 ${content.session.messages.length} 条文本` : `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
             </div>
@@ -456,13 +458,5 @@ export function SourceApp() {
       }} onBusyChange={setBusy}
       busy={busy} error={error} onDisconnect={disconnect}
       onDismiss={() => setConnecting(false)} />}</DsDialogPresence>
-    <DsDialogPresence>{handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>
-      <DsDialogHeader titleId="target-title" title="选择接续目标" eyebrow="上下文交接" closeLabel="关闭接续面板" onDismiss={() => setHandoff(false)} />
-      <ScrollArea className="dialog-content"><label className="target-label">目标 App<select aria-label="目标 App" value={target} onChange={event => setTarget(event.target.value as BrowsableSource)}>{browsableSources.map(id => <option key={id} value={id}>{sourceNames[id]}</option>)}</select></label>
-        <div className="notice"><DesignIcon name="info" /><div><strong>自动接续暂未支持</strong><p>尚未完成目标客户端的创建、打开与接续验证。当前不写入目标，不自动发送历史，也不把复制文本当作同步成功。</p></div></div>
-        <p className="privacy-note">{target === 'codex' ? '已发现官方历史注入接口，但仍需验证版本、持久化回读、打开链路、冲突与回滚，尚未启用。' : '此目标尚无经过 Pinekin 验证的外部历史创建与打开链路。'}</p>
-        <p className="privacy-note">来源文本的读取成功，不代表工具、附件、分支或运行状态可以迁移。</p>
-      </ScrollArea><div className="dialog-footer"><DsButton onClick={() => setHandoff(false)}>返回会话</DsButton><DsButton variant="primary" disabled>自动接续暂未支持</DsButton></div>
-    </DsDialog>}</DsDialogPresence>
   </div>
 }

@@ -232,6 +232,8 @@ h1, h2, h3, strong { font-weight: 500; }
 .ds-dialog { width: 660px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 64px); margin: auto; padding: 0; border: 0; border-radius: var(--ds-radius-lg); color: var(--ds-text-primary); background: var(--ds-surface-200); box-shadow: var(--ds-elevation-300); overflow: hidden; }
 .ds-dialog[open] { display: flex; flex-direction: column; animation: ds-dialog-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: center; }
 .ds-dialog[data-state='closing'] { animation: ds-dialog-exit 140ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+.ds-dialog[data-animate-height='true'] { transition: height var(--ds-motion-soft); }
+.ds-dialog-size-content { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; max-height: inherit; }
 /* 无输入的弹窗仅将焦点停在容器；内部键盘操作仍保留各自的焦点环。 */
 .ds-dialog:focus { outline: none; }
 .ds-dialog::backdrop { background: var(--ds-overlay); animation: ds-dialog-backdrop-enter 180ms ease-out both; }

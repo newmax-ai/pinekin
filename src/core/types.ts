@@ -57,6 +57,8 @@ export interface SessionAdapter {
 export interface StaitheAPI {
   readonly platform: string
   readonly sources: import('./sources').SourceBrowserAPI
+  // 旧档案桥可能没有新动作能力；前端必须据此禁用，而不是退回任意URL打开。
+  readonly sourceActions?: import('./source-actions').SourceActionsAPI
   list(): Promise<Session[]>
   previewImport(): Promise<ImportPreview | null>
   confirmImport(token: string): Promise<ImportResult>

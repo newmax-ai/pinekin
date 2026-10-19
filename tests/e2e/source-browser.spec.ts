@@ -100,6 +100,42 @@ test.afterEach(async () => {
   finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+test('复制收进更多菜单，双主题窄窗直接操作，不显示目标表单或修改来源', async () => {
+  await connect()
+  await openMatchingSession('synthetic-0')
+  const before = await snapshot(source)
+  await app.evaluate(({ clipboard }) => {
+    const state = globalThis as unknown as { handoffClipboard?: string; handoffCopyCalls: number }
+    state.handoffCopyCalls = 0
+    clipboard.writeText = async text => { state.handoffClipboard = text; state.handoffCopyCalls++ }
+  })
+  for (const { width, height, colorScheme } of [
+    { width: 1440, height: 1000, colorScheme: 'light' },
+    { width: 1000, height: 680, colorScheme: 'dark' },
+  ] as const) {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    await page.emulateMedia({ colorScheme })
+    const trigger = page.getByRole('button', { name: '更多会话操作' })
+    await trigger.click()
+    await expect(page.getByRole('menuitem', { name: '复制会话文本' })).toBeFocused()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('checkbox')).toHaveCount(0)
+    await expect(page.getByRole('combobox')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
+    expect(await page.locator('.detail-header').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await page.getByRole('menuitem', { name: '复制会话文本' }).click()
+    await expect(page.locator('.source-actions-feedback')).toHaveText(/已复制会话文本/)
+    expect(await app.evaluate(() => (globalThis as unknown as { handoffClipboard: string }).handoffClipboard)).toContain('合成问题')
+    await page.getByRole('button', { name: '关闭操作提示' }).click()
+    await trigger.click(); await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
+  }
+  expect(await app.evaluate(() => (globalThis as unknown as { handoffCopyCalls: number }).handoffCopyCalls)).toBe(2)
+  expect(await snapshot(source)).toEqual(before)
+  const files = await readdir(data)
+  expect(files).not.toContain('library.json'); expect(files).not.toContain('imports')
+})
+
 test('页头在延迟读取、成功、切换和失败时保持位置，元信息自然宽度且小点两侧均为 8px', async () => {
   await connect()
   // 只挂起隔离测试的正文 IPC，不接触真实来源、剪贴板或文件选择器。
@@ -115,7 +151,7 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
     }))
   }, fixtureSessions[0])
   const header = page.locator('.detail-header')
-  const pin = header.getByRole('button', { name: 'Pin 走这段对话' })
+  const pin = header.getByRole('button', { name: '更多会话操作' })
   const count = header.locator('.detail-message-count')
   async function layout() {
     return header.evaluate(element => [element, ...element.querySelectorAll('.detail-title-group, .detail-meta, .detail-title-row > button')].map(node => {
@@ -177,7 +213,7 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
   await background()
 })
 
-test('详情标签紧跟标题 8px，接续按钮位于右上角且来源详情无底栏', async () => {
+test('详情不展示直读标签和不可用主按钮，标题优先且更多操作靠右', async () => {
   await connect()
   await openMatchingSession('synthetic-0')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
@@ -189,11 +225,15 @@ test('详情标签紧跟标题 8px，接续按钮位于右上角且来源详情�
     await page.emulateMedia({ colorScheme })
     const header = page.locator('.detail-header')
     const group = header.locator('.detail-title-group')
-    await expect(group).toHaveCSS('gap', '8px')
-    const title = (await group.locator('h2').boundingBox())!
-    const badge = (await group.locator('.archive-badge').boundingBox())!
-    expect(badge.x - title.x - title.width).toBeCloseTo(8, 0)
-    const pin = header.getByRole('button', { name: 'Pin 走这段对话' })
+    await expect(group.locator('.archive-badge, .reader-state')).toHaveCount(0)
+    await expect(header.getByText('来源直读')).toHaveCount(0)
+    await expect(header.getByRole('button', { name: '在原 App 打开' })).toHaveCount(0)
+    await expect(header.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
+    const title = (await group.boundingBox())!
+    const actions = (await header.locator('.source-actions').boundingBox())!
+    expect(title.width).toBeGreaterThan(actions.width)
+    expect(actions.y >= title.y + title.height || actions.x >= title.x + title.width).toBe(true)
+    const pin = header.getByRole('button', { name: '更多会话操作' })
     await expect(pin).toBeVisible()
     const bounds = (await header.boundingBox())!, button = (await pin.boundingBox())!
     expect(bounds.x + bounds.width - button.x - button.width).toBeCloseTo(24, 0)
@@ -202,8 +242,8 @@ test('详情标签紧跟标题 8px，接续按钮位于右上角且来源详情�
     await expect(page.getByRole('button', { name: '重新读取正文' })).toHaveCount(0)
     expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   }
-  await page.locator('.detail-header').getByRole('button', { name: 'Pin 走这段对话' }).click()
-  await expect(page.getByRole('heading', { name: '选择接续目标' })).toBeVisible()
+  await page.locator('.detail-header').getByRole('button', { name: '更多会话操作' }).click()
+  await expect(page.getByRole('menu', { name: '更多会话操作' })).toBeVisible()
   await background()
 })
 
@@ -954,13 +994,12 @@ test('空档案库直接连接、完整计数、分页搜索、按需正文，�
   expect(files).not.toContain('library.json'); expect(files).not.toContain('imports')
   const config = await readFile(join(data, 'connections.json'), 'utf8')
   expect(config).not.toContain('messages'); expect(config).not.toContain('合成问题')
-  await page.getByRole('button', { name: 'Pin 走这段对话' }).click()
-  await page.getByLabel('目标 App').selectOption('codex')
-  await expect(page.locator('.dialog-header h2')).toHaveText('选择接续目标')
-  await expect(page.locator('.dialog-header .dialog-icon')).toHaveCount(0)
-  await expect(page.locator('.dialog-header svg')).toHaveCount(1)
-  await expect(page.getByRole('button', { name: '自动接续暂未支持', exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: '返回会话', exact: true }).click()
+  await page.getByRole('button', { name: '更多会话操作' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '复制会话文本' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '导出 Markdown' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await background(); await app.close()
   // 即使其他默认位置存在会话，启动也不能为尚未授权的 App 自动连接。
   const unconnected = join(root, '.codex', 'sessions'); await mkdir(unconnected, { recursive: true })

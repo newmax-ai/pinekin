@@ -1,5 +1,14 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, type IpcMainInvokeEvent } from 'electron'
-import { join, dirname } from 'node:path'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, shell, type IpcMainInvokeEvent } from 'electron'
+import { join, dirname, extname } from 'node:path'
+import { constants } from 'node:fs'
+import { SourceActions } from './source-actions'
+import { CodexTarget } from './codex-target'
+import { registerCodexTargetIpc } from './codex-target-ipc'
+import { CodexProjectSelection } from './codex-project'
+import { readCodexProjectCatalog } from './codex-project-catalog'
+import { resolveCodexBinary, resolveCodexApplication } from './codex-target-runtime'
+import { CodexTargetSetup, checkCodexDirectory } from './codex-target-setup'
+import { sourceTextSchema } from '../core/source-transcript'
 import { fileURLToPath } from 'node:url'
 import { open } from 'node:fs/promises'
 import { z } from 'zod'
@@ -72,7 +81,78 @@ else {
     const imports = new ImportCoordinator(library)
     importer = imports
     const sourceBrowser = new SourceBrowser(app.getPath('userData'))
+    const codexApplication = async () => {
+      const application = await app.getApplicationInfoForProtocol('codex://')
+      return { ...application, ...await resolveCodexApplication(application.path) }
+    }
+    const applicationHandler = async (url: string) => {
+      if (process.platform === 'darwin' && url.startsWith('codex:')) {
+        await codexApplication()
+        // 只有包身份和协议校验通过后才返回能力标识，不依赖可变的应用显示名。
+        return 'Codex'
+      }
+      return app.getApplicationNameForProtocol(url)
+    }
+    const codexTarget = CodexTarget.create(app.getPath('userData'), {
+      handler: applicationHandler, openExternal: url => shell.openExternal(url),
+      applicationBinary: async () => (await codexApplication()).binary,
+    })
+    const codexDefaultHome = process.env.CODEX_HOME || join(app.getPath('home'), '.codex')
+    const codexSetup = new CodexTargetSetup({
+      platform: process.platform, defaultHome: codexDefaultHome, locationSource: process.env.CODEX_HOME ? 'environment' : 'default',
+      saved: () => codexTarget.configuration(), application: codexApplication,
+      resolveBinary: resolveCodexBinary, checkDirectory: checkCodexDirectory,
+      configure: (binary, home, assertAllowed) => codexTarget.configure(binary, home, assertAllowed),
+      chooseApplication: async () => {
+        const associated = await app.getApplicationInfoForProtocol('codex://').catch(() => undefined)
+        const result = await dialog.showOpenDialog(window!, { title: '选择提供 Codex 功能的应用', defaultPath: associated?.path ?? '/Applications', properties: ['openFile'] })
+        return result.canceled ? null : result.filePaths[0] ?? null
+      },
+      chooseDirectory: async () => {
+        const saved = await codexTarget.configuration()
+        const result = await dialog.showOpenDialog(window!, { title: '选择 Codex 实际使用的数据目录', defaultPath: saved?.home ?? codexDefaultHome,
+          properties: ['openDirectory', 'showHiddenFiles'] })
+        return result.canceled ? null : result.filePaths[0] ?? null
+      },
+    })
+    const codexProjects = new CodexProjectSelection(async () => {
+      const result = await dialog.showOpenDialog(window!, {
+        title: '选择接续对话的项目文件夹', buttonLabel: '在此项目继续', properties: ['openDirectory'],
+      })
+      return result.canceled ? null : result.filePaths[0] ?? null
+    }, Date.now, async () => {
+      await codexApplication()
+      const saved = await codexTarget.configuration()
+      return readCodexProjectCatalog(saved?.home ?? codexDefaultHome)
+    })
+    registerCodexTargetIpc<IpcMainInvokeEvent>({
+      handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, setup: codexSetup, target: codexTarget, source: sourceBrowser, projects: codexProjects,
+    })
+    const sourceActions = new SourceActions({
+      getEntry: id => sourceBrowser.getEntry(id),
+      handler: applicationHandler,
+      openExternal: url => shell.openExternal(url),
+      targets: async () => process.platform === 'darwin' ? [{ id: 'codex', name: 'Codex', configured: await codexTarget.configured() }] : [],
+    })
     let choosingSource = false
+    let choosingTextExport = false
+    ipcMain.handle('pinekin:source-actions-inspect', (event, id: unknown) => { assertSender(event); return sourceActions.inspect(entryIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:source-actions-open-original', (event, id: unknown) => { assertSender(event); return sourceActions.openOriginal(entryIdSchema.parse(id), () => assertSender(event)) })
+    ipcMain.handle('pinekin:source-actions-export-text', async (event, rawText: unknown) => {
+      assertSender(event)
+      const text = sourceTextSchema.parse(rawText)
+      if (choosingTextExport) throw new Error('已有文本导出正在处理，请稍候。')
+      choosingTextExport = true
+      try {
+        const result = await dialog.showSaveDialog(window!, { title: '导出会话文本', defaultPath: 'pinekin-conversation.md', filters: [{ name: 'Markdown', extensions: ['md'] }] })
+        assertSender(event)
+        if (result.canceled || !result.filePath) return false
+        if (extname(result.filePath).toLowerCase() !== '.md') throw new Error('请选择 Markdown 文件（.md），不会覆盖其他格式文件。')
+        const file = await open(result.filePath, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW), 0o600)
+        try { await file.writeFile(text, 'utf8') } finally { await file.close() }
+        return true
+      } finally { choosingTextExport = false }
+    })
     ipcMain.handle('pinekin:sources-connections', event => { assertSender(event); return sourceBrowser.connections() })
     ipcMain.handle('pinekin:sources-page', (event, query: unknown) => { assertSender(event); return sourceBrowser.page(sourceQuerySchema.parse(query)) })
     ipcMain.handle('pinekin:sources-read', (event, id: unknown, cursor: unknown) => { assertSender(event); return sourceBrowser.read(entryIdSchema.parse(id), sourceReadCursorSchema.parse(cursor ?? {})) })

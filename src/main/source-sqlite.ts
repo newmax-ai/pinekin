@@ -114,13 +114,21 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       const actual = schema?.columns
       if (schema?.type !== 'table' || !Array.isArray(actual) || columns.some(column => !actual.includes(column))) throw new Error('数据库结构未支持：会话表或字段不匹配')
     }
-    // 不用 SHM 的锁读标记做版本：只绑定 DB/WAL 身份、大小与修改时间，避免正常只读访问使游标失效。
-    const stamp = (value: Stats | undefined) => value ? [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs] : null
-    const walAfter = await ordinary(path + '-wal', true)
-    if (JSON.stringify([stamp(before), stamp(wal)]) !== JSON.stringify([stamp(current), stamp(walAfter)])) throw new Error('数据库在读取期间变化，请刷新；未混合不同版本的片段')
-    const snapshot = createHash('sha256').update(JSON.stringify([source, rowId, stamp(before), stamp(wal)])).digest('hex')
-    return { snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow),
-      session: records.find(row => row.kind === 'session')?.value as DatabaseRow | undefined,
-      budget: records.find(row => row.kind === 'budget')?.value as DatabaseRow | undefined }
+    const session = records.find(row => row.kind === 'session')?.value as DatabaseRow | undefined
+    const budget = records.find(row => row.kind === 'budget')?.value as DatabaseRow | undefined
+    let snapshot: string
+    if (rowId !== undefined) {
+      // SQLite 的事务已保证本次投影一致；其他会话提交或 WAL checkpoint 不能使本会话游标失效。
+      // 绑定文件身份、所选会话状态和完整文本投影；只复核首窗口也能检测未读尾部的等长修改。
+      const digest = records.find(row => row.kind === 'snapshot')?.value
+      if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) throw new Error('来源正文指纹不可用，未跳过一致性校验')
+      snapshot = createHash('sha256').update(JSON.stringify([source, rowId, held.dev, held.ino, session, digest])).digest('hex')
+    } else {
+      const stamp = (value: Stats | undefined) => value ? [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs] : null
+      const walAfter = await ordinary(path + '-wal', true)
+      if (JSON.stringify([stamp(before), stamp(wal)]) !== JSON.stringify([stamp(current), stamp(walAfter)])) throw new Error('数据库在读取期间变化，请刷新；未混合不同版本的片段')
+      snapshot = createHash('sha256').update(JSON.stringify([source, stamp(before), stamp(wal)])).digest('hex')
+    }
+    return { snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow), session, budget }
   } finally { await handle.close() }
 }

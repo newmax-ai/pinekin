@@ -4,7 +4,7 @@
 
 **连接来源 → 发现会话目录 → 元数据分页／查找 → 按需读取正文 → 目标能力检查。**
 
-来源直读不依赖 `Library`，也不调用 `ImportCoordinator.prepare/commit`。已有档案只作为独立兼容入口。目标创建／打开／接续尚未通过验收，当前不提供目标写入 IPC。
+来源直读不依赖 `Library`，也不调用 `ImportCoordinator.prepare/commit`。已有档案只作为独立兼容入口。macOS Codex 目标接续通过独立的 `CodexTarget` 实现，主进程具名 IPC 只接受来源 ID／事务 UUID，目标路径来自系统授权选择器。`SourceBrowser.transfer` + `source-transfer.ts` 重新读完一致快照并合并长文本；`codex-target-format.ts` 写模型与 UI 双投影；`codex-target-runtime.ts` 在断网、独立 HOME 的 OS 沙箱中验证目标程序；`codex-target.ts` 负责备份、独占发布、散列回读、幂等、撤销与打开请求；`codex-target-ipc.ts` 负责边界与再次授权检查。官方程序契约已验证，真实桌面展示尚未验收，详见 [目标能力](target-capabilities.md)。
 
 | 层 | 路径 | 职责 |
 | --- | --- | --- |
@@ -12,7 +12,9 @@
 | 来源契约 | `src/core/sources.ts` | 连接状态、目录条目、查询与响应 schema；将发现、正文能力和总数状态分开 |
 | 来源服务 | `src/main/source-browser.ts` | 位置授权配置、全量目录发现、分页搜索、取消、刷新、断开、正文按需读取、只读数据库门禁 |
 | 国内 Harness 来源 | `src/main/qwen-source.ts`、`src/main/workbuddy-source.ts`、`src/main/workbuddy-metadata.ts` | 独立格式及父链门禁、本地普通会话、侧车有界只读与联合快照；[契约与证据](domestic-sources.md) |
-| 安全桥 | `src/preload/index.ts` | `window.staithe.sources` 的具名方法；旧档案 API 保留；不暴露 Node、任意 IPC 或路径读写 |
+| 原会话动作 | `src/main/source-actions.ts`、`src/core/source-actions.ts` | 从授权目录解析 ID，检查系统协议关联，发送 NewMax／Codex 原会话定位请求；不创建目标或运行模型 |
+| 辅助文本 | `src/core/source-transcript.ts` | 当前已读文本复制／Markdown 导出，分段明确标注，不指定目标、不冒充迁移 |
+| 安全桥 | `src/preload/index.ts` | `window.staithe.sources` 与 `window.staithe.sourceActions` 的具名方法；旧档案 API 保留；不暴露 Node、任意 IPC、URL 或路径读写 |
 | 默认界面 | `src/renderer/src/SourceApp.tsx` | 来源列表、元数据搜索、分页、连接管理、正文、能力检查与过期请求隔离 |
 | 页面路由／兼容界面 | `src/renderer/src/App.tsx` | 默认 `SourceApp`，显式切换 `ArchiveApp`；旧深链进入档案入口 |
 | 导入协调 | `src/main/imports.ts` | 独立兼容路径的内容识别、预览 token、确认、去重；其纯 `parseArchive` 也供来源正文投影复用 |
@@ -61,13 +63,15 @@
 - `listLocal`：可在已授权位置发现元数据，不代表所有平台／数据库模式适用。
 - `readLocal`：可按需投影受支持正文；NewMax、Claude Code、Codex、Harness 有受限实现，Cindy 暂为 false。
 - `importArchive`：旧档案格式解析与保存能力。
-- `nativeResume` / `deepLink`：外部目标恢复／打开能力，全部仍为 false。
+- 旧档案适配器的 `nativeResume` / `deepLink` 标记继续为 false，不依据档案中的 ID 自动打开外部来源。
+- 来源模式单独使用 `sourceActions.inspect()` 返回按当前授权、原 ID 与系统协议关联计算的原会话打开能力；NewMax／Codex 的请求返回只表示 OS 受理，不是目标确认。macOS 目标列表包含 Codex 及其配置状态，每次新建前用当前关联程序实际隔离预演；其他目标不冒充已支持。
 
-NewMax 的数据库结构匹配不等于探测到真实安装版本；1.1.22 仅为既有白名单读取契约。官方文档有目标接口不等于 Pinekin 已完成创建、持久化回读、打开与回滚验收。当前目标弹窗仅展示门禁，不创建目标、不发送 prompt、不操作剪贴板来伪装同步。
+NewMax 的数据库结构匹配不等于探测到真实安装版本；1.1.22 仅为既有白名单读取契约。复制和导出留在更多菜单，Codex 接续则是独立的目标文件写入事务。该目标只移植普通主会话的完整可读 user/assistant 文字，拒绝混合快照，32 MiB／100000 条上限不静默截断。`codex-target-setup.ts` 仅在用户选择目标时查询系统应用关联和目标目录属性，返回绑定主进程候选的 5 分钟授权令牌；路径来源依次为已授权配置、当前进程 CODEX_HOME、默认位置，不读取客户端配置或凭据。用户点击接续目标后先明确选择独立会话或项目，再自动完成识别、首次必要配置和创建；不要求确认安装／数据位置。`codex-project-catalog.ts` 从目标数据根的固定 `.codex-global-state.json` 有界只读投影本地项目名称、路径及顺序，不读取 auth/config 或会话文件；已核对的 local-projects 结构不混入旧根或历史 cwd。`codex-project.ts` 只接受系统目录选择器结果或绑定来源的临时列表 UUID，选择列表项时重读元数据复核；列表 ID 与选择令牌均为 5 分钟有效，renderer 不提供任意路径。多根、共享目录及空根项目保留限制说明，不能以 cwd 冒充原生项目指派。随后用绑定来源 ID、5 分钟有效的令牌授权项目；IPC 必须明确传 standalone 或 project + token，禁止任意路径与默认回退。所选目录写入 `session_meta.cwd`，生产隔离回读必须返回相同工作目录；预演与发布前后持续复核 dev/ino 和真实路径，不读取或执行项目 AGENTS。项目路径及目录身份参与幂等去重，不同项目不复用目标；独立会话沿用原索引。主进程原有候选令牌、版本探测与写入门禁不变。自定义位置集中在目标设置，失败时才提供处理入口。备份与新日志仅在执行接续时持久化；普通阅读仍不保存正文。不会调用模型轮次或写入客户端 SQLite。官方程序回读、目标文件散列验证和 OS 打开请求分别验证；用户已确认独立会话接通，新增项目归属的桌面展示和下一轮对话仍待验收。具体协议与边界见 [目标能力](target-capabilities.md)。
 
 ## 持久化与兼容
 
-- 新来源模式只保存 `userData/connections.json`（版本 1）：来源枚举、UUID、规范化根路径。串行写入、临时文件 + rename 原子替换，文件 `0600`。标题、搜索词和正文不持久化。
+- 普通来源浏览只保存 `userData/connections.json`（版本 1）：来源枚举、UUID、规范化根路径。串行写入、临时文件 + rename 原子替换，文件 `0600`。标题、搜索词和正文不持久化。
+- 用户主动配置／执行 Codex 接续时，另外保存 `codex-target.json`、`codex-transfers/<receipt>/{backup.jsonl,receipt.json,workspace/}` 及幂等索引。`workspace/` 仅为独立会话创建，项目模式直接引用明确选择的目录但不向项目写文件。备份是明文，撤销保留备份且不删除项目文件；目标仅增加新会话文件，不覆盖旧会话或写数据库。
 - 重启后连接为 `idle`，显式刷新才读来源。断开清除授权配置和该连接索引，不删除来源内容。
 - 旧 `library.json` 与 `imports/<sha256>/{original.bin,record.json}` 不自动迁移、改写或删除。损坏档案和损坏连接配置分别报错。
 - `staithe.session` v1/v2、`ember.session` v1 继续兼容；严格版本、字段与预算校验。v2 是文本投影，不是附件和运行态容器。

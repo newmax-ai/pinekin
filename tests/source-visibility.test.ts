@@ -107,6 +107,7 @@ describe('只列出未被判定为不支持的来源会话', () => {
     expect(await browser.page({})).toMatchObject({ items: [], total: 0 })
     expect((await browser.connections())[0]).toMatchObject({ total: 0, discovered: 0 })
     expect((await browser.page({})).snapshot).not.toBe(before.snapshot)
+    await expect(browser.getEntry(item.id)).rejects.toThrow(/已过滤/)
     await browser.refresh(connection.id); await browser.waitForScan(connection.id)
     expect((await browser.page({})).total).toBe(0)
     await writeFile(path, original)
