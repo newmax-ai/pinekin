@@ -31,8 +31,7 @@ function openSearch() {
 }
 function openConnections() { fireEvent.click(screen.getByRole('button', { name: '连接 App' })) }
 function chooseSource(source: BrowsableSource) {
-  fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${sourceNames[source]}` }))
-  fireEvent.click(screen.getByRole('button', { name: '连接所选 App' }))
+  fireEvent.click(screen.getByRole('switch', { name: `连接 ${sourceNames[source]}` }))
 }
 
 describe('来源逻辑沿用原有设计', () => {
@@ -90,7 +89,7 @@ describe('来源逻辑沿用原有设计', () => {
       expect(window.staithe.sources.read).not.toHaveBeenCalled()
     } finally { clock.mockRestore() }
   })
-  it('默认不读档案、不自动扫描，兼容与连接管理收在原菜单弹窗内', async () => {
+  it('默认不读档案、不自动扫描，连接弹窗只管理来源', async () => {
     render(<App />); await ready()
     expect(screen.getByRole('heading', { name: '尚未连接会话来源' })).toBeTruthy()
     expect(window.staithe.list).not.toHaveBeenCalled()
@@ -98,28 +97,40 @@ describe('来源逻辑沿用原有设计', () => {
     expect(screen.queryByRole('button', { name: /NewMax.*未连接/ })).toBeNull()
     expect(screen.queryByRole('button', { name: '导入会话文件' })).toBeNull()
     openConnections()
-    fireEvent.click(screen.getByRole('button', { name: '已有档案' }))
-    await screen.findByText('暂无会话档案', { selector: 'p' })
+    expect(screen.queryByRole('button', { name: '已有档案' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(window.staithe.list).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: '尚未连接会话来源' })).toBeTruthy()
+  })
+  it('移除档案按钮后，旧链接仍可打开本地档案并返回来源', async () => {
+    vi.mocked(window.staithe.list).mockResolvedValue(fixtureSessions)
+    render(<App />); await ready()
+    const openSession = vi.mocked(window.staithe.onOpenSession).mock.calls[0][0]
+    act(() => openSession(fixtureSessions[0].id))
+    await screen.findByRole('button', { name: '返回来源会话' })
+    await screen.findByRole('heading', { level: 2, name: fixtureSessions[0].title })
     expect(window.staithe.list).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: '返回来源会话' }))
     await ready()
     expect(screen.getByRole('heading', { name: '尚未连接会话来源' })).toBeTruthy()
   })
-  it('连接面板展示多选列表和只读范围，不预先扫描，默认聚焦首项而不是关闭按钮', async () => {
+  it('连接面板展示全部来源和只读范围，不预先扫描，默认聚焦首项而不是关闭按钮', async () => {
     render(<App />); await ready(); openConnections()
     const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
     expect(dialog.querySelector('.dialog-header .dialog-icon')).toBeNull()
-    expect(dialog.querySelector('.dialog-header')?.firstElementChild?.tagName).toBe('H2')
-    expect(within(dialog).getByRole('list', { name: '可连接的 App' })).toBeTruthy()
+    expect(dialog.querySelector('.dialog-heading')?.firstElementChild?.tagName).toBe('H2')
+    expect(within(dialog).queryByRole('tablist')).toBeNull()
+    expect(within(dialog).getAllByRole('switch')).toHaveLength(5)
+    expect(within(dialog).getByRole('list', { name: '来源 App' }).children).toHaveLength(5)
     expect(dialog.textContent).not.toContain('首次自动定位暂未支持')
     expect(dialog.textContent).toContain('只读访问 · 不保存正文 · 不修改来源')
     expect(dialog.querySelectorAll('.connection-card')).toHaveLength(0)
     expect(dialog.querySelector('select')).toBeNull()
     expect(within(dialog).queryByRole('combobox')).toBeNull()
     expect(dialog.querySelector('.notice')).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('checkbox', { name: '选择 NewMax' }))
+    expect(document.activeElement).toBe(screen.getByRole('switch', { name: '连接 NewMax' }))
     expect(screen.queryByRole('tooltip')).toBeNull()
-    expect((screen.getByRole('button', { name: '连接所选 App' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: '连接所选 App' })).toBeNull()
     expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
     expect(window.staithe.sources.connect).not.toHaveBeenCalled()
   })
@@ -142,32 +153,42 @@ describe('来源逻辑沿用原有设计', () => {
     expect(window.staithe.sources.connect).not.toHaveBeenCalled()
     expect(window.staithe.sources.read).not.toHaveBeenCalled()
     expect(window.staithe.list).not.toHaveBeenCalled()
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('连接未完成'))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('未找到'))
     expect(screen.getByRole('dialog')).toBeTruthy()
     expect(document.querySelector('.sidebar-section')?.textContent).not.toContain(sourceNames[source])
   })
-  it('自动连接成功关闭弹窗，多个位置一并加载而不弹出位置选择', async () => {
-    vi.mocked(window.staithe.sources.autoConnect).mockResolvedValue({ connections: [connection, { ...connection, id: 'another' }], warnings: [] })
+  it('自动连接后保留弹窗，多个位置合并统计，点击完成才进入会话', async () => {
+    vi.mocked(window.staithe.sources.autoConnect).mockImplementation(async () => {
+      const connections = [connection, { ...connection, id: 'another' }]
+      vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, connections })
+      return { connections, warnings: [] }
+    })
     render(<App />); await ready(); openConnections(); chooseSource('claude-code')
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await screen.findByText('270 条会话'); await ready()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '完成' })); await ready()
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(window.staithe.sources.connect).not.toHaveBeenCalled()
     expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code' }))
   })
-  it('部分位置失败逐项显示，确认查看后警告仍保留到主界面', async () => {
-    vi.mocked(window.staithe.sources.autoConnect).mockResolvedValue({ connections: [connection], warnings: ['另一个位置没有读取权限'] })
+  it('部分位置失败保留原因，点击完成后警告仍保留到主界面', async () => {
+    vi.mocked(window.staithe.sources.autoConnect).mockImplementation(async () => {
+      vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
+      return { connections: [connection], warnings: ['另一个位置没有读取权限'] }
+    })
     render(<App />); await ready(); openConnections(); chooseSource('claude-code')
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('部分位置已连接'))
-    fireEvent.click(screen.getByRole('button', { name: '查看已连接会话' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('没有读取权限'))
+    await ready(); fireEvent.click(screen.getByRole('button', { name: '完成' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('没有读取权限'))
     expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code' }))
   })
-  it('从已连接来源打开时仍列出其他可连接 App，不预选或重复连接当前来源', async () => {
+  it('已连接 App 开关开启，其他 App 关闭，打开不重复连接', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
     render(<App />); await ready()
     fireEvent.click(screen.getByRole('button', { name: /Claude Code.*135/ })); await ready(); openConnections()
-    expect(screen.queryByRole('checkbox', { name: '选择 Claude Code' })).toBeNull()
-    expect(screen.getByRole('checkbox', { name: '选择 Codex' })).toBeTruthy()
+    expect(screen.getByRole('switch', { name: '连接 Claude Code' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('switch', { name: '连接 Codex' }).getAttribute('aria-checked')).toBe('false')
     expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
   })
   it('完整总数与分页不受视觉恢复影响，点击才读取，不调用归档', async () => {

@@ -34,6 +34,45 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('所有来源共用固定 App 卡片网格，位置仅在卡片内部排列而不另起一组', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.ds-dialog:has\(> \.connection-header\)\s*\{[^}]*width: 920px;/)
+    expect(styles).toMatch(/\.connection-app-list\s*\{[^}]*display: grid;[^}]*grid-template-columns: repeat\(auto-fill, minmax\(min\(100%, 240px\), 1fr\)\);[^}]*gap: 12px;/)
+    expect(styles).not.toContain('.connection-saved-list')
+    expect(styles).not.toContain('.connection-section-title')
+    const card = /\.connection-source-card\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(card).not.toMatch(/(?:min-|max-)?height:/)
+    expect(card).toContain('flex: 1;')
+    expect(card).toContain('border: 1px solid var(--ds-divider);')
+    expect(styles).toMatch(/\.connection-app-list > li\s*\{[^}]*display: flex;/)
+    // 所有隐式网格行共用最大内容高度，而非仅在各行内拉伸。
+    expect(styles).toMatch(/\.connection-app-list\s*\{[^}]*grid-auto-rows: 1fr;/)
+    expect(styles).toMatch(/\.connection-app-list\s*\{[^}]*align-items: stretch;/)
+    expect(styles).toMatch(/\.connection-location\s*\{[^}]*gap: 8px;/)
+    expect(styles).toMatch(/\.connection-location-name\s*\{[^}]*text-overflow: ellipsis;/)
+  })
+  it('连接描述贴近标题，不保留地区工具栏，标题和关闭按钮顶部对齐', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.dialog-heading\s*\{[^}]*min-width: 0;/)
+    expect(styles).toMatch(/\.connection-description\s*\{[^}]*margin-top: 4px;/)
+    expect(styles).toMatch(/\.connection-header > \.ds-button\s*\{[^}]*align-self: flex-start;/)
+    expect(styles).not.toContain('.connection-toolbar')
+  })
+  it('位置和错误撑开卡片，由弹窗内容区滚动，small 开关规格不变', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const switches = readFileSync(resolve('src/renderer/src/components/DsSwitch.css'), 'utf8')
+    expect(styles).toMatch(/\.connection-summary\s*\{[^}]*height: 22px;/)
+    expect(styles).not.toContain('.connection-state')
+    expect(styles).toMatch(/\.connection-feedback\s*\{[^}]*height: 22px;[^}]*overflow: auto;/)
+    const info = /\.connection-inline-info\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(info).not.toMatch(/(?:^|[;\s])(?:(?:min-|max-)?height|overflow|flex):/)
+    expect(styles).toMatch(/\.dialog-content\s*\{[^}]*overflow: auto;/)
+    expect(styles).not.toContain('.connection-details')
+    expect(styles).not.toMatch(/\.connection-progress\s*\{/)
+    expect(switches).toMatch(/\.ds-switch-small\s*\{[^}]*width: 28px;[^}]*height: 16px;[^}]*padding: 2px;/)
+    expect(switches).toMatch(/\.ds-switch-small \.ds-switch-thumb\s*\{[^}]*width: 12px;[^}]*height: 12px;/)
+    expect(switches).toMatch(/\.ds-switch-small\[aria-checked='true'\] \.ds-switch-thumb\s*\{[^}]*translateX\(12px\)/)
+  })
   it('全局禁用 focus 与 focus-visible 外轮廓，覆盖浏览器和组件规则但不重置选中态或阴影', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const rule = /:focus\s*,\s*:focus-visible\s*\{([^}]*)\}/.exec(styles)?.[1]
@@ -174,7 +213,11 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(footer).not.toMatch(/border(?:-top)?:|box-shadow:/)
     expect(footer).toContain('padding: 12px 24px;')
     expect(footer).toContain('gap: 12px;')
-    expect(styles).toMatch(/\.dialog-footer\s*\{[^}]*border-top: 1px solid var\(--ds-divider\);/)
+    const dialogFooter = /\.dialog-footer\s*\{([^}]*)\}/.exec(styles)![1]
+    expect(dialogFooter).not.toMatch(/border(?:-top)?:|box-shadow:/)
+    expect(dialogFooter).toContain('justify-content: flex-end;')
+    expect(dialogFooter).toContain('padding: 18px 24px 24px;')
+    expect(styles).not.toContain('.dialog-footer.connection-footer')
     expect(styles).toMatch(/\.session-pane\s*\{[^}]*border-right: 1px solid var\(--ds-divider\);/)
   })
   it('空占位直接使用全局 tertiary，不叠加局部透明度或场景色阶', () => {
@@ -304,7 +347,7 @@ describe('Staithe 中性主题与图标契约', () => {
   })
   it.each([
     { file: 'App.tsx', titles: ['import-title', 'handoff-title'] },
-    { file: 'SourceApp.tsx', titles: ['connections-title', 'target-title'] },
+    { file: 'SourceApp.tsx', titles: ['target-title'] },
     { file: 'components/ConnectSourcesDialog.tsx', titles: ['connect-title'] },
   ])('$file 的全部常规弹窗使用共享标题组件，不再自行拼装标题图标', ({ file, titles }) => {
     const source = readFileSync(resolve('src/renderer/src', file), 'utf8')

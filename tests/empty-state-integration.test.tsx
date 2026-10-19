@@ -29,7 +29,7 @@ describe('来源空占位接入', () => {
   it('初次加载两栏不短暂显示未连接，加载完成仅主空区显示插画和行动', async () => {
     let resolve!: (value: typeof emptyPage) => void
     vi.mocked(window.staithe.sources.page).mockReturnValueOnce(new Promise(done => { resolve = done }))
-    render(<SourceApp onArchives={() => {}} />)
+    render(<SourceApp />)
     expect(document.querySelector('[data-empty-state="disconnected"]')).toBeNull()
     expect(document.querySelector('.empty-illustration')).toBeNull()
     resolve({ ...emptyPage, connections: [] }); await sourceReady()
@@ -45,7 +45,7 @@ describe('来源空占位接入', () => {
     ['scanning', 'scanning'], ['idle', 'needs-refresh'], ['partial', 'partial'], ['cancelled', 'paused'], ['error', 'connection-error'], ['ready', 'empty'],
   ] as const)('%s 无数据时不会展示不适用的“选中一段对话”引导', async (status, kind) => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...emptyPage, connections: [{ ...connection, status }] })
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+    render(<SourceApp />); await sourceReady()
     expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe(kind)
     const listEmpty = document.querySelector('.session-list .empty-state')!
     expect(listEmpty.querySelector('h2, h3, img')).toBeNull()
@@ -67,12 +67,15 @@ describe('来源空占位接入', () => {
     }
     if (status === 'error') {
       fireEvent.click(within(detail()).getByRole('button', { name: '管理连接' }))
-      expect(screen.getByRole('dialog', { name: '管理连接' })).toBeTruthy()
+      const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
+      expect(within(dialog).getByRole('switch', { name: '连接 Claude Code' }).getAttribute('aria-checked')).toBe('true')
+      expect(within(dialog).queryByText('连接详情')).toBeNull()
+      expect(screen.queryByRole('dialog', { name: '管理连接' })).toBeNull()
     }
   })
   it('列表请求失败有独立重试入口，重试的是列表请求而非擅自扫描', async () => {
     vi.mocked(window.staithe.sources.page).mockRejectedValueOnce(new Error('列表请求失败')).mockResolvedValue(emptyPage)
-    render(<SourceApp onArchives={() => {}} />)
+    render(<SourceApp />)
     await screen.findByText('列表请求失败', { selector: '.detail .empty-description' })
     expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe('list-error')
     fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
@@ -85,7 +88,7 @@ describe('来源空占位接入', () => {
   it('统计轮询失败时保留已发现条目与具体原因，不用空页覆盖结果', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValueOnce({ ...emptyPage, items: [entry], total: 1, connections: [{ ...connection, status: 'scanning' }] })
       .mockRejectedValue(new Error('后续目录读取失败'))
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+    render(<SourceApp />); await sourceReady()
     await waitFor(() => expect(document.querySelector('.session-list')?.textContent).toContain('后续目录读取失败'))
     expect(document.querySelector('.list-heading [role="status"]')?.textContent).toBe('读取失败')
     expect(document.querySelector('.list-heading .loading-mark')).toBeNull()
@@ -95,14 +98,14 @@ describe('来源空占位接入', () => {
   })
   it('存在会话但未选中时使用等待选择插画，不读取正文', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...emptyPage, items: [entry], total: 1 })
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+    render(<SourceApp />); await sourceReady()
     expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe('selection')
     expect(detail().querySelector('img')?.getAttribute('src')).toContain('/selection.svg')
     expect(window.staithe.sources.read).not.toHaveBeenCalled()
   })
   it('只有完成统计后的有效搜索显示无结果，清空后保持来源', async () => {
     vi.mocked(window.staithe.sources.page).mockImplementation(async request => ({ ...emptyPage, items: request.query ? [] : [entry], total: request.query ? 0 : 1 }))
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+    render(<SourceApp />); await sourceReady()
     fireEvent.click(screen.getByRole('button', { name: /^Claude Code/ })); await sourceReady()
     search('不存在'); await sourceReady()
     const dialog = screen.getByRole('dialog', { name: '搜索会话' })
@@ -117,7 +120,7 @@ describe('来源空占位接入', () => {
       if (request.query) throw new Error('搜索目录不可访问')
       return { ...emptyPage, items: [entry], total: 1 }
     })
-    render(<SourceApp onArchives={() => {}} />); await sourceReady(); search('词')
+    render(<SourceApp />); await sourceReady(); search('词')
     const dialog = screen.getByRole('dialog', { name: '搜索会话' })
     await waitFor(() => expect(dialog.querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe('list-error'))
     expect(within(dialog).queryByText('没有匹配的会话')).toBeNull()
@@ -126,7 +129,7 @@ describe('来源空占位接入', () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...emptyPage, items: [{ ...entry, availability: state === 'unsupported' ? 'unsupported' : 'unread', reason: '此结构暂未支持' }], total: 1 })
     vi.mocked(window.staithe.sources.read).mockRejectedValue(new Error('文件已被移动'))
     if (state === 'empty') vi.mocked(window.staithe.sources.read).mockResolvedValue({ session: { ...fixtureSessions[0], messages: [] }, warnings: [] })
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+    render(<SourceApp />); await sourceReady()
     fireEvent.click(screen.getByRole('button', { name: '合成会话' }))
     await waitFor(() => expect(detail().querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe(state === 'error' ? 'read-error' : state === 'empty' ? 'messages' : 'unsupported'))
     expect(within(detail()).queryByRole('button', { name: '重试读取' }) !== null).toBe(state === 'error')
@@ -137,14 +140,15 @@ describe('来源空占位接入', () => {
     if (state === 'unsupported') expect(window.staithe.sources.read).not.toHaveBeenCalled()
     if (state === 'empty') expect(detail().textContent).not.toContain('对话到这里')
   })
-  it('管理连接的空列表复用插画与连接入口', async () => {
-    render(<SourceApp onArchives={() => {}} />); await sourceReady()
+  it('没有连接时直接展示可添加列表，不再绕行空管理弹窗', async () => {
+    render(<SourceApp />); await sourceReady()
     fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
-    fireEvent.click(screen.getByRole('button', { name: '管理连接' }))
-    const dialog = screen.getByRole('dialog', { name: '管理连接' })
-    expect(dialog.querySelector('[data-empty-state]')?.getAttribute('data-empty-state')).toBe('connections-empty')
-    fireEvent.click(within(dialog).getByRole('button', { name: '连接来源 App' }))
-    expect(screen.getByRole('dialog', { name: '连接来源 App' })).toBeTruthy()
+    const dialog = screen.getByRole('dialog', { name: '连接来源 App' })
+    expect(within(dialog).getAllByRole('switch')).toHaveLength(5)
+    expect(within(dialog).queryByRole('tablist')).toBeNull()
+    expect(within(dialog).queryByRole('button', { name: '管理连接' })).toBeNull()
+    expect(within(dialog).queryByRole('list', { name: '已连接的位置' })).toBeNull()
+    expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
   })
 })
 

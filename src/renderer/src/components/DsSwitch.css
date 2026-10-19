@@ -1,0 +1,10 @@
+.ds-switch { display: inline-flex; align-items: center; flex-shrink: 0; width: 34px; height: 20px; padding: 3px; border: 0; border-radius: var(--ds-radius-pill); background: var(--ds-text-tertiary); cursor: pointer; transition: background var(--ds-duration-fast); }
+.ds-switch-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--ds-surface-100); transform: translateX(0); transition: transform var(--ds-duration-fast); pointer-events: none; }
+.ds-switch[aria-checked='true'] { background: var(--ds-action-primary); }
+.ds-switch[aria-checked='true'] .ds-switch-thumb { transform: translateX(14px); background: var(--ds-action-primary-text); }
+.ds-switch-small { width: 28px; height: 16px; padding: 2px; }
+.ds-switch-small .ds-switch-thumb { width: 12px; height: 12px; }
+.ds-switch-small[aria-checked='true'] .ds-switch-thumb { transform: translateX(12px); }
+.ds-switch:hover:not(:disabled), .ds-switch:focus-visible { box-shadow: 0 0 0 3px var(--ds-on-surface); }
+.ds-switch:disabled { opacity: .4; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .ds-switch, .ds-switch-thumb { transition: none; } }

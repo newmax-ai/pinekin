@@ -27,7 +27,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 async function open() {
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
   return screen.findByRole('region', { name: '会话消息' })
 }

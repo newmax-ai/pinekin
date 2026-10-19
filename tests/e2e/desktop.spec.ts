@@ -20,6 +20,12 @@ const test = base.extend<{ seedLibrary: boolean }>({
 let app: ElectronApplication
 let page: Page
 let directory: string
+async function openArchives() {
+  await expect(page.getByRole('button', { name: '连接 App', exact: true })).toBeEnabled()
+  // 通过现有深链事件访问隔离档案，不依赖已移除的连接弹窗入口。
+  await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0]!.webContents.send('staithe:open-session', id), demoSessions[0].id)
+  await expect(page.getByRole('button', { name: '导入会话文件' })).toBeEnabled()
+}
 function isolatedEnv(): Record<string, string> {
   return { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
     entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR', 'STAITHE_TEST_BACKGROUND'].includes(entry[0]))),
@@ -59,10 +65,7 @@ async function launch(legacyEnv = false, link?: string, legacyAppData = false) {
   await assertBackground()
   // 本文件保留档案兼容流程回归；默认来源主流程由 source-browser.spec.ts 覆盖。
   const connectEntry = page.getByRole('button', { name: '连接 App', exact: true })
-  if (await connectEntry.count()) {
-    await connectEntry.click()
-    await page.getByRole('button', { name: '已有档案', exact: true }).click()
-  }
+  if (await connectEntry.count()) await openArchives()
   await expect(page.getByRole('button', { name: '导入会话文件' })).toBeEnabled()
 }
 test.beforeEach(async ({ seedLibrary }) => {
@@ -359,24 +362,31 @@ test('原生红绿灯整合进 macOS 页头，拖动区不覆盖操作按钮', a
 test('Windows 保持双行页头结构，导航靠左且不预留红绿灯空白', async () => {
   // 仅在隔离测试窗口模拟 win32 的 renderer 分支，不声称 Windows 原生控件实机验收。
   const preload = join(directory, 'windows-layout-preload.cjs')
-  await writeFile(preload, `const { contextBridge } = require('electron');
+  await writeFile(preload, `const { contextBridge, ipcRenderer } = require('electron');
     contextBridge.exposeInMainWorld('staithe', {
       platform: 'win32', list: async () => ${JSON.stringify(demoSessions)},
       sources: { page: async () => ({ items: [], total: 0, offset: 0, hasMore: false, connections: [] }) },
       previewImport: async () => null, confirmImport: async () => { throw new Error('此布局夹具不执行导入') },
       cancelImport: async () => {}, exportSession: async () => false, copy: async () => {},
-      onOpenSession: () => () => {}
+      onOpenSession: callback => {
+        const listener = (_event, id) => callback(id);
+        ipcRenderer.on('staithe:open-session', listener);
+        return () => ipcRenderer.removeListener('staithe:open-session', listener);
+      }
     });`)
   const created = app.waitForEvent('window')
-  await app.evaluate(({ BrowserWindow }, paths) => {
+  const previewWindowId = await app.evaluate(({ BrowserWindow }, paths) => {
     const preview = new BrowserWindow({ width: 1000, height: 700, show: false, focusable: false, skipTaskbar: true, paintWhenInitiallyHidden: true,
       webPreferences: { preload: paths.preload, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, focusOnNavigation: false } })
     void preview.loadFile(paths.html)
+    return preview.id
   }, { preload, html: resolve('out/renderer/index.html') })
   const preview = await created
   await preview.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
-  await preview.getByRole('button', { name: '连接 App', exact: true }).click()
-  await preview.getByRole('button', { name: '已有档案', exact: true }).click()
+  await expect(preview.getByRole('button', { name: '连接 App', exact: true })).toBeEnabled()
+  await app.evaluate(({ BrowserWindow }, { windowId, id }) => {
+    BrowserWindow.fromId(windowId)!.webContents.send('staithe:open-session', id)
+  }, { windowId: previewWindowId, id: demoSessions[0].id })
   await expect(preview.getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeVisible()
   await expect(preview.locator('.shell')).toHaveAttribute('data-platform', 'win32')
   await expect(preview.locator('.window-controls-space')).toHaveCount(0)
@@ -553,15 +563,13 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toBeInViewport()
   // 窄窗口刷新仍只临时 clamp；恢复大窗口后必须找回 360，而不是保存后的 312。
   await page.reload()
-  await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await page.getByRole('button', { name: '已有档案', exact: true }).click()
+  await openArchives()
   await expectWidth(312)
   expect(await preference()).toBe('360')
   await resizeWindow(1440)
   await expectWidth(360)
   await page.reload()
-  await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await page.getByRole('button', { name: '已有档案', exact: true }).click()
+  await openArchives()
   await expectWidth(360)
   expect(await preference()).toBe('360')
   await expectFade(false)
@@ -629,8 +637,7 @@ test('隐藏桌面侧栏拖拽、临时限宽与持久化，DeepSeek 单行文�
   // 旧版本保存的窄宽度在刷新后也必须遵守 240px 下限，不主动重写偏好。
   await page.evaluate(() => localStorage.setItem('pinekin.sidebar-width', '200'))
   await page.reload()
-  await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await page.getByRole('button', { name: '已有档案', exact: true }).click()
+  await openArchives()
   await expectWidth(240)
   await expect(handle).toHaveAttribute('aria-valuemin', '240')
   expect(await preference()).toBe('200')

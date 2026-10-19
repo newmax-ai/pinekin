@@ -17,7 +17,6 @@ import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
 const emptyPage: SourcePage = { items: [], total: 0, offset: 0, hasMore: false, connections: [] }
-const statusNames = { idle: '待刷新', scanning: '加载中', ready: '已连接', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 const displaySources: BrowsableSource[] = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek']
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
@@ -31,7 +30,7 @@ function countLabel(connections: SourceConnection[]) {
   return String(connections.reduce((total, item) => total + (item.total ?? 0), 0))
 }
 
-export function SourceApp({ onArchives }: { onArchives: () => void }) {
+export function SourceApp() {
   const now = useCurrentTime()
   const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number }>({
     entries: [{ source: 'all' }], index: 0,
@@ -49,7 +48,6 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [connectionNotice, setConnectionNotice] = useState('')
-  const [managing, setManaging] = useState(false)
   const [busy, setBusy] = useState(false)
   const [content, setContent] = useState<SourceContent>()
   const [readError, setReadError] = useState('')
@@ -173,7 +171,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
   useEffect(() => { if (searchOpen) { search.current?.focus(); search.current?.select() } }, [searchOpen])
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
-      if (event.defaultPrevented || event.isComposing || !loaded || busy || connecting || managing || handoff) return
+      if (event.defaultPrevented || event.isComposing || !loaded || busy || connecting || handoff) return
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         if (searchOpen) { search.current?.focus(); search.current?.select() }
@@ -182,7 +180,7 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     }
     window.addEventListener('keydown', shortcut)
     return () => window.removeEventListener('keydown', shortcut)
-  }, [loaded, busy, connecting, managing, handoff, searchOpen])
+  }, [loaded, busy, connecting, handoff, searchOpen])
 
   function navigate(update: Partial<BrowserView>) {
     setNavigation(previous => {
@@ -214,26 +212,29 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     setConnecting(true)
   }
   async function action(run: () => Promise<void>) {
-    if (busy) return
+    if (busy) return false
     setBusy(true); setError('')
-    try { await run(); setReload(value => value + 1) }
-    catch (reason) { setError(errorText(reason)) }
+    try { await run(); setReload(value => value + 1); return true }
+    catch (reason) { setError(errorText(reason)); return false }
     finally { setBusy(false) }
   }
   function connected(sources: BrowsableSource[], warnings: string[]) {
     clearSelection(); navigate({ source: sources.length === 1 ? sources[0] : 'all', selected: undefined })
     setConnectionNotice(warnings.join('；')); setConnecting(false); setReload(value => value + 1)
   }
-  function disconnect(connection: SourceConnection) {
-    clearSelection()
-    void action(async () => {
-      await window.staithe.sources.disconnect(connection.id)
-      const remaining = page.connections.filter(item => item.id !== connection.id)
-      setPage(previous => ({ ...previous, connections: remaining, items: previous.items.filter(item => item.connectionId !== connection.id) }))
-      if (!remaining.some(item => item.source === connection.source)) {
-        // 最后一个位置撤销后，当前筛选及返回／前进历史都不能再指向已断开的来源。
-        setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => view.source === connection.source
-          ? { source: 'all' } : view) }))
+  function disconnect(connections: SourceConnection[]) {
+    return action(async () => {
+      let remaining = page.connections
+      for (const connection of connections) {
+        await window.staithe.sources.disconnect(connection.id)
+        clearSelection()
+        remaining = remaining.filter(item => item.id !== connection.id)
+        setPage(previous => ({ ...previous, connections: previous.connections.filter(item => item.id !== connection.id), items: previous.items.filter(item => item.connectionId !== connection.id) }))
+        if (!remaining.some(item => item.source === connection.source)) {
+          // 仅成功撤销最后一个位置后清理筛选；中途失败保留剩余位置和开启状态。
+          setNavigation(previous => ({ ...previous, entries: previous.entries.map(view => view.source === connection.source
+            ? { source: 'all' } : view) }))
+        }
       }
     })
   }
@@ -320,9 +321,9 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
     finally { if (request === listRequest.current) setLoadingMore(false) }
   }
   function emptyAction(kind: EmptyStateKind): EmptyStateAction | undefined {
-    if (kind === 'disconnected' || kind === 'connections-empty') return { label: '连接来源 App', disabled: busy, onClick: () => { setSearchOpen(false); setManaging(false); openConnections() } }
+    if (kind === 'disconnected' || kind === 'connections-empty') return { label: '连接来源 App', disabled: busy, onClick: () => { setSearchOpen(false); openConnections() } }
     if (kind === 'list-error') return { label: '重新加载', disabled: busy, onClick: () => setReload(value => value + 1) }
-    if (kind === 'connection-error') return { label: '管理连接', disabled: busy, onClick: () => { setSearchOpen(false); setManaging(true) } }
+    if (kind === 'connection-error') return { label: '管理连接', disabled: busy, onClick: () => { setSearchOpen(false); openConnections() } }
     if (kind === 'needs-refresh' || kind === 'paused' || kind === 'partial' || kind === 'empty') return { label: '刷新', disabled: busy, onClick: () => refresh() }
   }
   const toolbar = <nav className="header-navigation" aria-label="浏览导航">
@@ -398,23 +399,18 @@ export function SourceApp({ onArchives }: { onArchives: () => void }) {
             action={emptyKind ? emptyAction(emptyKind) : undefined} />}
         </section>
       </div>
-      {(error || connectionNotice) && !searchOpen && !connecting && !managing && <div className="toast" role="alert"><DesignIcon name="info" /><span>{error || connectionNotice}</span><DsButton onClick={openConnections}>检查连接</DsButton><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭提示" onClick={() => { setError(''); setConnectionNotice('') }}><DesignIcon name="close" /></DsButton></div>}
+      {(error || connectionNotice) && !searchOpen && !connecting && <div className="toast" role="alert"><DesignIcon name="info" /><span>{error || connectionNotice}</span><DsButton onClick={openConnections}>检查连接</DsButton><DsButton variant="ghost" size="small" iconOnly iconRelaxed aria-label="关闭提示" onClick={() => { setError(''); setConnectionNotice('') }}><DesignIcon name="close" /></DsButton></div>}
       </main>
     </div>
     {searchOpen && <SourceSearchDialog source={source} query={query} revision={reload + catalogVersion} onQueryChange={setQuery} inputRef={search} returnFocus={searchTrigger.current}
       onDismiss={() => setSearchOpen(false)} onSelect={entry => { navigate({ selected: entry }); setSearchOpen(false) }} getEmptyAction={emptyAction} />}
     {connecting && <ConnectSourcesDialog connections={page.connections} returnFocus={connectionTrigger.current}
-      onConnected={connected} onChanged={() => setReload(value => value + 1)} onBusyChange={setBusy}
-      onDismiss={() => setConnecting(false)} onManage={() => { setConnecting(false); setManaging(true) }} onArchives={onArchives} />}
-    {managing && <DsDialog titleId="connections-title" busy={busy} onDismiss={() => setManaging(false)} returnFocus={connectionTrigger.current}>
-      <DsDialogHeader titleId="connections-title" title="管理连接" eyebrow="位置授权" closeLabel="关闭连接管理" busy={busy} onDismiss={() => setManaging(false)} />
-      <ScrollArea className="dialog-content"><p className="dialog-description">断开只撤销 Pinekin 的读取入口，不删除来源会话或已有档案。</p>{page.connections.map(connection => <section key={connection.id} className="import-report">
-        <h3><SourceIcon source={connection.source} /> {sourceNames[connection.source]} · {connection.label}</h3><p className="privacy-note">{statusNames[connection.status]} · 已发现 {connection.discovered} 条{connection.total === null ? ' · 总数未确定' : ` · 共 ${connection.total} 条`}</p>
-        {connection.error && <p role="alert" className="dialog-status">{connection.error}</p>}<p className="privacy-note">不可访问目录 {connection.issues} · 跳过符号链接 {connection.ignoredLinks}</p>
-        <div className="export-actions">{connection.status === 'scanning' ? <DsButton disabled={busy} onClick={() => void action(() => window.staithe.sources.cancel(connection.id))}>暂停统计</DsButton> : <DsButton disabled={busy || checking} onClick={() => refresh([connection.id])}>刷新连接</DsButton>}
-          <DsButton variant="ghost" disabled={busy} onClick={() => disconnect(connection)}>断开连接</DsButton></div>
-      </section>)}{!page.connections.length && <EmptyState kind="connections-empty" action={emptyAction('connections-empty')} />}{error && <p role="alert" className="dialog-status">{error}</p>}</ScrollArea>
-    </DsDialog>}
+      onConnected={connected} onChanged={connections => {
+        setPage(previous => ({ ...previous, connections: [...previous.connections.filter(item => !connections.some(next => next.id === item.id)), ...connections] }))
+        setReload(value => value + 1)
+      }} onBusyChange={setBusy}
+      busy={busy} checking={checking} error={error} onDisconnect={disconnect}
+      onDismiss={() => setConnecting(false)} />}
     {handoff && content && <DsDialog titleId="target-title" busy={false} onDismiss={() => setHandoff(false)}>
       <DsDialogHeader titleId="target-title" title="选择接续目标" eyebrow="上下文交接" closeLabel="关闭接续面板" onDismiss={() => setHandoff(false)} />
       <ScrollArea className="dialog-content"><label className="target-label">目标 App<select aria-label="目标 App" value={target} onChange={event => setTarget(event.target.value as BrowsableSource)}>{browsableSources.map(id => <option key={id} value={id}>{sourceNames[id]}</option>)}</select></label>

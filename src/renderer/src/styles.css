@@ -232,38 +232,36 @@ h1, h2, h3, strong { font-weight: 500; }
 .ds-dialog::backdrop { background: var(--ds-overlay); }
 .dialog-header { display: flex; align-items: center; gap: 12px; padding: 24px 24px 18px; flex-shrink: 0; }
 .dialog-header > .ds-button { margin-left: auto; align-self: flex-start; }
+.dialog-heading { min-width: 0; }
 .eyebrow { color: var(--ds-text-tertiary); font-size: var(--ds-text-xs); margin-bottom: 4px; }
 .dialog-header h2 { font-size: var(--ds-text-title); letter-spacing: -0.6px; line-height: 1.4; }
 .dialog-content { padding: 0 24px 24px; overflow: auto; min-height: 0; }
 .dialog-description { font-size: var(--ds-text-base); color: var(--ds-text-secondary); line-height: 1.8; }
-/* 连接弹窗沿用纯标题栏和紧凑列表节奏，不影响其他弹窗。 */
-.connection-header { padding: 18px 24px 12px; min-height: 66px; }
-.connection-header > .ds-button { align-self: center; }
-.connection-content { padding-top: 4px; }
+/* 所有来源共用网格；所有行等高，统一取内容最多卡片所需的高度。 */
+.ds-dialog:has(> .connection-header) { width: 920px; }
+.connection-header { padding: 18px 24px 16px; }
+.connection-header > .ds-button { align-self: flex-start; }
+.connection-description { margin-top: 4px; }
+.connection-content { padding-top: 0; }
+.connection-app-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); grid-auto-rows: 1fr; gap: 12px; align-items: stretch; }
+.connection-app-list > li { display: flex; min-width: 0; }
+.connection-source-card { display: flex; flex-direction: column; flex: 1; gap: 6px; min-width: 0; padding: 12px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); overflow-wrap: anywhere; }
+.connection-app { display: flex; align-items: center; flex-shrink: 0; gap: 10px; min-width: 0; color: var(--ds-text-primary); text-align: left; }
+.connection-app h3 { flex: 1; min-width: 0; font-size: var(--ds-text-base); font-weight: 600; }
+.connection-summary { height: 22px; flex-shrink: 0; min-width: 0; }
+.connection-summary > .connection-intro { line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connection-inline-info { min-width: 0; font-size: var(--ds-text-xs); line-height: 20px; color: var(--ds-text-secondary); }
+.connection-source-positions { display: grid; gap: 4px; min-width: 0; }
+.connection-location { display: flex; flex-wrap: wrap; gap: 8px; row-gap: 0; min-width: 0; }
+.connection-location-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.connection-location-count { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.connection-location-note { flex-basis: 100%; }
+.connection-error, .connection-feedback[data-error='true'] { color: var(--ds-danger); }
 .connection-intro { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.7; }
-.connection-app-list { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 4px; }
-.connection-app { width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 0; border-radius: var(--ds-radius-md); background: transparent; color: var(--ds-text-primary); text-align: left; cursor: pointer; }
-.connection-app:hover:not([data-disabled="true"]), .connection-app:has([role="checkbox"][aria-checked="true"]) { background: var(--ds-surface-300); }
-.connection-app[data-disabled="true"] { cursor: not-allowed; }
-.connection-app[data-disabled="true"] > :not(.ds-checkbox) { opacity: .4; }
-.connection-app-copy { display: grid; gap: 3px; flex: 1; min-width: 0; font-size: var(--ds-text-base); }
-.connection-app-copy small { color: var(--ds-text-secondary); font-size: var(--ds-text-xs); line-height: 1.5; }
-.connection-progress { margin-top: 12px; font-size: var(--ds-text-sm); color: var(--ds-text-secondary); }
-.connection-footer { flex-wrap: wrap; justify-content: space-between; }
-.connection-app-list .connection-card { margin: 4px 0 8px; }
-.connection-app-list .connection-card-message { min-height: 0; }
-/* 说明与连接结果共用同一张卡片，状态变化不向外堆叠提示或操作。 */
-.connection-card { margin-top: 16px; padding: 16px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-300); font-size: var(--ds-text-sm); line-height: 1.7; overflow-wrap: anywhere; }
-.connection-card-message { min-height: 64px; }
-.connection-card-message h3 { font-size: var(--ds-text-base); font-weight: 600; line-height: 22px; }
-.connection-card-message p { margin-top: 4px; color: var(--ds-text-secondary); text-wrap: pretty; }
+.connection-error { font-size: var(--ds-text-xs); line-height: 1.7; white-space: pre-wrap; }
+.connection-error + .connection-source-positions:not(:empty), .connection-manual { margin-top: 8px; }
+.connection-feedback { height: 22px; overflow: auto; line-height: 22px; overflow-wrap: anywhere; flex-shrink: 0; margin: 0 24px 12px; }
 .connection-card-privacy { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); }
-.connection-card > .connection-help { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--ds-divider); }
-.connection-help summary { display: flex; align-items: center; gap: 4px; width: fit-content; list-style: none; }
-.connection-help summary::-webkit-details-marker { display: none; }
-.connection-help[open] > summary > .design-icon { transform: rotate(90deg); }
-.connection-help .ds-button { margin-top: 8px; }
-.connection-card-reason { color: var(--ds-text-primary); }
 .import-file { padding: 14px 16px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); overflow-wrap: anywhere; }
 .import-file strong { display: block; font-size: var(--ds-text-dense); line-height: 1.7; }
 .import-file p { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); margin-top: 6px; }
@@ -283,7 +281,7 @@ h1, h2, h3, strong { font-weight: 500; }
 .preview-label { display: flex; justify-content: space-between; gap: 12px; font-size: var(--ds-text-sm); }
 .preview-label span { font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
 .handoff-preview { margin: 10px 0 0; padding: 16px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ds-text-secondary); font: var(--ds-text-sm)/1.8 var(--ds-font-mono); }
-.dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 12px; padding: 18px 24px 24px; border-top: 1px solid var(--ds-divider); }
+.dialog-footer { display: flex; align-items: center; justify-content: flex-end; flex-shrink: 0; gap: 12px; padding: 18px 24px 24px; }
 .footer-note { display: flex; align-items: center; gap: 6px; margin-right: auto; font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); }
 .export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .dialog-footer .ds-button { height: 36px; padding: 0 20px; font-size: var(--ds-text-dense); }

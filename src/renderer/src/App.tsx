@@ -294,5 +294,5 @@ export function App() {
   const [openingId, setOpeningId] = useState<string>()
   useEffect(() => window.staithe.onOpenSession(id => { setOpeningId(id); setArchive(true) }), [])
   return archive ? <ArchiveApp openingId={openingId} onBack={() => { setOpeningId(undefined); setArchive(false) }} /> :
-    <SourceApp onArchives={() => setArchive(true)} />
+    <SourceApp />
 }

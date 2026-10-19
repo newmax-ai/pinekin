@@ -47,8 +47,8 @@ test.afterEach(async () => {
 for (const mode of ['来源会话', '已有档案']) {
   test(`${mode}栏拖拽调宽、渐隐反馈、独立持久化与响应式限宽`, async () => {
     if (mode === '已有档案') {
-      await page.getByRole('button', { name: '连接 App', exact: true }).click()
-      await page.getByRole('button', { name: '已有档案', exact: true }).click()
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send('staithe:open-session', 'pane-fixture'))
+      await expect(page.getByRole('button', { name: '返回来源会话' })).toBeVisible()
     }
     const handle = page.getByRole('separator', { name: '调整会话栏宽度' })
     const pane = page.locator('.session-pane')

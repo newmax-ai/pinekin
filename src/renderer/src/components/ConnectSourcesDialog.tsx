@@ -1,113 +1,99 @@
 import { useRef, useState } from 'react'
-import { sourceLocations, sourceNames, type BrowsableSource, type SourceConnection, type SourceConnectResult } from '../../../core/sources'
+import { sourceNames, type BrowsableSource, type SourceConnection, type SourceConnectResult } from '../../../core/sources'
 import { ScrollArea } from './ScrollArea'
 import { SourceIcon } from './SourceIcon'
-import { DsCheckbox } from './DsCheckbox'
+import { DsSwitch } from './DsSwitch'
 import { DesignIcon, DsButton, DsDialog, DsDialogHeader } from './ui'
 
 const sources: BrowsableSource[] = ['newmax', 'claude-code', 'codex', 'cindy', 'deepseek']
-type Outcome = { state: 'success' | 'partial' | 'error'; readable: boolean; warnings: string[] }
-type Outcomes = Partial<Record<BrowsableSource, Outcome>>
+const statusNames = { idle: '待刷新', scanning: '加载中', ready: '统计未完成', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 interface Props {
   connections: SourceConnection[]
   returnFocus?: HTMLElement | null
   onConnected: (sources: BrowsableSource[], warnings: string[]) => void
-  onChanged: () => void
+  onChanged: (connections: SourceConnection[]) => void
   onBusyChange: (busy: boolean) => void
   onDismiss: () => void
-  onManage: () => void
-  onArchives: () => void
+  busy?: boolean
+  checking?: boolean
+  error?: string
+  onDisconnect: (connections: SourceConnection[]) => Promise<boolean>
 }
-function outcome(result: SourceConnectResult): Outcome {
-  const readable = result.connections.some(item => item.status === 'ready' || item.status === 'partial')
-  const warnings = [...new Set([...result.warnings, ...result.connections.flatMap(item => item.error ? [item.error] : [])])]
-  const complete = result.connections.length > 0 && result.connections.every(item => item.status === 'ready') && !warnings.length
-  if (!complete && !warnings.length) warnings.push(result.connections.length ? '会话列表尚未就绪，请刷新连接。' : '未找到本机会话，可以重试或指定自定义位置。')
-  return { state: complete ? 'success' : readable ? 'partial' : 'error', readable, warnings }
-}
-function failed(reason: unknown): Outcome { return { state: 'error', readable: false, warnings: [reason instanceof Error ? reason.message : String(reason)] } }
-
-export function ConnectSourcesDialog({ connections, returnFocus, onConnected, onChanged, onBusyChange, onDismiss, onManage, onArchives }: Props) {
-  const [selected, setSelected] = useState<BrowsableSource[]>([])
-  const [results, setResults] = useState<Outcomes>({})
-  const [active, setActive] = useState<BrowsableSource>()
-  const [manual, setManual] = useState(false)
+export function ConnectSourcesDialog({ connections, returnFocus, onConnected, onChanged, onBusyChange, onDismiss, busy: operationBusy = false, checking = false, error, onDisconnect }: Props) {
+  const [warnings, setWarnings] = useState<Partial<Record<BrowsableSource, string[]>>>({})
+  const [added, setAdded] = useState<BrowsableSource[]>([])
+  const [active, setActive] = useState<{ source: BrowsableSource; mode: 'connect' | 'disconnect' | 'manual' }>()
   const running = useRef(false)
-  const busy = active !== undefined
-  const available = sources.filter(source => results[source] || !connections.some(item => item.source === source))
-  const readable = sources.filter(source => results[source]?.readable)
-  const retrying = selected.some(source => results[source]?.state === 'error' || results[source]?.state === 'partial')
-  function view(outcomes = results) {
-    const readable = sources.filter(source => outcomes[source]?.readable)
-    const warnings = sources.flatMap(source => (outcomes[source]?.warnings ?? []).map(warning => `${sourceNames[source]}：${warning}`))
-    onConnected(readable, warnings)
+  const busy = !!active || operationBusy || checking
+  function accept(source: BrowsableSource, result: SourceConnectResult) {
+    setWarnings(previous => ({ ...previous, [source]: result.connections.length || result.warnings.length ? result.warnings : ['未找到本机会话，可以重试或指定自定义位置。'] }))
+    onChanged(result.connections)
+    if (result.connections.some(item => item.status === 'ready' || item.status === 'partial')) setAdded(previous => [...new Set([...previous, source])])
   }
-  function update(next: Outcomes) {
-    setResults(next)
-    setSelected(previous => previous.filter(source => next[source]?.state !== 'success'))
-    onChanged()
-  }
-  async function connectSelected() {
-    const requested = sources.filter(source => selected.includes(source) && results[source]?.state !== 'success')
-    if (running.current || !requested.length) return
-    running.current = true; onBusyChange(true)
-    const next = { ...results }
+  async function change(source: BrowsableSource, mode: 'connect' | 'disconnect' | 'manual') {
+    if (busy || running.current) return
+    running.current = true; setActive({ source, mode })
+    // 断开由父层统一串行处理并维护 busy，避免多位置逐项回调捕获旧页面状态。
+    if (mode !== 'disconnect') onBusyChange(true)
     try {
-      // 主进程连接入口串行化；失败只影响该 App，不中止本批其他选择。
-      for (const source of requested) {
-        setActive(source)
-        try { next[source] = outcome(await window.staithe.sources.autoConnect(source)) }
-        catch (reason) { next[source] = failed(reason) }
-        update({ ...next })
-      }
-      if (Object.values(next).every(result => result.state === 'success')) view(next)
-    } finally { running.current = false; setActive(undefined); onBusyChange(false) }
+      if (mode === 'disconnect') {
+        const ok = await onDisconnect(connections.filter(item => item.source === source))
+        setWarnings(previous => ({ ...previous, [source]: ok ? [] : ['断开未完成，仍有位置保留连接，请重试。'] }))
+      } else if (mode === 'manual') {
+        const connection = await window.staithe.sources.connect(source)
+        // 取消保留原提示与授权状态。
+        if (connection) accept(source, { connections: [connection], warnings: [] })
+      } else accept(source, await window.staithe.sources.autoConnect(source))
+    } catch (reason) {
+      setWarnings(previous => ({ ...previous, [source]: [reason instanceof Error ? reason.message : String(reason)] }))
+    } finally {
+      running.current = false; setActive(undefined)
+      if (mode !== 'disconnect') onBusyChange(false)
+    }
   }
-  async function connectManually(source: BrowsableSource) {
-    if (running.current) return
-    running.current = true; setActive(source); setManual(true); onBusyChange(true)
-    try {
-      const connection = await window.staithe.sources.connect(source)
-      // 用户取消时保留本批连接结果与失败原因。
-      if (!connection) return
-      const next = { ...results, [source]: outcome({ connections: [connection], warnings: [] }) }
-      update(next)
-      if (Object.values(next).every(result => result.state === 'success')) view(next)
-    } catch (reason) { update({ ...results, [source]: failed(reason) }) }
-    finally { running.current = false; setActive(undefined); setManual(false); onBusyChange(false) }
+  function finish() {
+    const readable = sources.filter(source => added.includes(source) && connections.some(item => item.source === source && (item.status === 'ready' || item.status === 'partial')))
+    if (readable.length) onConnected(readable, sources.flatMap(source => [...new Set([...(warnings[source] ?? []), ...connections.filter(item => item.source === source).flatMap(item => item.error ? [item.error] : [])])].map(message => `${sourceNames[source]}：${message}`)))
+    else onDismiss()
   }
 
   return <DsDialog titleId="connect-title" busy={busy} onDismiss={onDismiss} returnFocus={returnFocus}>
-    <DsDialogHeader titleId="connect-title" title="连接来源 App" className="connection-header" closeLabel="关闭连接面板" busy={busy} onDismiss={onDismiss} />
+    <DsDialogHeader titleId="connect-title" title="连接来源 App" className="connection-header" closeLabel="关闭连接面板" busy={busy} onDismiss={onDismiss}
+      description={<p className="connection-intro connection-description">连接 App，集中浏览本机会话；断开不会删除原会话。</p>} />
+    <p className="connection-intro connection-feedback" hidden={!active && !error} role={active ? 'status' : error ? 'alert' : undefined} aria-live="polite" data-error={!active && !!error}>
+      {active ? active.mode === 'manual' ? `等待选择 ${sourceNames[active.source]} 的位置…` : `${active.mode === 'disconnect' ? '正在断开' : '正在连接'} ${sourceNames[active.source]}…` : error || ''}
+    </p>
     <ScrollArea className="dialog-content connection-content">
-      <p className="connection-intro">选择需要连接的 App，一次添加多个。</p>
-      {available.length ? <ul className="connection-app-list" aria-label="可连接的 App">{available.map(source => {
-        const result = results[source], complete = result?.state === 'success'
-        return <li key={source}>
-          <label className="connection-app" data-disabled={busy || complete}>
-            <SourceIcon source={source} /><span className="connection-app-copy"><span>{sourceNames[source]}</span>
-              <small>{active === source ? manual ? '等待选择位置…' : '正在查找和读取…' : complete ? '已连接' : result?.state === 'partial' ? '部分位置已连接' : result?.state === 'error' ? '连接未完成' : source === 'cindy' ? '自动查找 · 正文直读暂未支持' : '自动查找本机会话'}</small>
-            </span>
-            <DsCheckbox data-dialog-initial-focus="true" aria-label={`选择 ${sourceNames[source]}`} checked={complete || selected.includes(source)} disabled={busy || complete}
-              onChange={checked => setSelected(previous => checked ? [...previous, source] : previous.filter(item => item !== source))} />
-          </label>
-          {result && !complete && (active !== source || manual) && <section className="connection-card" aria-label={`${sourceNames[source]} 连接结果`} data-state="attention">
-            <div className="connection-card-message" role="alert"><h3>{sourceNames[source]} · {result.state === 'partial' ? '部分位置已连接' : '连接未完成'}</h3><p>{result.warnings.join('；')}</p></div>
-            <details className="format-help connection-help"><summary><DesignIcon name="chevron" size={14} />查看详情与其他方式</summary>
-              <p>仅访问默认或已授权位置，不搜索整盘、不读取凭据。连接位置会保留，重启后可刷新。</p><p>{sourceLocations[source]}</p>
-              <DsButton variant="tertiary" size="small" disabled={busy} onClick={() => void connectManually(source)}>使用自定义位置…</DsButton>
-            </details>
-          </section>}
-        </li>
-      })}</ul> : <p className="connection-intro">所有支持的 App 均已连接</p>}
-      {active && <p className="connection-progress" role="status" aria-live="polite">{manual ? `等待选择 ${sourceNames[active]} 的位置…` : `正在连接 ${sourceNames[active]}…`}</p>}
+      <ul className="connection-app-list" aria-label="来源 App">{sources.map(source => {
+        const saved = connections.filter(item => item.source === source), enabled = saved.length > 0
+        const messages = [...new Set([...(warnings[source] ?? []), ...saved.flatMap(item => item.error ? [item.error] : [])])]
+        const complete = enabled && saved.every(item => item.status === 'ready' && item.total !== null)
+        const count = saved.reduce((total, item) => total + (complete ? item.total! : item.discovered), 0)
+        const statistics = enabled ? complete ? `${count} 条会话` : `已发现 ${count} 条 · 统计未完成` : '自动查找本机会话'
+        const diagnostic = `${sourceNames[source]}：${messages.join('；')}`
+        return <li key={source}><section className="connection-source-card" aria-label={`${sourceNames[source]} 来源`} data-connected={enabled}>
+          <div className="connection-app"><SourceIcon source={source} /><h3>{sourceNames[source]}</h3>
+            <DsSwitch size="small" data-dialog-initial-focus="true" aria-label={`连接 ${sourceNames[source]}`} checked={enabled} disabled={busy}
+              onChange={checked => void change(source, checked ? 'connect' : 'disconnect')} />
+          </div>
+          <div className="connection-summary">
+            <p className="connection-intro" title={statistics}>{statistics}</p>
+          </div>
+          <div className="connection-inline-info" hidden={!saved.length && !messages.length}>
+            {messages.length > 0 && <p className="connection-error" role="alert">{diagnostic}</p>}
+            <div className="connection-source-positions">{saved.map(item => <section key={item.id} className="connection-location" aria-label={`${sourceNames[source]} · ${item.label}`}>
+              <span className="connection-location-name" title={item.label}>{source === 'codex' && item.label === 'sessions' ? '普通会话' : source === 'codex' && item.label === 'archived_sessions' ? '归档会话' : item.label}</span>
+              <span className="connection-location-count">{item.status === 'ready' && item.total !== null ? `${item.total} 条` : `${statusNames[item.status]} · 已发现 ${item.discovered} 条`}</span>
+              {(item.issues > 0 || item.ignoredLinks > 0) && <p className="connection-location-note">不可访问目录 {item.issues} · 跳过符号链接 {item.ignoredLinks}</p>}
+            </section>)}</div>
+            {messages.length > 0 && <DsButton className="connection-manual" size="small" disabled={busy} onClick={() => void change(source, 'manual')}>使用自定义位置…</DsButton>}
+          </div>
+        </section></li>
+      })}</ul>
       <p className="connection-card-privacy"><DesignIcon name="shield" size={14} />只读访问 · 不保存正文 · 不修改来源</p>
     </ScrollArea>
-    <div className="dialog-footer connection-footer">
-      <div className="export-actions"><DsButton variant="ghost" disabled={busy} data-dialog-initial-focus={!available.length ? true : undefined} onClick={onManage}>管理连接</DsButton><DsButton variant="ghost" disabled={busy} onClick={onArchives}>已有档案</DsButton></div>
-      <div className="export-actions">{readable.length > 0 && <DsButton disabled={busy} onClick={() => view()}>查看已连接会话</DsButton>}
-        {available.length > 0 && <DsButton variant="primary" disabled={busy || !selected.length} onClick={() => void connectSelected()}>{busy ? '正在连接…' : retrying ? '重试所选 App' : '连接所选 App'}</DsButton>}
-      </div>
+    <div className="dialog-footer">
+      <DsButton variant="primary" disabled={busy} onClick={finish}>完成</DsButton>
     </div>
   </DsDialog>
 }

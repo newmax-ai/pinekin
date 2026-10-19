@@ -17,12 +17,12 @@ export function DsDialogClose({ 'aria-label': label = '关闭', className = '', 
 }
 
 // 常规弹窗共用纯文字标题栏，不提供装饰图标插槽；关闭规格由 DsDialogClose 维护。
-export function DsDialogHeader({ titleId, title, eyebrow, closeLabel, onDismiss, busy = false, className = '' }: {
-  titleId: string; title: string; eyebrow?: string; closeLabel?: string; onDismiss: () => void; busy?: boolean; className?: string
+export function DsDialogHeader({ titleId, title, eyebrow, description, closeLabel, onDismiss, busy = false, className = '' }: {
+  titleId: string; title: string; eyebrow?: string; description?: ReactNode; closeLabel?: string; onDismiss: () => void; busy?: boolean; className?: string
 }) {
   const heading = <h2 id={titleId}>{title}</h2>
   return <div className={`dialog-header ${className}`}>
-    {eyebrow ? <div><div className="eyebrow">{eyebrow}</div>{heading}</div> : heading}
+    {eyebrow || description ? <div className="dialog-heading">{eyebrow && <div className="eyebrow">{eyebrow}</div>}{heading}{description}</div> : heading}
     <DsDialogClose aria-label={closeLabel} disabled={busy} onClick={onDismiss} />
   </div>
 }

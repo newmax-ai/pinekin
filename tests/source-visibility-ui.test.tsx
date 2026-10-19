@@ -21,7 +21,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 it('已选会话刷新后变为不支持，清理卡片和旧正文，但保留明确的过滤原因提示', async () => {
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   await screen.findByRole('region', { name: '会话消息' })
   const list = document.querySelector('.session-list') as HTMLElement; list.scrollTop = 100
@@ -35,7 +35,7 @@ it('已选会话刷新后变为不支持，清理卡片和旧正文，但保留�
 })
 it('点击期间来源变为不支持时，清理条目但不能静默清空，展示原因且不提供无效重试', async () => {
   vi.mocked(window.staithe.sources.read).mockImplementation(async () => { hidden = true; throw new Error('协作边界尚未支持') })
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   await waitFor(() => expect(screen.queryByRole('button', { name: '原会话' })).toBeNull())
   expect(screen.getByRole('alert').textContent).toContain('“原会话”已从列表过滤：协作边界尚未支持')
@@ -45,7 +45,7 @@ it('点击期间来源变为不支持时，清理条目但不能静默清空，�
 it('首次读取前来源已删除时只显示读取错误，不虚构上次正文快照提示', async () => {
   vi.mocked(window.staithe.sources.read).mockRejectedValue(new Error('来源已移动或删除'))
   vi.mocked(window.staithe.sources.check).mockResolvedValue({ version: 2, connections: [connection], selected: null })
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   await screen.findByText('来源已移动或删除')
   await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalled())
@@ -62,7 +62,7 @@ it.each(['成功', '失败'])('读取失败立即退出加载，后台检查%s�
   const check = deferred<SourceCheckResult>()
   vi.mocked(window.staithe.sources.read).mockReturnValueOnce(firstRead.promise).mockReturnValueOnce(retryRead.promise)
   vi.mocked(window.staithe.sources.check).mockReturnValueOnce(check.promise)
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   expect(screen.getByRole('heading', { name: '正在读取来源正文…' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: '重试读取' })).toBeNull()
@@ -92,7 +92,7 @@ it('失败后的迟到检查不能清空随后重试成功的正文，也不能�
   const check = new Promise<SourceCheckResult>(resolve => { resolveCheck = resolve })
   vi.mocked(window.staithe.sources.check).mockReturnValueOnce(check)
   vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('首次暂时失败'))
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   await screen.findByText('首次暂时失败')
   fireEvent.click(screen.getByRole('button', { name: '重试读取' }))
@@ -104,7 +104,7 @@ it('失败后的迟到检查不能清空随后重试成功的正文，也不能�
 })
 it('普通读取失败仍保留原条目和重试，不根据错误文字猜测不支持', async () => {
   vi.mocked(window.staithe.sources.read).mockRejectedValue(new Error('暂时没有读取权限'))
-  render(<SourceApp onArchives={() => {}} />)
+  render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话' }))
   await screen.findByText('暂时没有读取权限')
   expect(screen.getByRole('button', { name: '原会话' })).toBeTruthy()

@@ -34,8 +34,9 @@ async function background() {
 }
 async function connect() {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
-  await page.getByRole('checkbox', { name: '选择 Claude Code', exact: true }).check()
-  await page.getByRole('button', { name: /^连接所选 App/ }).click()
+  await page.getByRole('switch', { name: '连接 Claude Code', exact: true }).click()
+  await expect(page.getByRole('switch', { name: '连接 Claude Code', exact: true })).toBeChecked()
+  await page.getByRole('button', { name: '完成', exact: true }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
 
