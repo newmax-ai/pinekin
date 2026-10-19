@@ -37,6 +37,10 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   longSdkSidechain.splice(2, 0, ...Array.from({ length: 18 }, () => ({ type: 'file-history-snapshot', snapshot: 'x'.repeat(64_000) })))
   await writeFile(join(source, 'sdk-task.jsonl'), claudeFixture(longSdkSidechain))
   await writeFile(join(source, 'helper.jsonl'), JSON.stringify({ type: 'queue-operation' }) + '\n')
+  const answerOnly = claudeRecords().slice(3)
+  answerOnly[0].parentUuid = null
+  const answerOnlyBytes = claudeFixture(answerOnly)
+  await writeFile(join(source, 'assistant-only.jsonl'), answerOnlyBytes)
   const journalBytes = claudeFixture([
     { type: 'launched' },
     { type: 'started', agentId: 'synthetic-agent', key: 'synthetic-key', label: '合成调度任务' },
@@ -60,8 +64,8 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
   const page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.session-card')).toHaveCount(2)
-  await expect(page.getByRole('button', { name: /^Claude Code\s*2$/ })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(3)
+  await expect(page.getByRole('button', { name: /^Claude Code\s*3$/ })).toBeVisible()
   expect(await page.evaluate(() => window.staithe.sources.page({ query: 'SDK 浏览器任务' }).then(result => result.total))).toBe(0)
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
@@ -84,6 +88,15 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await expect(detail.locator('article')).toHaveCount(2)
     await expect(detail.getByText('合成答复：先确认目标。', { exact: true })).toBeVisible()
   }
+  const answerOnlyCard = page.getByRole('button', { name: 'assistant-only.jsonl .', exact: true })
+  await answerOnlyCard.click()
+  await expect(page.getByRole('heading', { name: 'assistant-only.jsonl', exact: true })).toBeVisible()
+  await expect(answerOnlyCard).toBeVisible()
+  await page.getByRole('button', { name: '合成问题：整理项目计划 .', exact: true }).click()
+  await answerOnlyCard.click()
+  await expect(page.getByRole('heading', { name: 'assistant-only.jsonl', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => window.staithe.sources.page({ query: 'assistant-only.jsonl' }).then(result => result.items[0].title))).toBe('assistant-only.jsonl')
+  expect(await readFile(join(source, 'assistant-only.jsonl'))).toEqual(answerOnlyBytes)
   await expect(page.getByRole('button', { name: 'helper.jsonl .', exact: true })).toHaveCount(0)
   expect(await page.evaluate(() => window.staithe.sources.page({ query: 'helper.jsonl' }).then(result => result.total))).toBe(0)
   expect(await page.evaluate(() => window.staithe.sources.page({ query: 'journal.jsonl' }).then(result => result.total))).toBe(0)

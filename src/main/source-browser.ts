@@ -443,7 +443,7 @@ export class SourceBrowser {
     try {
       await checkedPath(state.saved.path, state.saved.path)
       let contentRevision: string | undefined
-      const parsed: SourceArchive & { window?: SourceReadWindow } = state.saved.source === 'newmax'
+      const parsed: SourceArchive & { window?: SourceReadWindow; resolvedTitle?: string } = state.saved.source === 'newmax'
         ? await this.readNewMax(entry, cursor, value => { contentRevision = value })
         : state.saved.source === 'cindy' ? await this.readCindy(entry, cursor, value => { contentRevision = value })
         : await readSourceLog(entry.path, state.saved.path, state.saved.source, cursor,
@@ -452,8 +452,10 @@ export class SourceBrowser {
       if (this.states.get(state.saved.id) !== state || !state.entries.has(id)) throw new Error('来源已删除或断开，旧的正文请求已取消')
       if (parsed.session.source !== state.saved.source) throw new Error('文件内容与选择的来源不匹配')
       entry.summary.availability = 'readable'; delete entry.summary.reason
-      const title = (state.saved.source === 'claude-code' || state.saved.source === 'codex') && entry.summary.title !== basename(entry.path) ? entry.summary.title : parsed.session.title
-      // 按需正文成功后补齐预览预算之外的标题，仅更新内存，不保存正文或重扫来源。
+      const title = state.saved.source === 'claude-code' || state.saved.source === 'codex'
+        ? entry.summary.title !== basename(entry.path) ? entry.summary.title : parsed.resolvedTitle || entry.summary.title
+        : parsed.session.title
+      // 只用真实首问补齐文件名，不让内部 ID 兜底回写；已有标题和原始文件不变。
       entry.summary.title = title
       return { revision: contentRevision, ...(parsed.presentation ? { presentation: parsed.presentation } : {}), ...(parsed.window ? { window: parsed.window } : {}), session: { ...parsed.session, title, id, archive: undefined }, warnings: [
         '正文直接读取来源，仅在当前窗口内存中展示；没有导入、备份或复制原件。以下解析说明中的原件均指来源自身文件。',

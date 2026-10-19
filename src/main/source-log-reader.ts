@@ -24,7 +24,7 @@ function slots(message: IndexedMessage, start: number, length: number): Slot[] {
 
 /** 两次有界扫描：先验证全文件并建立轻量结构索引，再只保留当前片段与有限活动预览。 */
 export function readSourceLog(path: string, root: string, source: LogSource, input: SourceReadCursor,
-  authorized: () => boolean): Promise<SourceArchive & { window: SourceReadWindow; revision: string }> {
+  authorized: () => boolean): Promise<SourceArchive & { window: SourceReadWindow; revision: string; resolvedTitle?: string }> {
   const cursor = sourceReadCursorSchema.parse(input), compressed = /\.(zst|zstd)$/.test(path)
   return withSourceLog(path, root, compressed, authorized, async (scan, revision) => {
     if (cursor.snapshot && cursor.snapshot !== revision) throw new Error('来源日志已变化，请从头重新读取；未混合不同版本的片段')
@@ -45,12 +45,16 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
       else next = undefined
     }
     const tools = new Map<number, ToolEvent[]>(), firstUser = index.messages.find(message => message.role === 'user')?.parts[0]?.line
-    let title = index.session.title
+    const promptTitle = source === 'claude-code' || source === 'codex'
+    let title = index.session.title, resolvedTitle: string | undefined
     await scan((record, line) => {
-      if (selected.has(line) || source === 'claude-code' && firstUser === line) {
+      if (selected.has(line) || promptTitle && firstUser === line) {
         const text = recordText(source, record, line)
         for (const slot of selected.get(line) ?? []) slot.value = sliceCodePoints(text, slot.start, slot.length)
-        if (source === 'claude-code' && firstUser === line) title = sourcePromptTitle(text, source) || title
+        if (promptTitle && firstUser === line) {
+          resolvedTitle = sourcePromptTitle(text, source) || undefined
+          title = resolvedTitle || title
+        }
       }
       const count = index.tools?.get(line)
       if (count) tools.set(line, claudeToolEvents(record, count))
@@ -66,6 +70,8 @@ export function readSourceLog(path: string, root: string, source: LogSource, inp
       return slot.value
     }).join('') }))
     return { adapterId: 'source-stream', adapterVersion: '0.1.0', sourceName: `${source} · 流式来源阅读`,
+      // 仅供主进程区分首问与内部 ID 兜底，不作为新 IPC 字段或持久化标题来源。
+      ...(resolvedTitle ? { resolvedTitle } : {}),
       session: sessionSchema.parse({ ...index.session, title, messages }), warnings: [...index.warnings,
         ...(compressed ? ['Zstandard 完整流已检查 EOF、尾部与 8 MiB 解码窗口；总展开量不再受旧 5 MiB 限制。'] : [])],
       ...(index.presentation ? { presentation: index.presentation } : {}), revision,
