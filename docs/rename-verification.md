@@ -45,3 +45,13 @@
 没有验证安装后的操作系统级协议注册、签名、公证、Windows / Linux 实机安装或真实客户端接入。旧版 Ember 不支持新格式包；兼容方向为旧包导入 Staithe。既有打包工具链告警仍按首版记录处理，不因更名视为已解决。
 
 本次只执行仓库改名和本地修改、验证与打包，未自动提交或推送代码。
+
+## Pinekin 仓库名称对齐（2026-10-19）
+
+以上为 2026-10-16 的历史验收记录。本次仅将仓库名称与现有 Pinekin 品牌对齐：
+
+- GitHub 仓库从 `newmax-ai/staithe` 改为 `newmax-ai/pinekin`，保持公开，并同步仓库描述。
+- 本地 `origin` 更新为 `https://github.com/newmax-ai/pinekin.git`。
+- 本地项目目录从 `/Users/jaylee/Documents/GitHub/staithe` 改为 `/Users/jaylee/Documents/GitHub/pinekin`；因运行路径变更，在新目录恢复主 dev，保留原有未提交改动。
+- 不修改应用安装身份、历史协议、数据目录或档案格式；不改动现有界面与业务代码，不自动提交或推送代码。
+- 本次为仓库元数据、目录名称与文档变更，不沿用上述历史测试结果作为本次验收；仓库改名通过 GitHub 仓库信息回读、本地远程地址及远程 HEAD 查询验证；目录改名检查 Git 状态一致性，并在新路径执行 TypeScript 检查与主 dev 启动验证。
