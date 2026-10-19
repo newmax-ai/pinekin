@@ -3,7 +3,7 @@ import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
 import { ClaudeLogOrigin, sdkOriginReason } from './source-origin'
 import { codexFirstPrompt, sourceTitle } from './source-conversation'
 import { deepseekFirstPrompt } from './deepseek'
-import { isCodexSubagent } from './codex'
+import { codexUnsupportedReason, isCodexSubagent } from './codex'
 import type { LogSource } from './source-log-index'
 import { withSourceLog } from './source-log-file'
 
@@ -24,7 +24,7 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
         const payload = record.payload as Record<string, unknown> | undefined
         if (record.type === 'session_meta' && payload) {
           if (typeof payload.id === 'string') sourceSessionId = payload.id.slice(0, 512)
-          if (payload.history_base != null || payload.forked_from_id != null || typeof payload.history_mode === 'string' && !['legacy', 'paginated'].includes(payload.history_mode)) reason = 'Codex 跨文件继承或未知历史模式尚未支持'
+          reason = codexUnsupportedReason(payload) ?? reason
           if (isCodexSubagent(payload)) kind = 'subagent'
         }
         if (!prompt) prompt = codexFirstPrompt(record)

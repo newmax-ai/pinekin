@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { zstdCompressSync } from 'node:zlib'
 import { SourceBrowser } from '../src/main/source-browser'
 import { readSourceDatabase } from '../src/main/source-sqlite'
 import { createCindyDatabase } from './fixtures/cindy-database'
@@ -70,6 +71,51 @@ describe('只列出未被判定为不支持的来源会话', () => {
     const connection = await browser.connect('codex', input); await browser.waitForScan(connection.id)
     expect(await browser.page({})).toMatchObject({ items: [], total: 0 })
     expect((await browser.connections())[0]).toMatchObject({ total: 0, status: 'ready' })
+  })
+  it.each(['jsonl', 'jsonl.zst', 'jsonl.zstd'])('Codex .%s 的会话 ID 冲突在首次列表、搜索和计数中排除，正常子会话保留', async extension => {
+    const { root, browser } = await setup(), input = join(root, 'logs'); await mkdir(input)
+    const parent = '11111111-2222-4333-8444-555555555555'
+    const encode = (bytes: Buffer) => extension === 'jsonl' ? bytes : zstdCompressSync(bytes)
+    const conflict = codexFixture([codexMeta({ session_id: parent, source: { subagent: 'review' } }),
+      codexMessage('user', [{ type: 'input_text', text: 'The following is the Codex agent history whose request action you are assessing.' }])])
+    const supported = codexFixture([codexMeta({ parent_thread_id: parent }), codexMessage()])
+    await writeFile(join(input, `conflict.${extension}`), encode(conflict))
+    await writeFile(join(input, `subagent.${extension}`), encode(supported))
+    await writeFile(join(input, `legacy.${extension}`), encode(codexFixture([codexMeta({ session_id: undefined }), codexMessage()])))
+    const connection = await browser.connect('codex', input); await browser.waitForScan(connection.id)
+    expect(await browser.page({ limit: 1 })).toMatchObject({ total: 2, hasMore: true })
+    expect((await browser.connections())[0]).toMatchObject({ total: 2, discovered: 2, status: 'ready' })
+    expect((await browser.page({ query: 'The following is the Codex agent history' })).total).toBe(0)
+    expect((await browser.page({ query: 'conflict' })).total).toBe(0)
+    expect(await browser.page({ offset: 2, limit: 1 })).toMatchObject({ items: [], total: 2, hasMore: false })
+    const item = (await browser.page({})).items.find(entry => entry.kind === 'subagent')!
+    expect(item.availability).toBe('unread')
+    expect((await browser.read(item.id)).session.messages).toHaveLength(1)
+    await browser.refresh(connection.id); await browser.waitForScan(connection.id)
+    expect((await browser.page({})).total).toBe(2)
+  })
+  it.each(['jsonl', 'jsonl.zst', 'jsonl.zstd'])('Codex .%s 在列出后发生 ID 冲突时立即过滤，刷新后不复现，修复后恢复', async extension => {
+    const { root, browser } = await setup(), input = join(root, 'logs'); await mkdir(input)
+    const path = join(input, `session.${extension}`)
+    const encode = (bytes: Buffer) => extension === 'jsonl' ? bytes : zstdCompressSync(bytes)
+    const original = encode(codexFixture())
+    await writeFile(path, original)
+    const connection = await browser.connect('codex', input); await browser.waitForScan(connection.id)
+    const item = (await browser.page({})).items[0], before = await browser.page({})
+    await writeFile(path, encode(codexFixture([codexMeta({ session_id: '11111111-2222-4333-8444-555555555555' }), codexMessage()])))
+    await expect(browser.read(item.id)).rejects.toThrow(/ID 与当前文件不一致/)
+    expect(await browser.page({})).toMatchObject({ items: [], total: 0 })
+    expect((await browser.connections())[0]).toMatchObject({ total: 0, discovered: 0 })
+    expect((await browser.page({})).snapshot).not.toBe(before.snapshot)
+    await browser.refresh(connection.id); await browser.waitForScan(connection.id)
+    expect((await browser.page({})).total).toBe(0)
+    await writeFile(path, original)
+    await browser.refresh(connection.id); await browser.waitForScan(connection.id)
+    expect((await browser.page({})).items[0]).toMatchObject({ id: item.id, availability: 'unread' })
+    expect((await browser.read(item.id)).session.messages).toHaveLength(2)
+    await writeFile(path, encode(Buffer.concat([codexFixture(), Buffer.from('{broken tail\n')])))
+    await expect(browser.read(item.id)).rejects.toThrow(/JSON|截断/)
+    expect((await browser.page({})).items[0]).toMatchObject({ id: item.id, availability: 'unreadable' })
   })
   it('Claude 压缩边界与 DeepSeek 非独立版本在列表阶段隐藏，不读完整正文', async () => {
     const { root, browser } = await setup(), claude = join(root, 'claude'), deepseek = join(root, 'deepseek')

@@ -3,7 +3,7 @@ import type { Message, Session } from '../core/types'
 import type { SourcePresentation } from '../core/sources'
 import { isBrowserTask, sourcePromptTitle } from '../core/source-presentation'
 import { claudeSourceSchemas, claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
-import { codexSourceSchemas, isCodexSubagent } from './codex'
+import { codexSourceSchemas, codexUnsupportedReason, isCodexSubagent } from './codex'
 import { deepseekSourceSchemas } from './deepseek'
 import { codexUserText } from './source-conversation'
 import { ClaudeLogOrigin, sdkOriginReason, UnsupportedSourceError } from './source-origin'
@@ -99,8 +99,8 @@ export function createLogIndexer(source: LogSource): LogIndexer {
         if (!id) {
           if (row.type !== 'session_meta') throw new Error('Codex 首条记录必须是 session_meta')
           const meta = checked(codexSourceSchemas.meta, row.payload, 'Codex', line)
-          if (meta.history_mode !== undefined && !['legacy', 'paginated'].includes(meta.history_mode) || meta.history_base != null || meta.forked_from_id != null) throw new UnsupportedSourceError('Codex 跨文件继承或未知历史模式尚未支持')
-          if (meta.session_id !== undefined && meta.session_id !== meta.id) throw new Error('Codex 子会话 ID 与当前文件不一致')
+          const reason = codexUnsupportedReason(meta)
+          if (reason) throw new UnsupportedSourceError(reason)
           if (meta.history_mode === 'paginated') {
             if (row.ordinal !== 0) throw new Error('Codex 分页日志必须从序号 0 开始')
             expectedOrdinal = 1

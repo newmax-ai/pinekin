@@ -54,6 +54,18 @@ export function isCodexRollout(text: string): boolean {
   } catch { return false }
 }
 
+/** 列表预览与正文共用已知能力边界；损坏字段仍由各自的结构校验处理。 */
+export function codexUnsupportedReason(meta: Record<string, unknown>): string | undefined {
+  if (meta.history_base != null || meta.forked_from_id != null ||
+    typeof meta.history_mode === 'string' && !['legacy', 'paginated'].includes(meta.history_mode)) {
+    return 'Codex 跨文件继承或未知历史模式尚未支持'
+  }
+  if (typeof meta.id === 'string' && typeof meta.session_id === 'string' && meta.session_id !== meta.id) {
+    return 'Codex 子会话 ID 与当前文件不一致，未猜测会话归属'
+  }
+  return undefined
+}
+
 export function isCodexSubagent(meta: Record<string, unknown>): boolean {
   return meta.parent_thread_id != null || meta.subagent_history_start_ordinal != null ||
     (!!meta.source && typeof meta.source === 'object' && 'subagent' in meta.source)

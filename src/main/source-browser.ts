@@ -16,7 +16,7 @@ import { readSourceLog } from './source-log-reader'
 import { inspectLogSupport } from './source-log-inspect'
 import { parseNewMaxLocal } from './newmax-local'
 import { codexFirstPrompt, sourceTitle as titleText } from './source-conversation'
-import { isCodexSubagent } from './codex'
+import { codexUnsupportedReason, isCodexSubagent } from './codex'
 import { claudeAuxiliaryReason, isClaudeAuxiliaryLog } from './claude-code'
 import { deepseekFirstPrompt } from './deepseek'
 import { parseCindyLocal } from './cindy-local'
@@ -375,10 +375,8 @@ export class SourceBrowser {
       } else if (source === 'codex') {
         if (value.type === 'session_meta' && payload) {
           if (isCodexSubagent(payload)) details.kind = 'subagent'
-          if (payload.history_base != null || payload.forked_from_id != null ||
-            (typeof payload.history_mode === 'string' && !['legacy', 'paginated'].includes(payload.history_mode))) {
-            details.availability = 'unsupported'; details.reason = 'Codex 跨文件继承或未知历史模式尚未支持'
-          }
+          const reason = codexUnsupportedReason(payload)
+          if (reason) { details.availability = 'unsupported'; details.reason = reason }
         }
         if (index === 0 && !prompt) prompt = codexFirstPrompt(value)
       } else if (source === 'deepseek') {
