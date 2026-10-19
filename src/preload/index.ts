@@ -12,7 +12,7 @@ const api: StaitheAPI = {
     cancel: id => ipcRenderer.invoke('pinekin:sources-cancel', id),
     disconnect: id => ipcRenderer.invoke('pinekin:sources-disconnect', id),
     page: query => ipcRenderer.invoke('pinekin:sources-page', query),
-    read: id => ipcRenderer.invoke('pinekin:sources-read', id),
+    read: (id, cursor) => ipcRenderer.invoke('pinekin:sources-read', id, cursor),
   },
   list: () => ipcRenderer.invoke('staithe:list'),
   previewImport: () => ipcRenderer.invoke('staithe:import-preview'),

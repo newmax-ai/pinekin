@@ -5,12 +5,14 @@ import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { MAX_BYTES } from '../core/session'
+import { createHash } from 'node:crypto'
+import { sourceReadCursorSchema, type SourceReadCursor } from '../core/sources'
+import { textWindowQuery } from './source-read-window'
 import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery } from './cindy-source-query'
 
 const execute = promisify(execFile)
 export type DatabaseRow = Record<string, unknown>
-export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow }
+export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow; snapshot?: string }
 const conversationColumns = ['id', 'title', 'source', 'created_at', 'updated_at', 'forked_from_id', 'is_private', 'message_count']
 const messageColumns = ['seq', 'id', 'conversation_id', 'role', 'content', 'timestamp', 'data']
 // SQLite 的 readOnly 仍可能写共享内存。由操作系统拒绝所有文件写入，不能回退到无沙箱读取。
@@ -33,7 +35,8 @@ function sameFile(a: Stats | undefined, b: Stats | undefined) { return !a ? !b :
 function object(fields: string[]) { return `json_object(${fields.flatMap(field => [`'${field}'`, field]).join(',')})` }
 
 /** 只接受固定会话投影，不接收调用方 SQL，也不复制整库或读取设置／认证表。 */
-export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy', rowId?: string): Promise<DatabaseProjection> {
+export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy', rowId?: string, input?: SourceReadCursor): Promise<DatabaseProjection> {
+  const cursor = sourceReadCursorSchema.parse(input ?? {})
   if (process.platform !== 'darwin') throw new Error('此平台的无副作用数据库读取尚未验证')
   if (source !== 'newmax' && source !== 'cindy') throw new Error('数据库来源未支持')
   if (rowId !== undefined && (!rowId.trim() || rowId.length > 512)) throw new Error('数据库会话 ID 无效')
@@ -64,19 +67,20 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       query = source === 'cindy' ? cindyDirectoryQuery()
         : `SELECT json_object('kind','row','value',${object(conversationColumns)}) FROM ${table} ORDER BY id;`
     } else if (source === 'cindy') {
-      query = cindySourceQuery(rowId)
+      query = cindySourceQuery(rowId, cursor)
     } else {
       // ID 只作为 UTF-8 十六进制字符串值，不可能成为 SQL 或 CLI 指令。
       const id = `CAST(X'${Buffer.from(rowId).toString('hex')}' AS TEXT)`
       const readable = `EXISTS(SELECT 1 FROM conversations WHERE id=${id} AND source='app' AND is_private=0 AND forked_from_id IS NULL)`
       const budget = `SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(CAST(content AS BLOB)) + COALESCE(LENGTH(CAST(data AS BLOB)),0)),0) AS bytes FROM messages WHERE conversation_id=${id} AND ${readable}`
+      const select = `SELECT row_number() OVER (ORDER BY seq,rowid)-1 AS position,seq,id,role,timestamp,
+        CASE WHEN role='user' THEN COALESCE(json_extract(data,'$.displayContent'),content) ELSE content END AS display,
+        CASE WHEN json_extract(data,'$.taskContinuationTurn')=1 OR json_extract(data,'$.goalMeta.type') IS NOT NULL THEN 1 ELSE 0 END AS internal,
+        CASE WHEN json_extract(data,'$.id')=id AND json_extract(data,'$.role')=role AND json_extract(data,'$.content')=content AND json_extract(data,'$.timestamp')=timestamp THEN 1 ELSE 0 END AS consistent
+        FROM messages WHERE conversation_id=${id} AND ${readable}`
       query = `SELECT json_object('kind','session','value',${object(conversationColumns)}) FROM conversations WHERE id=${id};
         SELECT json_object('kind','budget','value',json_object('count',count,'bytes',bytes)) FROM (${budget});
-        SELECT json_object('kind','row','value',json_object('seq',seq,'id',id,'role',role,'content',content,'timestamp',timestamp,
-          'displayContent',json_extract(data,'$.displayContent'),
-          'internal',CASE WHEN json_extract(data,'$.taskContinuationTurn')=1 OR json_extract(data,'$.goalMeta.type') IS NOT NULL THEN 1 ELSE 0 END,
-          'consistent',CASE WHEN json_extract(data,'$.id')=id AND json_extract(data,'$.role')=role AND json_extract(data,'$.content')=content AND json_extract(data,'$.timestamp')=timestamp THEN 1 ELSE 0 END))
-        FROM messages WHERE conversation_id=${id} AND ${readable} AND (SELECT count<=10000 AND bytes<=${MAX_BYTES} FROM (${budget})) ORDER BY seq;`
+        ${textWindowQuery(select, cursor)}`
     }
     // sqlite3 的 -bail 只会中止 stdin 脚本；同一命令行 SQL 参数内出错仍会继续后面的语句。
     // 守卫各占一个完整输入行，保证失败后不会准备正文查询。
@@ -110,7 +114,12 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       const actual = schema?.columns
       if (schema?.type !== 'table' || !Array.isArray(actual) || columns.some(column => !actual.includes(column))) throw new Error('数据库结构未支持：会话表或字段不匹配')
     }
-    return { rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow),
+    // 不用 SHM 的锁读标记做版本：只绑定 DB/WAL 身份、大小与修改时间，避免正常只读访问使游标失效。
+    const stamp = (value: Stats | undefined) => value ? [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs] : null
+    const walAfter = await ordinary(path + '-wal', true)
+    if (JSON.stringify([stamp(before), stamp(wal)]) !== JSON.stringify([stamp(current), stamp(walAfter)])) throw new Error('数据库在读取期间变化，请刷新；未混合不同版本的片段')
+    const snapshot = createHash('sha256').update(JSON.stringify([source, rowId, stamp(before), stamp(wal)])).digest('hex')
+    return { snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow),
       session: records.find(row => row.kind === 'session')?.value as DatabaseRow | undefined,
       budget: records.find(row => row.kind === 'budget')?.value as DatabaseRow | undefined }
   } finally { await handle.close() }

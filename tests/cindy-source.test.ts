@@ -66,13 +66,15 @@ describe('Cindy 授权数据库的正文白名单投影', () => {
       writer.exec('ROLLBACK')
     } finally { writer.close() }
   })
-  it('超限和缺协作表均失败关闭；不按缺表猜测普通会话', async () => {
+  it('大正文按片段返回，缺协作表仍失败关闭，不按缺表猜测普通会话', async () => {
     const { path, writer } = await setup()
     try {
       writer.prepare("UPDATE messages SET content=? WHERE id='a-assistant'").run('x'.repeat(5 * 1024 * 1024 + 1))
       const result = await readSourceDatabase(path, 'cindy', 'synthetic-session')
       expect(Number(result.budget?.bytes)).toBeGreaterThan(5 * 1024 * 1024)
-      expect(result.rows).toEqual([])
+      expect(result.rows).toHaveLength(2)
+      expect(result.rows[1].content).toBe('x'.repeat(16_384))
+      expect(result.rows[1].text_length).toBe(5 * 1024 * 1024 + 1)
       writer.exec('DROP TABLE orca_workers')
       await expect(readSourceDatabase(path, 'cindy', 'synthetic-session')).rejects.toThrow(/结构/)
     } finally { writer.close() }

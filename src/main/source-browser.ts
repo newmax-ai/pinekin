@@ -3,6 +3,8 @@ import { constants, type Stats } from 'node:fs'
 import { lstat, mkdir, open, opendir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { readSourceDatabase } from './source-sqlite'
+import { sourceReadWindow } from './source-read-window'
+import { sourceReadCursorSchema, type SourceReadCursor, type SourceReadWindow } from '../core/sources'
 import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import { MAX_BYTES } from '../core/session'
@@ -433,8 +435,9 @@ export class SourceBrowser {
       offset: query.offset, hasMore: query.offset + query.limit < entries.length,
       connections: [...this.states.values()].map(state => ({ ...state.view })), version: this.version, snapshot: snapshot.digest('hex') }
   }
-  async read(rawId: string): Promise<SourceContent> {
+  async read(rawId: string, input?: SourceReadCursor): Promise<SourceContent> {
     const id = entryIdSchema.parse(rawId)
+    const cursor = sourceReadCursorSchema.parse(input ?? {})
     await this.load()
     const state = [...this.states.values()].find(item => item.entries.has(id)), entry = state?.entries.get(id)
     if (!state || !entry) throw new Error('会话不存在、已断开或正在刷新，请重新选择')
@@ -442,9 +445,10 @@ export class SourceBrowser {
     try {
       await checkedPath(state.saved.path, state.saved.path)
       let contentRevision: string | undefined
-      const parsed: SourceArchive = state.saved.source === 'newmax'
-        ? await this.readNewMax(entry, value => { contentRevision = value })
-        : state.saved.source === 'cindy' ? await this.readCindy(entry, value => { contentRevision = value })
+      if (state.saved.source !== 'newmax' && state.saved.source !== 'cindy' && (cursor.offset || cursor.textOffset || cursor.snapshot)) throw new Error('此来源尚未支持正文分页读取')
+      const parsed: SourceArchive & { window?: SourceReadWindow } = state.saved.source === 'newmax'
+        ? await this.readNewMax(entry, cursor, value => { contentRevision = value })
+        : state.saved.source === 'cindy' ? await this.readCindy(entry, cursor, value => { contentRevision = value })
         : await parseSourceArchive(await readBounded(entry.path, state.saved.path, MAX_BYTES, false, false, value => { contentRevision = value }))
       // 后台目录检查不取消正在阅读的正文；撤销授权或删除条目仍立即失效。
       if (this.states.get(state.saved.id) !== state || !state.entries.has(id)) throw new Error('来源已删除或断开，旧的正文请求已取消')
@@ -453,7 +457,7 @@ export class SourceBrowser {
       const title = (state.saved.source === 'claude-code' || state.saved.source === 'codex') && entry.summary.title !== basename(entry.path) ? entry.summary.title : parsed.session.title
       // 按需正文成功后补齐预览预算之外的标题，仅更新内存，不保存正文或重扫来源。
       entry.summary.title = title
-      return { revision: contentRevision, ...(parsed.presentation ? { presentation: parsed.presentation } : {}), session: { ...parsed.session, title, id, archive: undefined }, warnings: [
+      return { revision: contentRevision, ...(parsed.presentation ? { presentation: parsed.presentation } : {}), ...(parsed.window ? { window: parsed.window } : {}), session: { ...parsed.session, title, id, archive: undefined }, warnings: [
         '正文直接读取来源，仅在当前窗口内存中展示；没有导入、备份或复制原件。以下解析说明中的原件均指来源自身文件。',
         ...(state.saved.source === 'newmax' ? ['仅核对与既有 NewMax 1.1.22 白名单读取契约相容的数据库结构；未探测安装版本，不支持写入或原生恢复。'] : []),
         ...parsed.warnings,
@@ -470,34 +474,40 @@ export class SourceBrowser {
       throw new Error(failure(error))
     }
   }
-  private async readCindy(entry: Entry, onRead: (revision: string) => void): Promise<SourceArchive> {
-    const { session: row, budget, rows: messages } = await readSourceDatabase(entry.path, 'cindy', entry.rowId!)
+  private async readCindy(entry: Entry, cursor: SourceReadCursor, onRead: (revision: string) => void) {
+    const projection = await readSourceDatabase(entry.path, 'cindy', entry.rowId!, cursor)
+    const row = projection.session
     if (!row) throw new Error('来源会话已删除，请刷新')
     if (row.readable !== 1) throw new UnsupportedContent('仅支持普通桌面会话；当前会话涉及分叉、协作、远程、隐藏或非活动边界，未读取正文')
-    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new UnsupportedContent('正文超过读取预算，不截断内容')
+    const { messages, window } = sourceReadWindow(projection, cursor)
+    if (!window.totalMessages) throw new Error('来源没有可显示的当前用户或助手文本')
     onRead(revision({ id: row.id, title: row.title, updated_at: row.updated_at, readable: row.readable }))
     const parsed = parseCindyLocal({ format: 'pinekin.cindy-local-snapshot', version: 1, sourceVersion: CINDY_SOURCE_SCHEMA,
       session: { id: row.id, title: row.title, source: row.source, status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
         parentSessionId: row.parent_session_id, remoteHostId: row.remote_host_id, orcaRole: row.orca_role, clearedAt: row.cleared_at },
-      messages: messages.map(message => ({ id: message.id, role: message.role, content: message.content, createdAt: message.created_at, rewindAt: message.rewind_at })) })
-    return { ...parsed, sourceName: 'Cindy · 来源直读', session: { ...parsed.session, tags: ['Cindy', '来源直读', '文本投影'] }, warnings: [
+      messages: messages.map(message => ({ id: message.id, role: message.role, content: message.content, createdAt: message.created_at, rewindAt: message.rewind_at })) }, true)
+    return { ...parsed, window, sourceName: 'Cindy · 来源直读', session: { ...parsed.session, tags: ['Cindy', '来源直读', '文本投影'] }, warnings: [
       '依据已核对的 Cindy 0.1.110 字段结构检查，未根据数据库声称当前客户端版本；不写入或原生恢复。',
       '仅在同一只读事务中投影选定普通桌面会话的当前用户与助手文本；清空前、已回退、推理和工具记录不读取到正文。',
-      '按 created_at + rowid 保持同时间消息的原始顺序；用户对象只提取 text，不访问图片、附件、配置或凭据。',
+      '按 created_at + rowid 保持同时间消息的原始顺序；用户对象在切片前只提取 text，不访问图片、附件、配置或凭据。',
+      '当前为有界阅读片段，长消息与后续消息可继续按段读取；原始消息数包含空白或未映射的用户内容。',
       '未落盘保存快照，也未复制数据库；分叉、协作和远程会话仍不支持。',
     ] }
   }
-  private async readNewMax(entry: Entry, onRead: (revision: string) => void) {
-    const { session: row, budget, rows: messages } = await readSourceDatabase(entry.path, 'newmax', entry.rowId!)
+  private async readNewMax(entry: Entry, cursor: SourceReadCursor, onRead: (revision: string) => void) {
+    const projection = await readSourceDatabase(entry.path, 'newmax', entry.rowId!, cursor)
+    const row = projection.session
     if (!row) throw new Error('来源会话已删除，请刷新')
     onRead(revision(row))
     if (row.source !== 'app' || row.is_private || row.forked_from_id != null) throw new UnsupportedContent('会话已变为隐私、分叉或非普通会话，请刷新')
-    if (!budget || Number(budget.count) > 10_000 || Number(budget.bytes) > MAX_BYTES) throw new UnsupportedContent('正文超过读取预算，不截断内容')
+    const { messages, window } = sourceReadWindow(projection, cursor)
+    if (Number(row.message_count) !== window.totalMessages) throw new Error('来源消息数不一致，请刷新')
     if (messages.some(message => message.consistent !== 1)) throw new Error('来源消息列不一致，拒绝不完整投影')
-    return parseNewMaxLocal({ format: 'pinekin.newmax-local-snapshot', version: 1, sourceVersion: '1.1.22',
+    const parsed = parseNewMaxLocal({ format: 'pinekin.newmax-local-snapshot', version: 1, sourceVersion: '1.1.22',
       session: { id: row.id, title: row.title, source: row.source, createdAt: row.created_at, updatedAt: row.updated_at,
         forkedFromConversationId: row.forked_from_id, isPrivate: false, messageCount: row.message_count },
       messages: messages.map(message => ({ seq: message.seq, id: message.id, role: message.role, content: message.content, timestamp: message.timestamp,
-        internal: message.internal === 1, ...(message.displayContent != null ? { displayContent: message.displayContent } : {}) })) })
+        internal: message.internal === 1 })) }, true)
+    return { ...parsed, window }
   }
 }

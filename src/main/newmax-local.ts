@@ -13,11 +13,12 @@ const snapshotSchema = z.strictObject({
     content: z.string().max(200_000), displayContent: z.string().max(200_000).optional(), timestamp, internal: z.boolean() })).max(10_000),
 })
 
-export function parseNewMaxLocal(input: unknown): ParsedArchive {
-  const result = snapshotSchema.safeParse(input)
+export function parseNewMaxLocal(input: unknown, sourceWindow = false): ParsedArchive {
+  const schema = sourceWindow ? snapshotSchema.extend({ session: snapshotSchema.shape.session.extend({ messageCount: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER) }) }) : snapshotSchema
+  const result = schema.safeParse(input)
   if (!result.success) throw new Error('NewMax 快照字段或版本不支持；仅接受 1.1.22 普通非隐私、非分叉主会话的白名单快照。')
   const snapshot = result.data
-  if (snapshot.session.messageCount !== snapshot.messages.length || snapshot.session.updatedAt < snapshot.session.createdAt) {
+  if ((!sourceWindow && snapshot.session.messageCount !== snapshot.messages.length) || snapshot.session.updatedAt < snapshot.session.createdAt) {
     throw new Error('NewMax 快照消息数或会话时间不一致，不能将片段当成完整快照')
   }
   const warnings = new Set<string>([
@@ -39,7 +40,8 @@ export function parseNewMaxLocal(input: unknown): ParsedArchive {
     const content = message.role === 'user' ? message.displayContent ?? message.content : message.content
     if (content.trim()) messages.push({ role: message.role, content })
   }
-  if (!messages.length) throw new Error('NewMax 快照没有可归档的当前用户或助手文本')
+  if (!messages.length && !sourceWindow) throw new Error('NewMax 快照没有可归档的当前用户或助手文本')
+  if (sourceWindow) warnings.add('这是来源阅读的有界片段，不是完整快照；长消息和后续消息可继续按段读取。')
   return { adapterId: 'newmax-local-snapshot', adapterVersion: '0.1.0', sourceName: 'NewMax · 本地快照',
     sourceVersion: snapshot.sourceVersion, originalSessionId: snapshot.session.id, warnings: [...warnings],
     session: sessionSchema.parse({ id: 'newmax-local-preview', title: snapshot.session.title, source: 'newmax',

@@ -49,7 +49,20 @@ export interface SourcePresentation {
 export const sourceKindNames: Record<SourceRecordKind, string> = {
   conversation: '对话', 'browser-task': '浏览器任务', subagent: '子会话', internal: '辅助记录',
 }
-export interface SourceContent { session: Session; warnings: string[]; revision?: string; presentation?: SourcePresentation }
+// 限制单次投影，不把整段会话的大小当作来源支持条件。字符偏移按 Unicode 码点计。
+export const SOURCE_PAGE_MESSAGES = 100
+export const SOURCE_TEXT_CHARS = 16_384
+export const sourceReadCursorSchema = z.strictObject({
+  offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  textOffset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER - SOURCE_TEXT_CHARS).default(0),
+  snapshot: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+}).refine(value => (!value.offset && !value.textOffset) || !!value.snapshot, '续读必须携带来源快照')
+export type SourceReadCursor = z.infer<typeof sourceReadCursorSchema>
+export interface SourceReadWindow {
+  offset: number; textOffset: number; totalMessages: number; snapshot: string
+  hasMore: boolean; next?: SourceReadCursor
+}
+export interface SourceContent { session: Session; warnings: string[]; revision?: string; presentation?: SourcePresentation; window?: SourceReadWindow }
 export interface SourceConnectResult { connections: SourceConnection[]; warnings: string[] }
 export interface SourceBrowserAPI {
   connections(): Promise<SourceConnection[]>
@@ -60,7 +73,7 @@ export interface SourceBrowserAPI {
   cancel(id: string): Promise<void>
   disconnect(id: string): Promise<void>
   page(query: SourceQuery): Promise<SourcePage>
-  read(id: string): Promise<SourceContent>
+  read(id: string, cursor?: SourceReadCursor): Promise<SourceContent>
 }
 export const sourceNames: Record<Source, string> = {
   newmax: 'NewMax', 'claude-code': 'Claude Code', codex: 'Codex', deepseek: 'DeepSeek Harness', cindy: 'Cindy', other: '其他来源',

@@ -219,6 +219,54 @@ describe('来源逻辑沿用原有设计', () => {
     fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
     await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1 })))
   })
+  it('大正文按片段切换，明确显示范围，不累计挂载所有消息，切换失败保留当前片段', async () => {
+    const snapshot = 'b'.repeat(64), next = { offset: 100, textOffset: 0, snapshot }
+    const first: SourceContent = { ...content, session: { ...content.session, messages: [{ role: 'user', content: '第一片段' }] },
+      window: { offset: 0, textOffset: 0, totalMessages: 101, snapshot, hasMore: true, next } }
+    const last: SourceContent = { ...content, session: { ...content.session, messages: [{ role: 'assistant', content: '最后片段' }] },
+      window: { offset: 100, textOffset: 0, totalMessages: 101, snapshot, hasMore: false } }
+    vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce(first).mockRejectedValueOnce(new Error('稍后重试')).mockResolvedValueOnce(last)
+      .mockRejectedValueOnce(new Error('上一段失败')).mockRejectedValueOnce(new Error('刷新正文失败')).mockResolvedValueOnce(first)
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
+    await screen.findByText('第一片段')
+    expect(screen.getByText(/101 条来源消息/)).toBeTruthy()
+    expect(screen.queryByText('对话到这里，思考可以继续')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '下一段' }))
+    await screen.findByText('稍后重试')
+    expect(screen.getByText('第一片段')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /来源会话 my-project/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '下一段' }))
+    await screen.findByText('最后片段')
+    expect(window.staithe.sources.read).toHaveBeenLastCalledWith(entry.id, next)
+    expect(screen.queryByText('第一片段')).toBeNull()
+    expect(screen.queryByRole('button', { name: '下一段' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '上一段' }))
+    await screen.findByText('上一段失败')
+    fireEvent.click(screen.getByRole('button', { name: '从头重新读取' }))
+    await screen.findByText('刷新正文失败')
+    expect(screen.getByText('最后片段')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '上一段' }))
+    await screen.findByText('第一片段')
+    expect(window.staithe.sources.read).toHaveBeenLastCalledWith(entry.id, { offset: 0, textOffset: 0, snapshot })
+  })
+  it('正文片段请求迟到时不会覆盖新选择的会话', async () => {
+    const next = { offset: 0, textOffset: 16384, snapshot: 'b'.repeat(64) }
+    vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, items: [entry, { ...entry, id: 'c'.repeat(64), title: '另一个会话' }] })
+    let resolve!: (value: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, window: { offset: 0, textOffset: 0, totalMessages: 1, hasMore: true, snapshot: next.snapshot, next } })
+      .mockImplementationOnce(() => new Promise(done => { resolve = done }))
+      .mockResolvedValueOnce({ ...content, session: { ...content.session, title: '另一个会话', messages: [{ role: 'user', content: '新会话正文' }] } })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '下一段' }))
+    fireEvent.click(screen.getByRole('button', { name: /另一个会话 my-project/ }))
+    await screen.findByText('新会话正文')
+    await act(async () => resolve({ ...content, session: { ...content.session, messages: [{ role: 'user', content: '迟到的片段' }] } }))
+    expect(screen.queryByText('迟到的片段')).toBeNull()
+    expect(screen.getByText('新会话正文')).toBeTruthy()
+  })
   it('正文补出标题后立即同步当前列表，不重读正文或重置分页', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
     vi.mocked(window.staithe.sources.read).mockResolvedValue({ ...content, session: { ...content.session, title: '正文补出的标题' } })

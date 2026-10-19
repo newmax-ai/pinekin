@@ -13,7 +13,7 @@ const snapshotSchema = z.strictObject({
     content: z.string().max(200_000), createdAt: timestamp, rewindAt: timestamp.nullable() })).max(10_000),
 })
 
-export function parseCindyLocal(input: unknown): ParsedArchive {
+export function parseCindyLocal(input: unknown, sourceWindow = false): ParsedArchive {
   const snapshot = snapshotSchema.parse(input)
   const warnings = new Set<string>([
     '这是 Pinekin 从授权 Cindy 数据库生成的只读会话快照，不是 Cindy 官方分享包，也不支持原生恢复。',
@@ -30,7 +30,7 @@ export function parseCindyLocal(input: unknown): ParsedArchive {
     if (message.rewindAt !== null || (snapshot.session.clearedAt !== null && message.createdAt <= snapshot.session.clearedAt)) continue
     if (message.role !== 'user' && message.role !== 'assistant') continue
     let content = message.content
-    if (message.role === 'user') {
+    if (message.role === 'user' && !sourceWindow) {
       let value: unknown
       try { value = JSON.parse(content) } catch { value = undefined }
       if (typeof value === 'string') content = value
@@ -41,7 +41,8 @@ export function parseCindyLocal(input: unknown): ParsedArchive {
     }
     if (content.trim()) messages.push({ role: message.role, content })
   }
-  if (!messages.length) throw new Error('Cindy 快照没有可归档的当前用户或助手文本')
+  if (!messages.length && !sourceWindow) throw new Error('Cindy 快照没有可归档的当前用户或助手文本')
+  if (sourceWindow) warnings.add('这是来源阅读的有界片段，不是完整快照；用户展示文本在切片前提取，后续内容可按段读取。')
   return { adapterId: 'cindy-local-snapshot', adapterVersion: '0.1.0', sourceName: 'Cindy · 本地快照', sourceVersion: snapshot.sourceVersion,
     originalSessionId: snapshot.session.id, warnings: [...warnings],
     session: sessionSchema.parse({ id: 'cindy-local-preview', title: snapshot.session.title, source: 'cindy',

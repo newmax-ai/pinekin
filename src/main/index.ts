@@ -11,7 +11,7 @@ import { MAX_BYTES, idSchema, makeBundle, makeHandoff, parseDeepLink } from '../
 import { getAppIconFilename, setDevelopmentDockIcon } from './app-icon'
 import { SourceBrowser } from './source-browser'
 import { autoConnectSource } from './source-discovery'
-import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema, sourceSchema } from '../core/sources'
+import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema, sourceReadCursorSchema, sourceSchema } from '../core/sources'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appIconPath = join(here, '../../resources', getAppIconFilename(process.platform))
@@ -75,7 +75,7 @@ else {
     let choosingSource = false
     ipcMain.handle('pinekin:sources-connections', event => { assertSender(event); return sourceBrowser.connections() })
     ipcMain.handle('pinekin:sources-page', (event, query: unknown) => { assertSender(event); return sourceBrowser.page(sourceQuerySchema.parse(query)) })
-    ipcMain.handle('pinekin:sources-read', (event, id: unknown) => { assertSender(event); return sourceBrowser.read(entryIdSchema.parse(id)) })
+    ipcMain.handle('pinekin:sources-read', (event, id: unknown, cursor: unknown) => { assertSender(event); return sourceBrowser.read(entryIdSchema.parse(id), sourceReadCursorSchema.parse(cursor ?? {})) })
     ipcMain.handle('pinekin:sources-refresh', (event, id: unknown) => { assertSender(event); return sourceBrowser.refresh(connectionIdSchema.parse(id)) })
     ipcMain.handle('pinekin:sources-check', (event, query: unknown) => { assertSender(event); return sourceBrowser.check(sourceCheckSchema.parse(query)) })
     ipcMain.handle('pinekin:sources-cancel', (event, id: unknown) => { assertSender(event); return sourceBrowser.cancel(connectionIdSchema.parse(id)) })

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage } from '../../core/sources'
+import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceReadCursor } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { Sidebar } from './components/Sidebar'
@@ -54,6 +54,8 @@ export function SourceApp() {
   const content = readContent?.entryId === selected?.id ? readContent?.value : undefined
   const [readError, setReadError] = useState('')
   const [reading, setReading] = useState(false)
+  const [windowHistory, setWindowHistory] = useState<SourceReadCursor[]>([])
+  const [windowError, setWindowError] = useState('')
   const [handoff, setHandoff] = useState(false)
   const [target, setTarget] = useState<BrowsableSource>('newmax')
   const [checking, setChecking] = useState(false)
@@ -111,8 +113,8 @@ export function SourceApp() {
     const sameConversation = displayedId.current === selected?.id
     const previous = sameConversation ? current.current.content : undefined
     displayedId.current = selected?.id
-    setReadError(''); setHandoff(false); setReading(false); setNewMessageIndex(undefined)
-    if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); restoreScroll.current = undefined }
+    setReadError(''); setHandoff(false); setReading(false); setNewMessageIndex(undefined); setWindowError('')
+    if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); setWindowHistory([]); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
     void readSelected(selected, request, previous)
@@ -123,11 +125,12 @@ export function SourceApp() {
     return window.staithe.sources.read(entry.id).then(result => {
       if (request === readRequest.current) {
         if (previous) {
-          restoreScroll.current = messagesViewport.current?.scrollTop
+          restoreScroll.current = previous.window?.offset || previous.window?.textOffset ? 0 : messagesViewport.current?.scrollTop
           const before = previous.session.messages, after = result.session.messages
-          // 只有旧消息逐条保持不变才称为追加；编辑、删除或分支切换不能冒充新消息。
-          if (after.length > before.length && before.every((message, index) => JSON.stringify(message) === JSON.stringify(after[index]))) setNewMessageIndex(before.length)
+          // 只有完整旧消息逐条保持不变才称为追加；窗口切换不能冒充新增消息。
+          if (!previous.window?.hasMore && !previous.window?.offset && !previous.window?.textOffset && !result.window?.hasMore && after.length > before.length && before.every((message, index) => JSON.stringify(message) === JSON.stringify(after[index]))) setNewMessageIndex(before.length)
         }
+        setWindowHistory([]); setWindowError('')
         setContent({ entryId: entry.id, value: result })
         setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === entry.id
           ? { ...item, title: result.session.title, availability: 'readable', reason: undefined } : item) }))
@@ -140,6 +143,25 @@ export function SourceApp() {
         await checkSources('manual', [entry.connectionId])
       }
     }).finally(() => { if (request === readRequest.current) setReading(false) })
+  }
+  async function readWindow(direction: 'previous' | 'next') {
+    if (reading || !selected || !content?.window) return
+    const window = content.window
+    const cursor = direction === 'next' ? window.next : windowHistory.at(-1)
+    if (!cursor) return
+    const entryId = selected.id, request = ++readRequest.current
+    setReading(true); setWindowError(''); setReadError(''); setNewMessageIndex(undefined)
+    try {
+      const result = await globalThis.window.staithe.sources.read(entryId, cursor)
+      if (request !== readRequest.current || !mounted.current || current.current.selected?.id !== entryId) return
+      restoreScroll.current = 0
+      setWindowHistory(previous => direction === 'next'
+        ? [...previous, { offset: window.offset, textOffset: window.textOffset, snapshot: window.snapshot }]
+        : previous.slice(0, -1))
+      setContent({ entryId, value: result })
+    } catch (reason) {
+      if (request === readRequest.current && mounted.current) setWindowError(errorText(reason))
+    } finally { if (request === readRequest.current && mounted.current) setReading(false) }
   }
   useLayoutEffect(() => {
     if (restoreScroll.current !== undefined && messagesViewport.current) {
@@ -390,7 +412,7 @@ export function SourceApp() {
                 <div className="detail-title-group"><h2>{content?.session.title ?? selected.title}</h2><div className="reader-state"><span className="archive-badge">来源直读</span></div></div>
                 <DsButton variant="primary" disabled={busy || !content} onClick={() => setHandoff(true)}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton>
               </div>
-              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
+              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? content.window ? `${content.window.totalMessages} 条来源消息 · 当前片段 ${content.session.messages.length} 条文本` : `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
             </div>
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
             {contentChanged && <div className="source-update-notice" role="status"><span>此对话有更新</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '查看更新'}</DsButton></div>}
@@ -401,12 +423,20 @@ export function SourceApp() {
             {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
               <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>读取报告 · 仅文本投影</span><span className="report-count">{content.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary><ScrollArea className="report-body"><ul>{content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea></details>
-              <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{!content.session.messages.length && !content.presentation && <EmptyState kind="messages" />}{content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
+              {windowError && <div className="source-update-notice" role="alert"><span>{windowError}</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>从头重新读取</DsButton></div>}
+              {content.window && (content.window.hasMore || content.window.offset > 0 || content.window.textOffset > 0) && <nav className="source-update-notice" aria-label="正文分段导航">
+                {windowHistory.length > 0 && <DsButton size="small" disabled={reading} onClick={() => void readWindow('previous')}>上一段</DsButton>}
+                <span role="status">从第 {content.window.offset + 1} 条来源消息{content.window.textOffset ? `第 ${content.window.textOffset + 1} 个字符` : ''}开始的片段</span>
+                {content.window.next && <DsButton size="small" disabled={reading} onClick={() => void readWindow('next')}>下一段</DsButton>}
+              </nav>}
+              <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column" key={`${selected.id}:${content.window?.offset ?? 0}:${content.window?.textOffset ?? 0}:${content.window?.snapshot ?? ''}`}>
+                {!content.session.messages.length && !content.presentation && (content.window?.hasMore ? <p className="privacy-note">当前片段没有可显示的问答文本，可以继续读取下一段。</p> : <EmptyState kind="messages" />)}
+                {content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`${content.window ? '当前片段' : ''}第 ${index + 1} 条消息 · ${roles[message.role]}`}>
                 <div className={`message-body ${message.role === 'user' ? 'message-bubble' : message.role === 'assistant' ? 'chat-assistant-content' : 'message-record'}`}>
                   {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
-                  <SourceMessage message={message} source={content.session.source} />
+                  <SourceMessage message={message} source={content.session.source} fragment={!!(content.window?.textOffset || content.window?.next?.textOffset)} />
                 </div>
-              </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
+              </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && !content.window?.hasMore && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
             </>}
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'list-error' ? listError : undefined}

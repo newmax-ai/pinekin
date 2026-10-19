@@ -104,12 +104,14 @@ describe('SQLite 受限只读投影', () => {
     const writer = new DatabaseSync(path); writer.exec('CREATE TABLE sessions(id TEXT)'); writer.close()
     await expect(readSourceDatabase(path, 'cindy')).rejects.toThrow(/结构|column|字段/)
   })
-  it('正文超过预算只返回预算结果，不读取或输出超限正文', async () => {
+  it('正文超过旧总预算时只投影有界片段，仍报告原长度而不清空会话', async () => {
     const { path } = await setup(), writer = new DatabaseSync(path)
     newmax(writer); seedMessage(writer, 'one')
     writer.prepare('UPDATE messages SET content = ?').run('X'.repeat(5 * 1024 * 1024 + 1)); writer.close()
     const result = await readSourceDatabase(path, 'newmax', 'one')
     expect(Number(result.budget?.bytes)).toBeGreaterThan(5 * 1024 * 1024)
-    expect(result.rows).toEqual([])
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({ text_length: 5 * 1024 * 1024 + 1, text_offset: 0 })
+    expect(result.rows[0].content).toBe('X'.repeat(16_384))
   })
 })

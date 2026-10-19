@@ -35,7 +35,12 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
   writer.exec(`INSERT INTO sessions(id,title,parent_session_id,updated_at) VALUES('fork','不支持的分叉会话','parent',2100);
     INSERT INTO sessions(id,title,source,updated_at) VALUES('bot','不支持的 Bot 会话','bot',2200);
     INSERT INTO sessions(id,title,updated_at) VALUES('worker','不支持的协作会话',2300);
-    INSERT INTO orca_workers VALUES('worker');`)
+    INSERT INTO orca_workers VALUES('worker');
+    INSERT INTO sessions(id,title,updated_at) VALUES('large','分段阅读合成大会话',2400);`)
+  writer.exec('BEGIN')
+  const insert = writer.prepare('INSERT INTO messages VALUES(?,?,?,?,?,NULL)')
+  for (let index = 0; index < 101; index++) insert.run(`large-${index}`, 'large', 'assistant', `第 ${index + 1} 条合成消息\n` + 'x'.repeat(60_000), 2500 + index)
+  writer.exec('COMMIT')
   writer.close()
   const beforeDatabase = await readFile(database)
   await writeFile(join(data, 'connections.json'), JSON.stringify({ version: 1, connections: [
@@ -53,8 +58,8 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
   const page = await app.firstWindow(); await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.session-card')).toHaveCount(3)
-  await expect(page.getByRole('button', { name: /^Cindy\s*1$/ })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(4)
+  await expect(page.getByRole('button', { name: /^Cindy\s*2$/ })).toBeVisible()
   await expect(page.locator('.session-card').filter({ hasText: '不支持' })).toHaveCount(0)
   expect(await page.evaluate(() => window.staithe.sources.page({ query: '不支持' }).then(result => result.total))).toBe(0)
   // 尚未点击正文时，压缩文件已显示真实标题。
@@ -81,8 +86,20 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail.getByText('合成用户问题', { exact: true })).toBeVisible()
     await expect(detail.getByRole('heading', { name: '合成回答' })).toBeVisible()
     await expect(detail).not.toContainText('DO_NOT_PROJECT')
+    await page.locator('.session-card').filter({ hasText: '分段阅读合成大会话' }).click()
+    await expect(page.locator('.detail-meta')).toContainText('101 条来源消息')
+    await expect(detail.locator('article')).toHaveCount(1)
+    await expect(detail).toContainText('第 1 条合成消息')
+    await expect(detail.getByText('展开当前片段', { exact: true })).toBeVisible()
+    await expect(page.locator('.conversation-end')).toHaveCount(0)
+    await page.getByRole('button', { name: '下一段', exact: true }).click()
+    await expect(page.getByRole('navigation', { name: '正文分段导航' })).toContainText('第 16385 个字符')
+    await expect(detail).not.toContainText('第 1 条合成消息')
+    await page.getByRole('button', { name: '上一段', exact: true }).click()
+    await expect(detail).toContainText('第 1 条合成消息')
+    await expect(page.locator('.session-card')).toHaveCount(4)
   }
-  expect(await readFile(database)).toEqual(beforeDatabase)
+  expect((await readFile(database)).equals(beforeDatabase)).toBe(true)
   expect(await readFile(join(deepseek, 'session.v4.jsonl.zstd'))).toEqual(compressed)
   expect(await readdir(data)).not.toContain('imports')
 })
