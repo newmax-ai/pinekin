@@ -392,7 +392,7 @@ export function SourceApp() {
         <SessionPane label="来源会话列表">
           {!separateNavigation && <header className="topbar">{toolbar}</header>}
           <div className="list-heading source-list-heading">
-            <div className="list-heading-copy"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status" aria-label={!listError && (!loaded || scanning) ? count : undefined}>{!listError && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={scanning ? '加载中' : '正在读取'} /></span> : count}</span></div>
+            <div className="list-heading-copy"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status" aria-label={!listError && (!loaded || scanning) ? count : undefined}>{!listError && (!loaded || scanning) ? <span className="source-loading-count">{scanning ? `发现 ${discovered} 条` : <LoadingMark label="正在读取" />}</span> : count}</span></div>
             <DsRefreshButton className="source-refresh-button" aria-label="刷新当前来源" loading={checking || scanning} disabled={!loaded || busy || !relevant.length} onClick={() => refresh()} />
           </div>
           <ScrollArea ref={listViewport} className="session-list" bottomOverlayHeight={pendingList ? 96 : 0} aria-busy={!loaded || scanning}>

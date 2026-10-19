@@ -115,11 +115,11 @@ describe('不打断阅读的来源刷新', () => {
     expect(button.getAttribute('aria-busy')).toBe('false')
     expect(button.hasAttribute('disabled')).toBe(false)
   })
-  it('首次扫描也显示忙碌图标，扫描结束后恢复可操作', async () => {
+  it('首次扫描只保留刷新忙碌图标，数量后不重复显示加载动画，扫描结束后恢复可操作', async () => {
     vi.mocked(window.staithe.sources.page).mockResolvedValueOnce({ ...page(), connections: [{ ...connection, status: 'scanning' }] })
     render(<SourceApp />)
     await screen.findByRole('status', { name: '发现 120 条，加载中' })
-    expect(document.querySelector('.list-heading .loading-mark')).toBeTruthy()
+    expect(document.querySelector('.list-heading .loading-mark')).toBeNull()
     expect(document.querySelector('.list-heading [role="status"]')?.textContent).toBe('发现 120 条')
     const button = screen.getByRole('button', { name: '刷新当前来源' })
     expect(button.getAttribute('aria-busy')).toBe('true')
