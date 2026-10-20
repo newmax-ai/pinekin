@@ -29,8 +29,17 @@
 .source-target-destination .ds-button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .source-target-location-label { color: var(--ds-text-secondary); font-size: var(--ds-text-xs); }
 .source-target-path { display: block; margin: 6px 0 10px; overflow-wrap: anywhere; font-size: var(--ds-text-sm); }
-.source-target-program { margin: 8px 0; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); line-height: 1.7; }
-.source-target-program code { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.source-target-settings { display: grid; gap: 12px; }
+.source-target-setting { display: grid; gap: 8px; min-width: 0; }
+.source-target-setting-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.source-target-setting-path { display: block; min-width: 0; margin: 0; padding: 10px 12px; border-radius: var(--ds-radius-sm); background: var(--ds-surface-300); color: var(--ds-text-primary); font-family: var(--ds-font-mono); font-size: var(--ds-text-sm); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.source-target-setting-path[hidden] { display: none; }
+.source-target-program { display: grid; gap: 8px; min-width: 0; }
+.source-target-program-toggle { width: 100%; min-width: 0; justify-content: space-between; }
+.source-target-program-toggle > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.source-target-program-toggle > .design-icon { transition: transform var(--ds-motion-swift); }
+.source-target-program-toggle[aria-expanded='true'] > .design-icon { transform: rotate(90deg); }
+.source-target-program-toggle:focus-visible:not(:disabled) { background: var(--ds-on-surface); }
 .source-target-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .source-target-error { color: var(--ds-danger); font-size: var(--ds-text-sm); line-height: 1.7; overflow-wrap: anywhere; }
 .source-project-section { margin: 12px 0; }

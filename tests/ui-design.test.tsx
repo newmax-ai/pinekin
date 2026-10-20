@@ -34,6 +34,32 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('接续设置路径复用中性表面与等宽字体，可选择复制且长路径自然换行', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const path = /\.source-target-setting-path\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(path).toContain('background: var(--ds-surface-300);')
+    expect(path).toContain('border-radius: var(--ds-radius-sm);')
+    expect(path).toContain('color: var(--ds-text-primary);')
+    expect(path).toContain('font-family: var(--ds-font-mono);')
+    expect(path).toContain('overflow-wrap: anywhere;')
+    expect(path).toContain('white-space: pre-wrap;')
+    expect(path).toContain('user-select: text;')
+    expect(path).not.toMatch(/#[0-9a-f]|text-overflow: ellipsis|(?:^|[;\s])(?:min-|max-)?height:/i)
+    expect(styles).toMatch(/\.source-target-setting-path\[hidden\]\s*\{\s*display: none;/)
+    const heading = /\.source-target-setting-heading\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(heading).toContain('display: flex;')
+    expect(heading).toContain('flex-wrap: wrap;')
+    expect(heading).toContain('justify-content: space-between;')
+    expect(heading).toContain('align-items: center;')
+  })
+  it('应用折叠图标复用 DS Chevron 和动效令牌，键盘聚焦可见且减少动态效果覆盖过渡', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    expect(styles).toMatch(/\.source-target-program-toggle > \.design-icon\s*\{[^}]*transition: transform var\(--ds-motion-swift\);/)
+    expect(styles).toMatch(/\.source-target-program-toggle\[aria-expanded='true'\] > \.design-icon\s*\{[^}]*transform: rotate\(90deg\);/)
+    expect(styles).toMatch(/\.source-target-program-toggle:focus-visible:not\(:disabled\)\s*\{[^}]*background: var\(--ds-on-surface\);/)
+    expect(styles).not.toContain('.source-target-program code')
+    expect(readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[^]*?transition: none !important;/)
+  })
   it('列表更新浮层悬停及按下时保持不透明，不覆盖其他按钮的交互反馈', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const floating = /\.ds-button\.source-list-update:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]

@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { CodexProjectPreview, CodexSetupMode, CodexTargetPreview, CodexTransferResult, SourceActionCapabilities, SourceActionsAPI } from '../../../core/source-actions'
 import { SourceIcon } from './SourceIcon'
 import { SourceProjectList } from './SourceProjectList'
-import { DsButton, DsDialog, DsDialogHeader } from './ui'
+import { DesignIcon, DsButton, DsDialog, DsDialogHeader } from './ui'
 
 const sourceChangedMessage = '来源会话在读取期间有更新，请重试；不会混合不同版本的内容。'
 
@@ -14,6 +14,8 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
   const settings = mode === 'configure'
   const [selected, setSelected] = useState(false)
   const [preview, setPreview] = useState<CodexTargetPreview>()
+  const [applicationExpanded, setApplicationExpanded] = useState(false)
+  const applicationPathId = useId()
   const [project, setProject] = useState<CodexProjectPreview>()
   const [checking, setChecking] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -115,18 +117,26 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
         <p className="source-target-error" role="alert">{problem}</p>
         {problem !== sourceChangedMessage && !/项目目录|项目选择|项目列表/.test(problem) && <div className="source-target-options"><DsButton variant="ghost" size="small" disabled={working} onClick={onSettings}>接续设置</DsButton></div>}
       </div>}
-      {settings && selected && !checking && <div className="source-target-location">
-        {preview && <>
-          <span className="source-target-location-label">{locationNames[preview.locationSource]}</span>
-          <code className="source-target-path">{preview.dataPath}</code>
-          {preview.applicationPath && <details className="source-target-program"><summary>{preview.applicationName ? `应用：${preview.applicationName}` : '应用位置'}</summary><code>{preview.applicationPath}</code></details>}
-        </>}
+      {settings && selected && !checking && <div className="source-target-location source-target-settings">
+        <div className="source-target-setting">
+          <div className="source-target-setting-heading">
+            <span className="source-target-location-label">{preview ? locationNames[preview.locationSource] : '数据位置'}</span>
+            <DsButton size="small" disabled={saving} onClick={() => void inspect('directory')}>使用自定义位置</DsButton>
+          </div>
+          {preview && <code className="source-target-path source-target-setting-path" title={preview.dataPath}>{preview.dataPath}</code>}
+        </div>
+        {preview?.applicationPath && <div className="source-target-program">
+          <DsButton variant="ghost" size="small" className="source-target-program-toggle" disabled={saving}
+            aria-expanded={applicationExpanded} aria-controls={applicationPathId} onClick={() => setApplicationExpanded(value => !value)}>
+            <span>{preview.applicationName ? `应用：${preview.applicationName}` : '应用位置'}</span><DesignIcon name="chevron" size={15} />
+          </DsButton>
+          <code id={applicationPathId} className="source-target-setting-path" hidden={!applicationExpanded} title={preview.applicationPath}>{preview.applicationPath}</code>
+        </div>}
         {problem && <p className="source-target-error" role="alert">{problem}</p>}
-        <div className="source-target-options">
-          <DsButton variant="ghost" size="small" disabled={saving} onClick={() => void inspect('directory')}>使用自定义位置</DsButton>
+        {(preview?.canChooseApplication || problem) && <div className="source-target-options">
           {preview?.canChooseApplication && <DsButton variant="ghost" size="small" disabled={saving} onClick={() => void inspect('application')}>手动选择程序</DsButton>}
           {problem && <DsButton variant="ghost" size="small" disabled={saving} onClick={() => void inspect('automatic')}>重新识别</DsButton>}
-        </div>
+        </div>}
       </div>}
     </div>
     {settings && <div className="dialog-footer">
