@@ -49,6 +49,15 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(pending).not.toMatch(/pointer-events:|cursor:|display:|visibility:/)
     expect(styles).not.toMatch(/(?:^|\n)\.ds-button:disabled\s*\{/)
   })
+  it('菜单复用设计系统的轻微缩放淡入淡出，退场期间不接收鼠标交互', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const enter = /\.ds-menu\s*\{([^}]*)\}/.exec(styles)?.[1]
+    const exit = /\.ds-menu\[data-state='closing'\]\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(enter).toContain('animation: ds-dialog-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;')
+    expect(enter).toContain('transform-origin: top left;')
+    expect(exit).toContain('animation: ds-dialog-exit 140ms cubic-bezier(0.4, 0, 1, 1) both;')
+    expect(exit).toContain('pointer-events: none;')
+  })
   it('会话操作菜单的图标与文字垂直居中，使用统一的 8px 间距与图标色', () => {
     const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
     const item = /\.source-actions-menu button\s*\{([^}]*)\}/.exec(styles)?.[1]

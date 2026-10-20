@@ -239,6 +239,10 @@ h1, h2, h3, strong { font-weight: 500; }
 @media (max-height: 700px) { .empty-state-hero .empty-illustration { width: 144px; } .empty-state-hero { padding-top: 24px; padding-bottom: 24px; } }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: min(680px, 90vw); padding: 8px 12px 8px 16px; background: var(--ds-surface-200); border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); box-shadow: var(--ds-elevation-300); z-index: 2; color: var(--ds-text-primary); line-height: 1.7; overflow-wrap: anywhere; }
 
+/* 菜单复用设计系统弹层的轻微缩放与淡入淡出，锚点固定在触发器一侧。 */
+.ds-menu { animation: ds-dialog-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top left; }
+.ds-menu[data-state='closing'] { animation: ds-dialog-exit 140ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+
 /* 原生 modal 负责焦点圈定；布局与视觉取自 NewMax DS。 */
 .ds-dialog { width: 660px; max-width: calc(100vw - 48px); max-height: calc(100dvh - 64px); margin: auto; padding: 0; border: 0; border-radius: var(--ds-radius-lg); color: var(--ds-text-primary); background: var(--ds-surface-200); box-shadow: var(--ds-elevation-300); overflow: hidden; }
 .ds-dialog[open] { display: flex; flex-direction: column; animation: ds-dialog-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: center; }

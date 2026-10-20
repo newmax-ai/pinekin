@@ -4,6 +4,7 @@ import type { SourceActionCapabilities } from '../../../core/source-actions'
 import { buildSourceTranscript } from '../../../core/source-transcript'
 import { DsButton, DesignIcon, DsDialogPresence } from './ui'
 import { SourceTargetDialog } from './SourceTargetDialog'
+import { DsMenu } from './DsMenu'
 import { restoreFocusWithoutTooltip } from './Tooltip'
 import './SourceActions.css'
 
@@ -55,7 +56,8 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     if (!anchor || !root || !popup) return
     const position = () => {
       const button = anchor.getBoundingClientRect(), parent = root.getBoundingClientRect()
-      const width = popup.getBoundingClientRect().width
+      // 使用布局宽度，避免进场 scale 让右侧避让少算几像素。
+      const width = popup.offsetWidth || popup.getBoundingClientRect().width
       const left = Math.max(8, Math.min(button.left, window.innerWidth - width - 8))
       // 相对操作容器定位，但锚点始终取 more 本身，避免按钮换行后落到整组底部。
       popup.style.left = `${left - parent.left}px`
@@ -118,19 +120,19 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   return <div className="source-actions" ref={container}>
     <div className="source-actions-buttons" aria-busy={disabled || busy || (!!api && !capability)}>
       <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content?.session.messages.length}
-        size="small" variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" size={14} /></DsButton>
-      {api && <DsButton size="small" title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
+        variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" /></DsButton>
+      {api && <DsButton title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
         disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
-      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" size="small" title="选择目标 App，创建承接历史的新会话"
+      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" title="选择目标 App，创建承接历史的新会话"
         disabled={disabled || busy} onClick={() => chooseTarget('continue')}>在其他 App 继续</DsButton>}
     </div>
-    {menuOpen && <div ref={menu} className="source-actions-menu" role="menu" aria-label="更多会话操作" onKeyDown={menuKeys}
+    <DsMenu open={menuOpen} ref={menu} className="source-actions-menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
       <button role="menuitem" onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
       <button role="menuitem" disabled={!api} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
       {api?.configureCodex && <button role="menuitem" onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
       {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
-    </div>}
+    </DsMenu>
     <DsDialogPresence>{targetMode && api && <SourceTargetDialog key={`${entryId}-${targetMode}-${epoch}`} entryId={entryId} api={api}
       targets={capability?.value?.targets ?? []} loadingTargets={!capability?.value && !capability?.error} mode={targetMode}
       isActive={() => currentId.current === entryId && !currentDisabled.current && targetEpoch.current === epoch}

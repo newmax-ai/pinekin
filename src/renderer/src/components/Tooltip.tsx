@@ -27,7 +27,10 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<{ left: number; top: number; side: 'top' | 'bottom' } | null>(null)
-  const visible = open && !disabled
+  const pointerInteraction = useRef(false)
+  const expanded = children.props['aria-expanded'] === true || children.props['aria-expanded'] === 'true'
+  const suppressed = disabled || expanded
+  const visible = open && !suppressed
   const dismiss = useCallback(() => {
     clearTimeout(timer.current)
     if (pendingDismiss === dismiss) pendingDismiss = null
@@ -41,10 +44,10 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
     if (pendingDismiss === dismiss) pendingDismiss = null
     if (activeDismiss === dismiss) activeDismiss = null
   }, [dismiss])
-  useEffect(() => { if (disabled) dismiss() }, [disabled, dismiss])
+  useLayoutEffect(() => { if (suppressed) dismiss() }, [suppressed, dismiss])
 
   function show(element: HTMLButtonElement, immediate = false) {
-    if (disabled) return
+    if (suppressed) return
     trigger.current = element
     const warm = activeDismiss !== null || Date.now() - lastDismissTime < warmWindowMs
     pendingDismiss?.()
@@ -98,10 +101,10 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
     {cloneElement(children, {
       'aria-describedby': [props['aria-describedby'], visible ? id : undefined].filter(Boolean).join(' ') || undefined,
       onMouseEnter: event => { props.onMouseEnter?.(event); if (event.buttons === 0) show(event.currentTarget) },
-      onMouseLeave: event => { props.onMouseLeave?.(event); dismiss() },
-      onFocus: event => { props.onFocus?.(event); if (restoringFocus.has(event.currentTarget)) dismiss(); else show(event.currentTarget, true) },
-      onBlur: event => { props.onBlur?.(event); dismiss() },
-      onPointerDown: event => { props.onPointerDown?.(event); dismiss() },
+      onMouseLeave: event => { props.onMouseLeave?.(event); pointerInteraction.current = false; dismiss() },
+      onFocus: event => { props.onFocus?.(event); if (pointerInteraction.current || restoringFocus.has(event.currentTarget)) dismiss(); else show(event.currentTarget, true) },
+      onBlur: event => { props.onBlur?.(event); pointerInteraction.current = false; dismiss() },
+      onPointerDown: event => { pointerInteraction.current = true; props.onPointerDown?.(event); dismiss() },
       onClick: event => { props.onClick?.(event); dismiss() },
     })}
     {visible && createPortal(<div ref={tooltip} id={id} role="tooltip" popover={typeof HTMLElement.prototype.showPopover === 'function' ? 'manual' : undefined} className="ds-tooltip" data-side={position?.side}
