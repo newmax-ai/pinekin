@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
-import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Inbox, Info, Link, LockKeyhole, MessageSquareText, PanelLeft, PanelLeftClose, Plus, Search, ShieldCheck, X } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, Inbox, Info, Link, LockKeyhole, MessageSquareText, PanelLeft, PanelLeftClose, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
 
 import { Tooltip } from './Tooltip'
 
@@ -142,8 +142,11 @@ const icons = {
   'panel-open': PanelLeftClose,
   'panel-closed': PanelLeft,
   copy: Copy,
+  download: Download,
+  settings: Settings,
   chevron: ChevronRight,
   'chevron-down': ChevronDown,
+  more: Ellipsis,
   check: Check,
   close: X,
 }

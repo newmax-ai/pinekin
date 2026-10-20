@@ -88,18 +88,18 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   }
   return <div className="source-actions" ref={container}>
     <div className="source-actions-buttons">
-      {api?.continueInCodex && <DsButton ref={targetTrigger} size="small" title="选择目标 App，创建承接历史的新会话"
+      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" size="small" title="选择目标 App，创建承接历史的新会话"
         disabled={disabled || busy} onClick={() => chooseTarget('continue')}>在其他 App 继续<DesignIcon name="arrow" size={14} /></DsButton>}
       {capability?.value?.original.available && <DsButton size="small" title="定位原 App 中的这条会话，不创建副本"
         disabled={disabled || busy} onClick={() => void run('open')}>在原 App 打开<DesignIcon name="arrow" size={14} /></DsButton>}
       <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content?.session.messages.length}
-        size="small" variant="ghost" onClick={() => setMenuOpen(value => !value)}>更多<DesignIcon name="chevron-down" size={14} /></DsButton>
+        size="small" variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" size={14} /></DsButton>
     </div>
     {menuOpen && <div ref={menu} className="source-actions-menu" role="menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
-      <button role="menuitem" onClick={() => void run('copy')}>{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
-      <button role="menuitem" disabled={!api} onClick={() => void run('export')}>{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
-      {api?.configureCodex && <button role="menuitem" onClick={() => chooseTarget('configure')}>接续目标设置</button>}
+      <button role="menuitem" onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
+      <button role="menuitem" disabled={!api} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
+      {api?.configureCodex && <button role="menuitem" onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
       {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
     </div>}
     <DsDialogPresence>{targetMode && api && <SourceTargetDialog key={`${entryId}-${targetMode}-${epoch}`} entryId={entryId} api={api}

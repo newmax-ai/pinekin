@@ -91,13 +91,25 @@
 
 | 来源 | 地址模板 | 条件 |
 | --- | --- | --- |
-| NewMax | `newmax://open?conversation=<id>` | 普通主会话；ID 为 1–128 位字母、数字、下划线或连字符；系统关联 NewMax／NewMax AI |
+| NewMax | `newmax://open?conversation=<id>` | 普通主会话；ID 为 1–128 位字母、数字、下划线或连字符；macOS 校验系统关联的精确应用包身份，不依赖 Electron／NewMax 显示名；其它平台仍按原名称门禁，需独立实机验收 |
 | Codex | `codex://threads/<uuid>` | 普通主会话；原 ID 为 UUID；macOS 校验关联包 `com.openai.codex` 及 `codex` 协议声明，不依赖 Codex／ChatGPT 显示名；其它平台仍需独立实机验收 |
 | Claude Code／Cindy／DeepSeek Harness | 尚无打开适配 | 不猜命令、路径或 URL；但符合来源文本读取门禁的普通会话可以作为 Codex 接续来源 |
 
+macOS 正式包接受 `cc.newmax.desktop`／`com.newmaxai.app` 且必须声明 `newmax` 协议。开发包仅接受专属 `cc.newmax.desktop.cn.dev`／`cc.newmax.desktop.intl.dev`；其协议由运行时注册，允许没有静态 `CFBundleURLTypes`，但必须由 OS 的协议查询返回该包位置。不会搜索安装目录、放行通用 Electron 或仅凭显示名信任应用；拒绝符号链接、超限或检查中变化的包信息。多个开发副本共用 bundle ID 时，系统关联可能指向另一副本；识别通过不代表会话一定在该副本可见，必须确认关联目标与实际主 dev 一致，并做合成会话界面验收。
+
 原会话协议和新建目标协议都不携带数据目录。用户必须选择当前 Codex App 实际使用的数据根；Pinekin 不读取目标配置或凭据来猜测。系统受理不证明界面已找到会话。
 
-NewMax 只读源码调查确认：`electron/protocolHandler.ts` 只有 install/uninstall/open，没有外部会话导入；设置页的 JSON 导入是内部 IPC，不能拿它当外部 API。此次未修改 NewMax 项目，也没有用开发 CDP、模拟 UI 点击或直接写其数据库绕过该缺口。
+NewMax 只读源码调查确认：`electron/protocolHandler.ts` 只有 install/uninstall/open，没有外部会话导入；设置页的 JSON 导入是内部 IPC，不能拿它当外部 API。未修改 NewMax 源码，也不会把开发 CDP、UI 自动化或直接写库包装成 Pinekin 的 NewMax 接续／迁移能力。
+
+### 主 dev 现场验收（2026-10-20）
+
+- 按用户当次明确授权，仅重启 Pinekin 主 dev 一次以加载主进程修复；不另起测试副本，不重启 NewMax。
+- OS 实际返回的应用名为 `Electron.app`。按专属 bundle 身份识别后，生产「在原 App 打开」按钮可用；两个 NewMax 开发副本共用 bundle ID 的旧注册已纠正到主 dev，并记录原关联以便回滚。
+- 合成目标由 NewMax 的正常「用此身份发起对话」界面创建，再通过客户端既有保存消息 IPC 补一条明确标注的合成文本；没有发送模型请求或直接修改外部数据库。Pinekin 只连接本项目内的合成 SQLite 来源，不读取真实会话正文。
+- 点击生产按钮，未替换协议查询或 `shell.openExternal`；在 NewMax 主 dev 同时确认收到真实协议事件、选中的持久会话 ID 与合成目标一致。仅出现「已请求」反馈不算此项通过。
+- 已删除合成目标、断开临时来源、移除文件对话框替身与协议观察监听。原标签临时快照在收尾时不可用，未强行覆盖现有标签状态；不声称已核验原标签恢复。
+- 证据：`.newmax/outputs/newmax-original-open-live.json`；本次是复用主 dev 的实际链路验收，不等于已运行会额外启动窗口的整套 `npm run test:e2e`。
+- 后续用户仍报告某条真实记录只唤起主 dev、未展示指定会话。获准的只读元数据核对确认该 ID 在主 dev 存在，但失败原因尚未定位；另一条记录重试后两端选中 ID 一致，不代表最初失败记录已修复。合成链路通过不能推广为全部真实记录验收通过。本地验收文件含定位元数据，不纳入 git。
 
 ## 已执行的官方程序契约验证
 

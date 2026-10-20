@@ -176,6 +176,11 @@ h1, h2, h3, strong { font-weight: 500; }
 .archive-report[open] summary > svg:last-child { transform: rotate(90deg); }
 .report-body { border-top: 1px solid var(--ds-divider); padding: 12px 16px; max-height: 140px; overflow: auto; line-height: 1.8; overflow-wrap: anywhere; }
 .report-body ul { margin: 8px 0 0; padding-left: 18px; }
+/* 更新提示定位在消息视口外，避开页头与报告，也不受滚动渐隐遮罩影响。 */
+.source-messages-region { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.source-content-update { position: absolute; z-index: 2; top: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 48px); }
+.source-content-update > .ds-button { max-width: 100%; height: auto; min-height: 28px; padding: 6px 12px; white-space: normal; background: var(--ds-surface-300); box-shadow: var(--ds-input-shadow); }
+.source-content-update > .ds-button:not(:disabled):is(:hover, :active, :focus-visible) { opacity: 1; background: var(--ds-surface-300); }
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 24px; scrollbar-gutter: stable; }
 .message-column { width: 100%; max-width: 744px; margin: 0 auto; }
 .message { display: flex; min-width: 0; }

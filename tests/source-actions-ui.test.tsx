@@ -43,6 +43,27 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择 Codex' }))
     await screen.findByText('/synthetic/.codex')
   }
+  it.each([false, true])('在其他 App 继续是唯一主按钮，原 App 和更多保持次要层级（disabled=%s）', async disabled => {
+    const api = enableTarget()
+    const { container } = render(<SourceActions {...props} disabled={disabled} />)
+    await act(async () => {})
+    const target = screen.getByRole('button', { name: '在其他 App 继续' }) as HTMLButtonElement
+    expect(target.classList.contains('ds-button-primary')).toBe(true)
+    expect(target.classList.contains('ds-button-small')).toBe(true)
+    expect(target.disabled).toBe(disabled)
+    expect(container.querySelectorAll('.ds-button-primary')).toHaveLength(1)
+    expect(original().classList.contains('ds-button-tertiary')).toBe(true)
+    const moreButton = screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement
+    expect(moreButton.classList.contains('ds-button-tertiary')).toBe(true)
+    expect(moreButton.classList.contains('ds-button-icon')).toBe(true)
+    expect(moreButton.classList.contains('ds-button-icon-relaxed')).toBe(true)
+    expect(moreButton.classList.contains('ds-button-small')).toBe(true)
+    expect(moreButton.textContent).toBe('')
+    expect(moreButton.querySelectorAll('svg circle')).toHaveLength(3)
+    expect(moreButton.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
+    expect(moreButton.disabled).toBe(disabled)
+    expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
   it.each(['created', 'existing'] as const)('%s：选择 App 不创建，明确接续后不提供撤销入口，也不传当前片段', async status => {
     const api = enableTarget()
     vi.mocked(api.continueInCodex!).mockResolvedValueOnce({ status, receipt: 'receipt', threadId: 'thread', app: 'Codex', messageCount: 101, opened: true })
@@ -320,6 +341,31 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(window.staithe.copy).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
     expect(screen.queryByRole('status')).toBeNull()
+  })
+  it.each([false, true])('更多菜单为复制、导出和接续设置显示对应装饰图标，保持文字名称（partial=%s）', async partial => {
+    enableTarget()
+    render(<SourceActions {...props} content={partial ? { ...content, window: { offset: 2, textOffset: 4, totalMessages: 8, hasMore: false, snapshot: 'b'.repeat(64) } } : content} />)
+    await act(async () => {})
+    more()
+    const items = [
+      { label: partial ? '复制当前片段' : '复制会话文本', icon: 'lucide-copy' },
+      { label: partial ? '导出当前片段' : '导出 Markdown', icon: 'lucide-download' },
+      { label: '接续目标设置', icon: 'lucide-settings' },
+    ]
+    for (const { label, icon } of items) {
+      const item = screen.getByRole('menuitem', { name: label })
+      const svg = item.querySelector('svg')
+      expect(svg?.classList.contains(icon)).toBe(true)
+      expect(svg?.getAttribute('width')).toBe('16')
+      expect(svg?.getAttribute('height')).toBe('16')
+      expect(svg?.getAttribute('aria-hidden')).toBe('true')
+      expect(svg?.getAttribute('focusable')).toBe('false')
+      expect(item.firstElementChild).toBe(svg)
+      expect(item.textContent).toBe(label)
+    }
+    expect(window.staithe.copy).not.toHaveBeenCalled()
+    expect(window.staithe.sourceActions!.exportText).not.toHaveBeenCalled()
+    expect(window.staithe.sourceActions!.configureCodex).not.toHaveBeenCalled()
   })
   it('更多菜单中直接复制，没有二次确认或目标选择', async () => {
     render(<SourceActions {...props} />); more()

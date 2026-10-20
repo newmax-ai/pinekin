@@ -418,7 +418,6 @@ export function SourceApp() {
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? content.window ? `${content.window.totalMessages} 条来源消息 · 当前片段 ${content.session.messages.length} 条文本` : `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
             </div>
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
-            {contentChanged && <div className="source-update-notice" role="status"><span>此对话有更新</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '查看更新'}</DsButton></div>}
             {newMessageIndex !== undefined && <div className="source-update-notice"><DsButton size="small" onClick={() => {
               messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' }); setNewMessageIndex(undefined)
             }}>跳到新增消息</DsButton></div>}
@@ -432,6 +431,8 @@ export function SourceApp() {
                 <span role="status">从第 {content.window.offset + 1} 条来源消息{content.window.textOffset ? `第 ${content.window.textOffset + 1} 个字符` : ''}开始的片段</span>
                 {content.window.next && <DsButton size="small" disabled={reading} onClick={() => void readWindow('next')}>下一段</DsButton>}
               </nav>}
+              <div className="source-messages-region">
+              {contentChanged && <div className="source-content-update" role="status"><DsButton size="small" aria-label="查看更新" aria-busy={reading} disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '此对话有更新'}</DsButton></div>}
               <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column" key={`${selected.id}:${content.window?.offset ?? 0}:${content.window?.textOffset ?? 0}:${content.window?.snapshot ?? ''}`}>
                 {!content.session.messages.length && !content.presentation && (content.window?.hasMore ? <p className="privacy-note">当前片段没有可显示的问答文本，可以继续读取下一段。</p> : <EmptyState kind="messages" />)}
                 {content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`${content.window ? '当前片段' : ''}第 ${index + 1} 条消息 · ${roles[message.role]}`}>
@@ -440,6 +441,7 @@ export function SourceApp() {
                   <SourceMessage message={message} source={content.session.source} fragment={!!(content.window?.textOffset || content.window?.next?.textOffset)} />
                 </div>
               </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && !content.window?.hasMore && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
+              </div>
             </>}
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'list-error' ? listError : undefined}

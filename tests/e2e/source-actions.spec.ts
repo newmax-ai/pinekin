@@ -39,12 +39,15 @@ test.beforeEach(async () => {
   const bundle = join(root, 'ChatGPT.app'), resources = join(bundle, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS')
   await mkdir(resources, { recursive: true }); await writeFile(join(resources, 'codex'), 'synthetic metadata-only fixture; never execute')
   await writeFile(join(bundle, 'Contents/Info.plist'), JSON.stringify({ CFBundleIdentifier: 'com.openai.codex', CFBundleName: 'ChatGPT', CFBundleURLTypes: [{ CFBundleURLSchemes: ['codex'] }] }))
+  const newmaxBundle = join(root, 'Electron.app')
+  await mkdir(join(newmaxBundle, 'Contents'), { recursive: true })
+  await writeFile(join(newmaxBundle, 'Contents/Info.plist'), JSON.stringify({ CFBundleIdentifier: 'cc.newmax.desktop.cn.dev', CFBundleName: 'Electron' }))
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard, shell, nativeImage } = require('electron');
     app.setPath('home', ${JSON.stringify(root)}); app.setPath('appData', ${JSON.stringify(join(root, 'appData'))});
     globalThis.actionTest = { opened: [], copied: [], events: [], handler: true, saveCalls: 0, openCalls: 0 };
-    app.getApplicationNameForProtocol = url => globalThis.actionTest.handler ? (url.startsWith('codex:') ? 'ChatGPT' : 'NewMax') : '';
-    app.getApplicationInfoForProtocol = async () => { if (!globalThis.actionTest.handler) throw new Error('合成协议已失效'); return { name: 'ChatGPT', path: ${JSON.stringify(bundle)}, icon: nativeImage.createEmpty() }; };
+    app.getApplicationNameForProtocol = url => globalThis.actionTest.handler ? (url.startsWith('codex:') ? 'ChatGPT' : 'Electron') : '';
+    app.getApplicationInfoForProtocol = async url => { if (!globalThis.actionTest.handler) throw new Error('合成协议已失效'); return { name: url.startsWith('codex:') ? 'ChatGPT' : 'Electron', path: url.startsWith('codex:') ? ${JSON.stringify(bundle)} : ${JSON.stringify(newmaxBundle)}, icon: nativeImage.createEmpty() }; };
     shell.openExternal = async url => { globalThis.actionTest.opened.push(url); };
     clipboard.writeText = async text => { globalThis.actionTest.copied.push(text); };
     dialog.showOpenDialog = async () => { globalThis.actionTest.openCalls++; return { canceled: true, filePaths: [] }; };

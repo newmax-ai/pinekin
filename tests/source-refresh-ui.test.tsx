@@ -180,7 +180,15 @@ describe('不打断阅读的来源刷新', () => {
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
     fireEvent.focus(window)
     await screen.findByText('此对话有更新')
-    expect(screen.getByText('此对话有更新')).toBeTruthy()
+    const update = screen.getByRole('button', { name: '查看更新' })
+    expect(update.textContent).toBe('此对话有更新')
+    expect(update.getAttribute('data-ds-pill-control')).toBe('true')
+    const overlay = update.closest('.source-content-update')!
+    expect(overlay.getAttribute('role')).toBe('status')
+    expect(overlay.parentElement).toBe(messages.parentElement)
+    expect(messages.parentElement?.classList.contains('source-messages-region')).toBe(true)
+    expect(messages.contains(update)).toBe(false)
+    expect(document.querySelector('.source-update-notice')).toBeNull()
     expect(window.staithe.sources.read).toHaveBeenCalledOnce()
     vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('来源仍在写入'))
     fireEvent.click(screen.getByRole('button', { name: '查看更新' }))
@@ -193,6 +201,27 @@ describe('不打断阅读的来源刷新', () => {
     expect(messages.scrollTop).toBe(120)
     expect(screen.queryByText('此对话有更新')).toBeNull()
     expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+  })
+  it('更新胶囊读取期间禁止重复点击，保留消息视口，成功后移除浮层', async () => {
+    const messages = await open(); messages.scrollTop = 120
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const update = await screen.findByRole('button', { name: '查看更新' })
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(update)
+    expect(update.hasAttribute('disabled')).toBe(true)
+    expect(update.getAttribute('aria-busy')).toBe('true')
+    expect(update.textContent).toBe('读取中…')
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    expect(messages.scrollTop).toBe(120)
+    fireEvent.click(update)
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+    await act(async () => { finish({ ...content, revision: 'v2' }) })
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    expect(document.querySelector('.source-content-update')).toBeNull()
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    expect(messages.scrollTop).toBe(120)
   })
   it('手动刷新即使目录版本不变也重读正文，正文等待期间保持忙碌且不重复请求', async () => {
     const messages = await open(); messages.scrollTop = 120

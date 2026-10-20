@@ -42,6 +42,44 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(floating).toContain('background: var(--ds-surface-300);')
     expect(styles).toContain('.ds-button:not(.ds-button-ghost):hover:not(:disabled) { opacity: 0.8; }')
   })
+  it('会话操作菜单的图标与文字垂直居中，使用统一的 8px 间距与图标色', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const item = /\.source-actions-menu button\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(item).toContain('display: flex;')
+    expect(item).toContain('align-items: center;')
+    expect(item).toContain('gap: 8px;')
+    const icon = /\.source-actions-menu button > \.design-icon\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(icon).toContain('color: var(--ds-icon);')
+    expect(icon).toContain('flex-shrink: 0;')
+  })
+  it('正文更新胶囊相对消息区域绝对定位，顶部居中并保留边距，不随正文滚动或撑开布局', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const region = /\.source-messages-region\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(region).toContain('position: relative;')
+    expect(region).toContain('display: flex;')
+    expect(region).toContain('flex-direction: column;')
+    expect(region).toContain('flex: 1;')
+    expect(region).toContain('min-height: 0;')
+    expect(region).toContain('min-width: 0;')
+    const overlay = /\.source-content-update\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(overlay).toContain('position: absolute;')
+    expect(overlay).toContain('z-index: 2;')
+    expect(overlay).toContain('top: 16px;')
+    expect(overlay).toContain('left: 50%;')
+    expect(overlay).toContain('transform: translateX(-50%);')
+    expect(overlay).toContain('width: max-content;')
+    expect(overlay).toContain('max-width: calc(100% - 48px);')
+    const button = /\.source-content-update > \.ds-button\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(button).toContain('max-width: 100%;')
+    expect(button).toContain('height: auto;')
+    expect(button).toContain('min-height: 28px;')
+    expect(button).toContain('white-space: normal;')
+    expect(button).toContain('background: var(--ds-surface-300);')
+    expect(button).toContain('box-shadow: var(--ds-input-shadow);')
+    const interaction = /\.source-content-update > \.ds-button:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(interaction).toContain('opacity: 1;')
+    expect(interaction).toContain('background: var(--ds-surface-300);')
+  })
   it('详情标签紧跟标题 8px，右上角主操作不收缩且窄阅读区允许换行', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.detail-title-group\s*\{[^}]*display: flex;[^}]*align-items: center;[^}]*gap: 8px;[^}]*min-width: 0;/)

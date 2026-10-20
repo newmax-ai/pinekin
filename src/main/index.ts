@@ -7,6 +7,7 @@ import { registerCodexTargetIpc } from './codex-target-ipc'
 import { CodexProjectSelection } from './codex-project'
 import { readCodexProjectCatalog } from './codex-project-catalog'
 import { resolveCodexBinary, resolveCodexApplication } from './codex-target-runtime'
+import { resolveNewMaxApplication } from './newmax-application'
 import { CodexTargetSetup, checkCodexDirectory } from './codex-target-setup'
 import { sourceTextSchema } from '../core/source-transcript'
 import { fileURLToPath } from 'node:url'
@@ -90,6 +91,13 @@ else {
         await codexApplication()
         // 只有包身份和协议校验通过后才返回能力标识，不依赖可变的应用显示名。
         return 'Codex'
+      }
+      if (process.platform === 'darwin' && url.startsWith('newmax:')) {
+        const name = app.getApplicationNameForProtocol(url)
+        if (!name.trim()) return name
+        const application = await app.getApplicationInfoForProtocol(url)
+        await resolveNewMaxApplication(application.path)
+        return 'NewMax'
       }
       return app.getApplicationNameForProtocol(url)
     }
