@@ -52,6 +52,18 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(icon).toContain('color: var(--ds-icon);')
     expect(icon).toContain('flex-shrink: 0;')
   })
+  it('操作通知去掉边框，使用带 0.5px 轮廓的轻量分层投影并适配浅深主题', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const feedback = /\.source-actions-feedback\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(feedback).toContain('border: 0;')
+    expect(feedback).toContain('box-shadow: var(--ds-elevation-200);')
+    expect(feedback).not.toContain('0 8px 24px')
+    for (const theme of themes) {
+      const shadow = declaration(theme, 'elevation-200')
+      expect(shadow).toContain('0.5px')
+      expect(shadow.split(/,(?![^()]*\))/).length).toBeGreaterThan(1)
+    }
+  })
   it('正文更新胶囊相对消息区域绝对定位，顶部居中并保留边距，不随正文滚动或撑开布局', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const region = /\.source-messages-region\s*\{([^}]*)\}/.exec(styles)?.[1]

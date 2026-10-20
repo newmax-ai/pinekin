@@ -10,7 +10,7 @@
 .source-actions-note { margin-top: 5px; padding: 10px 12px 6px; border-top: 1px solid var(--ds-divider); font-size: var(--ds-text-sm); color: var(--ds-text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
 .source-actions-note > span { color: var(--ds-text-primary); }
 .source-actions-note p { margin: 4px 0 0; }
-.source-actions-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 31; display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(380px, 75vw); padding: 10px 12px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-200); box-shadow: 0 8px 24px #0002; font-size: var(--ds-text-sm); color: var(--ds-text-secondary); line-height: 1.7; }
+.source-actions-feedback { position: absolute; top: calc(100% + 6px); right: 0; z-index: 31; display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(380px, 75vw); padding: 10px 12px; border: 0; border-radius: var(--ds-radius-md); background: var(--ds-surface-200); box-shadow: var(--ds-elevation-200); font-size: var(--ds-text-sm); color: var(--ds-text-secondary); line-height: 1.7; }
 .source-actions-feedback > span { min-width: 0; overflow-wrap: anywhere; }
 .source-actions-feedback[role='alert'] { color: var(--ds-danger); }
 .ds-dialog:has(.source-target-body) { width: 520px; }

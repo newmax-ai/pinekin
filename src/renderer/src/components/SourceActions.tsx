@@ -44,6 +44,11 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     return () => { active = false }
   }, [entryId, api, attempt])
   useEffect(() => {
+    if (!status || status.error) return
+    const timer = setTimeout(() => setFeedback(current => current === status ? undefined : current), 3000)
+    return () => clearTimeout(timer)
+  }, [status])
+  useEffect(() => {
     if (!menuOpen) return
     menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
     function outside(event: PointerEvent) {
