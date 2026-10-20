@@ -75,6 +75,14 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(pending).not.toMatch(/pointer-events:|cursor:|display:|visibility:/)
     expect(styles).not.toMatch(/(?:^|\n)\.ds-button:disabled\s*\{/)
   })
+  it('文件交接复用右对齐操作栏，不保留已移除的目标弹窗布局', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const actions = /\.source-actions-buttons\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(actions).toContain('justify-content: flex-end;')
+    expect(actions).toContain('gap: 6px;')
+    expect(styles).not.toContain('source-handoff-footer')
+    expect(styles).not.toContain('source-handoff-body')
+  })
   it('菜单复用设计系统的轻微缩放淡入淡出，退场期间不接收鼠标交互', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const enter = /\.ds-menu\s*\{([^}]*)\}/.exec(styles)?.[1]

@@ -80,7 +80,7 @@ describe('不打断阅读的来源刷新', () => {
     await open()
     const group = document.querySelector('.source-actions-buttons')!
     const buttons = [...group.querySelectorAll('button')]
-    expect(buttons.map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['更多会话操作', '在原 App 打开', '在其他 App 继续'])
+    expect(buttons.map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['更多会话操作', '在原 App 打开', '复制接续文件'])
     let finishRead!: (result: SourceContent) => void
     let finishInspect!: (value: typeof available) => void
     vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finishRead = resolve }))

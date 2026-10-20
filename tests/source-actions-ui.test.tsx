@@ -34,7 +34,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     return api
   }
   async function openTargets() {
-    fireEvent.click(screen.getByRole('button', { name: '在其他 App 继续' }))
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
     fireEvent.click(await screen.findByRole('button', { name: '在 Codex 继续' }))
     return screen.findByRole('button', { name: '独立会话继续' })
   }
@@ -43,11 +43,124 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择 Codex' }))
     await screen.findByText('/synthetic/.codex')
   }
-  it.each([false, true])('在其他 App 继续是唯一主按钮，原 App 和更多保持次要层级（disabled=%s）', async disabled => {
+  it('所有已连接 App 都展示原生能力，未适配目标明确禁用且不触发 Codex、剪贴板或打开原会话', async () => {
+    const api = enableTarget()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
+      { id: 'codex', name: 'Codex', available: true },
+      ...(['newmax', 'claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code'] as const).map(id => ({
+        id, name: id, available: false, reason: `${id} 原生接续尚未支持。`,
+      })),
+    ] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    for (const name of ['newmax', 'claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code']) {
+      const button = await screen.findByRole('button', { name: `在 ${name} 继续` }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      expect(screen.getByText(`${name} 原生接续尚未支持。`)).toBeTruthy()
+      fireEvent.click(button)
+    }
+    expect(api.continueInCodex).not.toHaveBeenCalled(); expect(api.inspectCodexTarget).not.toHaveBeenCalled()
+    expect(window.staithe.copy).not.toHaveBeenCalled(); expect(api.openOriginal).not.toHaveBeenCalled()
+  })
+  it('通用原生桥按所选 App 识别、选项目和创建，不沿用 Codex 专用接口', async () => {
+    const api = enableTarget()
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, app: 'NewMax', configured: true })
+    api.listTargetProjects = vi.fn().mockResolvedValue({ projects: [] })
+    api.chooseTargetProject = vi.fn().mockResolvedValue(null)
+    api.continueInTarget = vi.fn().mockResolvedValue({ status: 'created', app: 'NewMax', receipt: 'receipt', threadId: 'thread', messageCount: 101, opened: true })
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'newmax', name: 'NewMax', available: true }] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    fireEvent.click(await screen.findByRole('button', { name: '在 NewMax 继续' }))
+    await waitFor(() => expect(api.listTargetProjects).toHaveBeenCalledWith('newmax', props.entryId))
+    fireEvent.click(screen.getByRole('button', { name: '独立会话继续' }))
+    await waitFor(() => expect(api.continueInTarget).toHaveBeenCalledWith(props.entryId, 'newmax', { kind: 'standalone' }))
+    expect(api.inspectTarget).toHaveBeenCalledWith('newmax', 'automatic')
+    expect(api.inspectCodexTarget).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
+    expect(screen.getByRole('status').textContent).toContain('已请求 NewMax 打开')
+  })
+  it('NewMax 目的地使用已有工作区语义，不提供任意文件夹创建入口', async () => {
+    const api = enableTarget()
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, app: 'NewMax', configured: true })
+    api.listTargetProjects = vi.fn().mockResolvedValue({ projects: [] })
+    api.chooseTargetProject = vi.fn().mockResolvedValue(null)
+    api.continueInTarget = vi.fn()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'newmax', name: 'NewMax', available: true, destinationKind: 'workspace' }] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    fireEvent.click(await screen.findByRole('button', { name: '在 NewMax 继续' }))
+    expect(screen.queryByRole('button', { name: '选择其他文件夹' })).toBeNull()
+    expect(screen.getByText(/NewMax 已有工作区/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: '独立会话继续' })).toBeTruthy()
+  })
+  it('旧 preload 不能将非 Codex 目标静默交给 Codex 创建', async () => {
+    const api = enableTarget()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'newmax', name: 'NewMax', available: true }] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    fireEvent.click(await screen.findByRole('button', { name: '在 NewMax 继续' }))
+    fireEvent.click(await screen.findByRole('button', { name: '独立会话继续' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('请重启当前 Pinekin 主实例')
+    expect(api.inspectCodexTarget).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
+  it('新旧桥并存时 Codex 也使用通用目标接口，不能静默回退旧桥', async () => {
+    const api = enableTarget()
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, configured: true })
+    api.listTargetProjects = vi.fn().mockResolvedValue({ projects: [] })
+    api.chooseTargetProject = vi.fn().mockResolvedValue(null)
+    api.continueInTarget = vi.fn().mockResolvedValue({ status: 'created', app: 'Codex', receipt: 'receipt', threadId: 'thread', messageCount: 101, opened: true })
+    render(<SourceActions {...props} />)
+    fireEvent.click(await openTargets())
+    await waitFor(() => expect(api.continueInTarget).toHaveBeenCalledWith(props.entryId, 'codex', { kind: 'standalone' }))
+    expect(api.continueInCodex).not.toHaveBeenCalled(); expect(api.inspectCodexTarget).not.toHaveBeenCalled()
+  })
+  it('通用原生桥缺少方法时明确报错，不混用旧 Codex 接口', async () => {
+    const api = enableTarget()
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, configured: true })
+    render(<SourceActions {...props} />)
+    fireEvent.click(await openTargets())
+    expect((await screen.findByRole('alert')).textContent).toContain('请重启当前 Pinekin 主实例')
+    expect(api.inspectCodexTarget).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
+    expect(api.listCodexProjects).not.toHaveBeenCalled()
+  })
+  it('通用目标设置按所选 App 保存配置，不创建会话或借用旧设置接口', async () => {
+    const api = enableTarget()
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, app: 'NewMax' })
+    api.configureTarget = vi.fn().mockResolvedValue(true)
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'newmax', name: 'NewMax', available: true }] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '接续目标设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '选择 NewMax' }))
+    await screen.findByText('/synthetic/.codex')
+    fireEvent.click(screen.getByRole('button', { name: '保存位置' }))
+    await waitFor(() => expect(api.configureTarget).toHaveBeenCalledWith('newmax', preview.token))
+    expect(api.configureCodex).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
+  it('切换目标后不发布旧目标迟到的项目列表，也不复用旧项目令牌', async () => {
+    const api = enableTarget()
+    let finish!: (value: { projects: { id: string; name: string; path: string }[] }) => void
+    api.listTargetProjects = vi.fn().mockImplementation(target => target === 'codex' ? new Promise(resolve => { finish = resolve }) : Promise.resolve({ projects: [] }))
+    api.inspectTarget = vi.fn().mockResolvedValue({ ...preview, app: 'NewMax', configured: true })
+    api.chooseTargetProject = vi.fn().mockResolvedValue(null)
+    api.continueInTarget = vi.fn().mockResolvedValue({ status: 'created', app: 'NewMax', receipt: 'receipt', threadId: 'thread', messageCount: 101, opened: true })
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'codex', name: 'Codex', available: true }, { id: 'newmax', name: 'NewMax', available: true }] })
+    render(<SourceActions {...props} />)
+    await openTargets()
+    fireEvent.click(screen.getByRole('button', { name: '在 NewMax 继续' }))
+    await screen.findByText('暂无已保存的本地项目')
+    await act(async () => { finish({ projects: [{ id: preview.token, name: '旧目标项目', path: '/synthetic/old-project' }] }) })
+    expect(screen.queryByText('旧目标项目')).toBeNull()
+    expect(screen.getByRole('button', { name: '在 NewMax 继续' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: '在 Codex 继续' }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: '独立会话继续' }))
+    await waitFor(() => expect(api.continueInTarget).toHaveBeenCalledWith(props.entryId, 'newmax', { kind: 'standalone' }))
+    expect(api.chooseTargetProject).not.toHaveBeenCalled()
+  })
+  it.each([false, true])('复制接续文件是唯一主按钮，原 App 和更多保持次要层级（disabled=%s）', async disabled => {
     const api = enableTarget()
     const { container } = render(<SourceActions {...props} disabled={disabled} />)
     await act(async () => {})
-    const target = screen.getByRole('button', { name: '在其他 App 继续' }) as HTMLButtonElement
+    const target = screen.getByRole('button', { name: '复制接续文件' }) as HTMLButtonElement
     expect(target.classList.contains('ds-button-primary')).toBe(true)
     expect(target.classList.contains('ds-button-small')).toBe(false)
     expect(target.disabled).toBe(disabled)
@@ -147,7 +260,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     const api = enableTarget(false), projectId = '22222222-2222-4222-8222-222222222222'
     vi.mocked(api.listCodexProjects!).mockResolvedValueOnce({ projects: [{ id: projectId, name: '已有项目', path: '/synthetic/saved' }] })
     render(<SourceActions {...props} />)
-    fireEvent.click(screen.getByRole('button', { name: '在其他 App 继续' }))
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
     await act(async () => {})
     expect(api.listCodexProjects).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '在 Codex 继续' }))
@@ -605,7 +718,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(screen.queryByText('打开链路尚未验证')).toBeNull()
     more()
     expect(screen.getByRole('note').textContent).toContain('打开链路尚未验证')
-    expect(screen.getAllByRole('menuitem')).toHaveLength(2)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3)
     expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
   })
   it('能力检查完成前禁用原打开按钮并保留节点，复制仍可使用', async () => {
@@ -780,7 +893,9 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(document.activeElement).toBe(first)
     fireEvent.keyDown(first, { key: 'ArrowDown' }); expect(document.activeElement).toBe(second)
     fireEvent.keyDown(second, { key: 'Home' }); expect(document.activeElement).toBe(first)
-    fireEvent.keyDown(first, { key: 'End' }); expect(document.activeElement).toBe(second)
+    const last = screen.getByRole('menuitem', { name: '保存接续文件' })
+    fireEvent.keyDown(first, { key: 'End' }); expect(document.activeElement).toBe(last)
+    fireEvent.keyDown(last, { key: 'ArrowUp' }); expect(document.activeElement).toBe(second)
     fireEvent.keyDown(second, { key: 'ArrowUp' }); expect(document.activeElement).toBe(first)
     fireEvent.keyDown(first, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()

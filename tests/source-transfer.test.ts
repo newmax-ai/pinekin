@@ -17,6 +17,11 @@ describe('接续读取完整文本，不依赖阅读器当前分页', () => {
     expect(result.messages).toEqual([{ role: 'user', content: '问🙂  题' }, { role: 'assistant', content: '回答' }])
     expect(result.snapshot).toBe(snapshot)
   })
+  it('收集每页读取说明并去重，保留来源消息数而非冒充所有内容均已迁移', async () => {
+    const read = vi.fn().mockResolvedValueOnce(page({ warnings: ['附件未携带'], fragments: [{ position: 0, role: 'user', content: '问题' }], next: { offset: 1, textOffset: 0, snapshot } }))
+      .mockResolvedValueOnce(page({ offset: 1, warnings: ['附件未携带', '工具状态未迁移'], fragments: [{ position: 1, role: 'assistant', content: '回答' }] }))
+    expect(await collectSourceTransfer(read)).toMatchObject({ warnings: ['附件未携带', '工具状态未迁移'], sourceMessageCount: 2 })
+  })
   it('不把过滤的内部消息接到上一条可见消息上', async () => {
     const read = vi.fn().mockResolvedValueOnce(page({ fragments: [{ position: 0, role: 'user', content: '问题' }], next: { offset: 1, textOffset: 0, snapshot } }))
       .mockResolvedValueOnce(page({ offset: 1, fragments: [], next: { offset: 1, textOffset: 10, snapshot } }))

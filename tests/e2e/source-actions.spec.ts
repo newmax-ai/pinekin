@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { codexFixture, codexThreadId } from '../fixtures/codex'
 
-type State = { opened: string[]; copied: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number }
+type State = { opened: string[]; launched: string[]; copied: string[]; files: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number }
 let app: ElectronApplication, page: Page, root: string, dbPath: string, output: string
 async function connect(name: 'NewMax' | 'Codex' = 'NewMax') {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
@@ -45,11 +45,17 @@ test.beforeEach(async () => {
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard, shell, nativeImage } = require('electron');
     app.setPath('home', ${JSON.stringify(root)}); app.setPath('appData', ${JSON.stringify(join(root, 'appData'))});
-    globalThis.actionTest = { opened: [], copied: [], events: [], handler: true, saveCalls: 0, openCalls: 0 };
+    globalThis.actionTest = { opened: [], launched: [], copied: [], files: [], events: [], handler: true, saveCalls: 0, openCalls: 0 };
     app.getApplicationNameForProtocol = url => globalThis.actionTest.handler ? (url.startsWith('codex:') ? 'ChatGPT' : 'Electron') : '';
     app.getApplicationInfoForProtocol = async url => { if (!globalThis.actionTest.handler) throw new Error('合成协议已失效'); return { name: url.startsWith('codex:') ? 'ChatGPT' : 'Electron', path: url.startsWith('codex:') ? ${JSON.stringify(bundle)} : ${JSON.stringify(newmaxBundle)}, icon: nativeImage.createEmpty() }; };
     shell.openExternal = async url => { globalThis.actionTest.opened.push(url); };
+    shell.openPath = async path => { globalThis.actionTest.launched.push(path); return ''; };
     clipboard.writeText = async text => { globalThis.actionTest.copied.push(text); };
+    clipboard.write = async items => {
+      const type = 'electron application/osclipboard;format="public.file-url"';
+      if (items.length !== 1 || items[0].types.length !== 1 || items[0].types[0] !== type) throw new Error('期望原生文件剪贴板');
+      globalThis.actionTest.files.push(await (await items[0].getType(type)).text());
+    };
     dialog.showOpenDialog = async () => { globalThis.actionTest.openCalls++; return { canceled: true, filePaths: [] }; };
     dialog.showSaveDialog = async () => { globalThis.actionTest.saveCalls++; return { canceled: false, filePath: ${JSON.stringify(output)} }; };
     app.on('browser-window-created', (_event, window) => { window.on('show', () => globalThis.actionTest.events.push('show')); window.on('focus', () => globalThis.actionTest.events.push('focus')); });
@@ -65,10 +71,67 @@ test.afterEach(async () => {
   } finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
-test('明确选择独立会话或项目；取消项目不创建，安装与数据位置只留在设置', async () => {
+test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
   const before = await readFile(dbPath)
   await connect()
-  await page.getByRole('button', { name: '在其他 App 继续' }).click()
+  await page.getByRole('button', { name: '复制接续文件' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('status')).toContainText('文件已复制')
+  const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
+  expect(state.opened).toEqual([]); expect(state.launched).toEqual([]); expect(state.copied).toEqual([])
+  expect(state.files).toHaveLength(1)
+  const text = await readFile(new URL(state.files[0]), 'utf8')
+  expect(text).toContain('整理项目方案，保留已有结论。')
+  expect(text).toContain('先明确目标，再逐项验证实际能力。')
+  expect(text).toContain('不是原生会话恢复'); expect(text).not.toContain('目标：')
+  await page.getByRole('button', { name: '关闭操作提示' }).click()
+  await more(); await page.getByRole('menuitem', { name: '保存接续文件' }).click()
+  await expect(page.getByRole('status')).toContainText('接续文件已保存')
+  expect(await readFile(output, 'utf8')).toContain('先明确目标，再逐项验证实际能力。')
+  expect(await readFile(new URL(state.files[0]), 'utf8')).toBe(text)
+  expect(await readFile(dbPath)).toEqual(before)
+  await expect(readFile(join(root, 'pinekin', 'codex-target.json'))).rejects.toThrow()
+  const rejected = await page.evaluate(async () => {
+    const api = window.staithe.sourceActions!
+    return Promise.all([
+      api.prepareHandoffFile!('file:///etc/passwd').then(() => false, () => true),
+      api.prepareHandoffFile!('b'.repeat(64)).then(() => false, () => true),
+      api.deliverHandoffFile!('/arbitrary/path', 'copy-file').then(() => false, () => true),
+      api.prepareHandoffFile!('https://evil.test').then(() => false, () => true),
+    ])
+  })
+  expect(rejected).toEqual([true, true, true, true])
+})
+
+test('直接复制文件在等待与失败时不改变按钮位置，不弹目标选择', async () => {
+  await connect()
+  await app.evaluate(({ ipcMain }) => {
+    const control = { finish: () => {} }
+    Object.assign(globalThis, { handoffLayout: control })
+    ipcMain.removeHandler('pinekin:handoff-file-prepare')
+    ipcMain.handle('pinekin:handoff-file-prepare', () => new Promise((_resolve, reject) => {
+      control.finish = () => reject(new Error('合成读取失败'))
+    }))
+  })
+  const button = page.getByRole('button', { name: '复制接续文件' })
+  const before = await button.boundingBox()
+  await button.click()
+  await expect(button).toBeDisabled()
+  await expect(button).toHaveCSS('opacity', '1')
+  expect(await button.boundingBox()).toEqual(before)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await app.evaluate(() => { (globalThis as unknown as { handoffLayout: { finish(): void } }).handoffLayout.finish() })
+  await expect(page.getByRole('alert')).toContainText('合成读取失败')
+  await expect(button).toBeEnabled()
+  expect(await button.boundingBox()).toEqual(before)
+  expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.files)).toEqual([])
+})
+
+test('高级原生入口仍可明确选择独立会话或项目；取消项目不创建', async () => {
+  const before = await readFile(dbPath)
+  await connect()
+  await more(); await page.getByRole('menuitem', { name: '原生历史迁移（高级）' }).click()
+  await expect(page.getByRole('button', { name: '在 NewMax 继续' })).toBeEnabled()
   await page.getByRole('button', { name: '在 Codex 继续' }).click()
   await expect(page.getByRole('group', { name: '在哪里继续？' })).toBeVisible()
   await expect(page.getByRole('button', { name: '独立会话继续' })).toBeEnabled()
@@ -140,9 +203,14 @@ test('明确选择独立会话或项目；取消项目不创建，安装与数�
       api.continueInCodex!(id, { kind: 'project', token: '11111111-1111-4111-8111-111111111111' }).then(() => false, () => true),
       api.rollbackTransfer!('../escape').then(() => false, () => true),
       api.configureCodex!('/arbitrary/path').then(() => false, () => true),
+      api.continueInTarget!(id, 'newmax', { kind: 'standalone' }).then(() => false, () => true),
+      api.deliverHandoffFile!('11111111-1111-4111-8111-111111111111', 'copy-open' as never).then(() => false, () => true),
+      api.configureTarget!('newmax', '11111111-1111-4111-8111-111111111111').then(() => false, () => true),
+      api.continueInTarget!(id, 'codex', { kind: 'standalone', path: '/arbitrary' } as never).then(() => false, () => true),
+      api.continueInTarget!('file:///etc/passwd', 'codex', { kind: 'standalone' }).then(() => false, () => true),
     ])
   })
-  expect(results).toEqual([true, true, true, true])
+  expect(results).toEqual(Array(9).fill(true))
   expect(await readFile(dbPath)).toEqual(before)
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([])
 })
@@ -208,7 +276,7 @@ test('长标题优先分配宽度，窄窗口操作另起一行；协议不可�
   await page.locator('.session-card').first().click()
   await more()
   await expect(page.getByRole('note')).toContainText('未找到已关联此协议的 NewMax 客户端')
-  await expect(header.getByRole('button', { name: '在原 App 打开' })).toHaveCount(0)
+  await expect(header.getByRole('button', { name: '在原 App 打开' })).toBeDisabled()
   await expect(header.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: '复制会话文本' })).toBeEnabled()
   await page.getByRole('menuitem', { name: '复制会话文本' }).click()

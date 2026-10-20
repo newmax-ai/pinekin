@@ -8,6 +8,8 @@ import { DsMenu } from './DsMenu'
 import { restoreFocusWithoutTooltip } from './Tooltip'
 import './SourceActions.css'
 
+const handoffUnavailable = '文件交接接口尚未加载，请在方便时更新或重启当前 Pinekin 主实例。'
+
 export function SourceActions({ entryId, content, disabled = false, snapshotNotice }: {
   entryId: string; content?: SourceContent; disabled?: boolean; snapshotNotice?: string
 }) {
@@ -15,7 +17,6 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const [attempt, setAttempt] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
   const [targetMode, setTargetMode] = useState<'continue' | 'configure'>()
-  const targetTrigger = useRef<HTMLButtonElement>(null)
   const targetEpoch = useRef(0), currentDisabled = useRef(disabled)
   currentDisabled.current = disabled
   const epoch = targetEpoch.current
@@ -27,6 +28,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const container = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const alive = useRef(true), fileEpoch = useRef(0), fileToken = useRef<string | undefined>(undefined)
   const api = window.staithe.sourceActions
   const capability = capabilities?.id === entryId ? capabilities : undefined
   const transcript = useMemo(() => content ? buildSourceTranscript(content, snapshotNotice) : undefined, [content, snapshotNotice])
@@ -34,6 +36,16 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const status = feedback?.id === entryId ? feedback : undefined
   const originalReason = capability?.value?.original.reason ?? (capability?.error ? '打开方式检查失败，请重试。' : '正在检查打开方式…')
 
+  function releaseFile() {
+    const token = fileToken.current
+    fileToken.current = undefined
+    if (token) void api?.discardHandoffFile?.(token).catch(() => {})
+  }
+  useLayoutEffect(() => { fileEpoch.current++; releaseFile() }, [entryId, disabled])
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; fileEpoch.current++; releaseFile() }
+  }, [api])
   useEffect(() => {
     let active = true
     setCapabilities(undefined); setFeedback(undefined); setMenuOpen(false)
@@ -97,13 +109,24 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       : event.key === 'ArrowDown' ? (index + 1) % items.length : event.key === 'ArrowUp' ? (index + items.length - 1) % items.length : undefined
     if (next !== undefined) { event.preventDefault(); items[next]?.focus() }
   }
-  async function run(kind: 'open' | 'copy' | 'export') {
+  async function run(kind: 'open' | 'copy' | 'export' | 'handoff-copy' | 'handoff-save') {
     if (pending.current.has(entryId) || disabled) return
-    const id = entryId
+    const id = entryId, requestEpoch = fileEpoch.current
+    const active = () => alive.current && currentId.current === id && !currentDisabled.current && requestEpoch === fileEpoch.current
     pending.current.add(id); setBusyId(id); setFeedback(undefined); closeMenu()
+    let token: string | undefined
     try {
       let text: string | undefined
-      if (kind === 'open') {
+      if (kind === 'handoff-copy' || kind === 'handoff-save') {
+        if (!api?.prepareHandoffFile || !api.deliverHandoffFile || !api.discardHandoffFile) throw new Error(handoffUnavailable)
+        const prepared = await api.prepareHandoffFile(id)
+        token = prepared.token
+        if (!active()) return
+        fileToken.current = token
+        const result = await api.deliverHandoffFile(token, kind === 'handoff-copy' ? 'copy-file' : 'export')
+        if (result.status === 'file-copied') text = '文件已复制，可在支持文件粘贴的 App 中添加。'
+        else if (result.status === 'exported') text = '接续文件已保存，可在其他 App 中添加。'
+      } else if (kind === 'open') {
         if (!api || !capability?.value?.original.available) return
         const result = await api.openOriginal(id)
         text = `已请求 ${result.app} 打开原会话，请在原 App 查看。`
@@ -112,10 +135,16 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
         if (kind === 'copy') { await window.staithe.copy(transcript.text); text = transcript.partial ? '已复制当前片段。' : '已复制会话文本。' }
         else if (api && await api.exportText(transcript.text)) text = transcript.partial ? '已导出当前片段。' : '已导出 Markdown。'
       }
-      if (text && currentId.current === id) setFeedback({ id, text })
+      if (text && active()) setFeedback({ id, text })
     } catch (error) {
-      if (currentId.current === id) setFeedback({ id, text: error instanceof Error ? error.message : String(error), error: true })
-    } finally { pending.current.delete(id); if (currentId.current === id) setBusyId('') }
+      const text = (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, '')
+      if (active()) setFeedback({ id, text: text.includes('No handler registered') ? handoffUnavailable : text, error: true })
+    } finally {
+      if (fileToken.current === token) fileToken.current = undefined
+      if (token) void api?.discardHandoffFile?.(token).catch(() => {})
+      pending.current.delete(id)
+      if (alive.current && currentId.current === id) setBusyId('')
+    }
   }
   return <div className="source-actions" ref={container}>
     <div className="source-actions-buttons" aria-busy={disabled || busy || (!!api && !capability)}>
@@ -123,20 +152,22 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
         variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" /></DsButton>
       {api && <DsButton title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
         disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
-      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" title="选择目标 App，创建承接历史的新会话"
-        disabled={disabled || busy} onClick={() => chooseTarget('continue')}>在其他 App 继续</DsButton>}
+      {api && <DsButton variant="primary" title="复制包含完整可读历史的通用 Markdown 文件；原附件需另行添加"
+        disabled={disabled || busy} onClick={() => void run('handoff-copy')}>复制接续文件</DsButton>}
     </div>
     <DsMenu open={menuOpen} ref={menu} className="source-actions-menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
       <button role="menuitem" onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
       <button role="menuitem" disabled={!api} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
-      {api?.configureCodex && <button role="menuitem" onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
+      <button role="menuitem" disabled={!api} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
+      {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" onClick={() => chooseTarget('continue')}>原生历史迁移（高级）</button>}
+      {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
       {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
     </DsMenu>
     <DsDialogPresence>{targetMode && api && <SourceTargetDialog key={`${entryId}-${targetMode}-${epoch}`} entryId={entryId} api={api}
       targets={capability?.value?.targets ?? []} loadingTargets={!capability?.value && !capability?.error} mode={targetMode}
       isActive={() => currentId.current === entryId && !currentDisabled.current && targetEpoch.current === epoch}
-      returnFocus={targetMode === 'configure' ? trigger.current : targetTrigger.current} onDismiss={closeTarget} onSettings={() => chooseTarget('configure')}
+      returnFocus={trigger.current} onDismiss={closeTarget} onSettings={() => chooseTarget('configure')}
       onConfigured={() => { if (currentId.current === entryId && targetEpoch.current === epoch) { closeTarget(); setFeedback({ id: entryId, text: '已更新接续目标位置。' }) } }}
       onComplete={result => {
         if (currentId.current === entryId && targetEpoch.current === epoch) {

@@ -2,7 +2,9 @@
 
 ## 主数据流（2026-10-18 起）
 
-**连接来源 → 发现会话目录 → 元数据分页／查找 → 按需读取正文 → 目标能力检查。**
+**连接来源 → 发现会话目录 → 元数据分页／查找 → 按需读取正文 → 通用上下文交接。**
+
+2026-10-20 起默认交接由 `core/handoff.ts`、`main/handoff-service.ts`、`handoff-ipc.ts`、`handoff-io.ts` 与 `SourceActions.tsx` 实现：点击「复制接续文件」直接读取完整快照和读取说明，生成不绑定目标的 v2 通用 Markdown，renderer 只获得短期 UUID。准备成功后复核当前选择与授权，主进程写私有文件副本，再通过 macOS 原生文件格式写剪贴板；成功副本不随令牌释放删除。移除默认目标枚举、启动探测和选择弹窗；「更多 → 保存接续文件」可显式导出。文件复制不是文字复制、路径复制或目标接收证明，Windows／Linux 文件剪贴板仍未支持。没有模型摘要、目标数据库写入、自动打开、新建、粘贴或发送。完整契约与存储预算见 [通用接续文件](context-handoff.md)。下述 Codex／NewMax 原生事务保留为「更多 → 原生历史迁移（高级）」，与默认文件路径分离。
 
 来源直读不依赖 `Library`，也不调用 `ImportCoordinator.prepare/commit`。已有档案只作为独立兼容入口。macOS Codex 目标接续通过独立的 `CodexTarget` 实现，主进程具名 IPC 只接受来源 ID／事务 UUID，目标路径来自系统授权选择器。`SourceBrowser.transfer` + `source-transfer.ts` 重新读完一致快照并合并长文本；`codex-target-format.ts` 写模型与 UI 双投影；`codex-target-runtime.ts` 在断网、独立 HOME 的 OS 沙箱中验证目标程序；`codex-target.ts` 负责备份、独占发布、散列回读、幂等、撤销与打开请求；`codex-target-ipc.ts` 负责边界与再次授权检查。官方程序契约已验证，真实桌面展示尚未验收，详见 [目标能力](target-capabilities.md)。
 

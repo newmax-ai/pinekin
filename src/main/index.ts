@@ -1,9 +1,16 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, ClipboardItem, shell, type IpcMainInvokeEvent } from 'electron'
 import { join, dirname, extname } from 'node:path'
 import { constants } from 'node:fs'
 import { SourceActions } from './source-actions'
 import { CodexTarget } from './codex-target'
 import { registerCodexTargetIpc } from './codex-target-ipc'
+import { NativeTargets } from './native-targets'
+import { NewMaxTarget } from './newmax-target'
+import { createNewMaxTargetAdapter } from './newmax-target-adapter'
+import { registerNativeTargetIpc } from './native-targets-ipc'
+import { HandoffService } from './handoff-service'
+import { registerHandoffIpc } from './handoff-ipc'
+import { copyHandoffFile, saveHandoffFile } from './handoff-io'
 import { CodexProjectSelection } from './codex-project'
 import { readCodexProjectCatalog } from './codex-project-catalog'
 import { resolveCodexBinary, resolveCodexApplication } from './codex-target-runtime'
@@ -30,6 +37,7 @@ let rendererReady = false
 let pendingId: string | null = null
 let importer: ImportCoordinator | undefined
 let choosingImport = false
+let handoffService: HandoffService | undefined
 // 显示名与存储身份分离，沿用旧包名对应的目录，不搬动或重写已有档案。
 const dataOverride = !app.isPackaged && (process.env.STAITHE_DATA_DIR || process.env.EMBER_DATA_DIR)
 app.setPath('userData', dataOverride || join(app.getPath('appData'), '@newmax-ai/ember'))
@@ -61,9 +69,9 @@ function createWindow() {
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', event => event.preventDefault())
-  window.webContents.on('did-start-loading', () => importer?.clear())
+  window.webContents.on('did-start-loading', () => { importer?.clear(); handoffService?.clear() })
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
-  window.on('closed', () => { window = null; rendererReady = false; importer?.clear() })
+  window.on('closed', () => { window = null; rendererReady = false; importer?.clear(); handoffService?.clear() })
   if (import.meta.env.DEV && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void window.loadFile(join(here, '../renderer/index.html'))
 }
@@ -133,14 +141,42 @@ else {
       const saved = await codexTarget.configuration()
       return readCodexProjectCatalog(saved?.home ?? codexDefaultHome)
     })
-    registerCodexTargetIpc<IpcMainInvokeEvent>({
-      handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, setup: codexSetup, target: codexTarget, source: sourceBrowser, projects: codexProjects,
+    const codexAdapter = registerCodexTargetIpc<IpcMainInvokeEvent>({
+      handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, setup: codexSetup, target: codexTarget,
+      configured: () => codexTarget.configured(), source: sourceBrowser, projects: codexProjects,
     })
+    const newmaxTarget = new NewMaxTarget({
+      storePath: app.getPath('userData'), defaultDataPath: process.env.NEWMAX_USER_DATA_DIR || join(app.getPath('home'), '.newmax'),
+      chooseDirectory: async () => {
+        const result = await dialog.showOpenDialog(window!, { title: '选择支持正式接续接口的 NewMax 数据目录',
+          properties: ['openDirectory', 'showHiddenFiles'] })
+        return result.canceled ? null : result.filePaths[0] ?? null
+      },
+    })
+    const newmaxAdapter = createNewMaxTargetAdapter({ source: sourceBrowser, target: newmaxTarget })
+    const nativeTargets = new NativeTargets({
+      connections: () => sourceBrowser.connections(), adapters: process.platform === 'darwin' ? [codexAdapter, newmaxAdapter]
+        : process.platform === 'linux' ? [newmaxAdapter] : [],
+    })
+    registerNativeTargetIpc<IpcMainInvokeEvent>({
+      handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, targets: nativeTargets,
+    })
+    handoffService = new HandoffService({
+      getEntry: id => sourceBrowser.getEntry(id),
+      transfer: (id, guard) => sourceBrowser.transfer(id, guard),
+      copyFile: (text, guard) => copyHandoffFile(text, join(app.getPath('userData'), 'clipboard-handoffs'),
+        data => clipboard.write([new ClipboardItem(data)]), guard),
+      save: (text, guard) => saveHandoffFile(text, async () => {
+        const result = await dialog.showSaveDialog(window!, { title: '导出完整接续文件', defaultPath: 'pinekin-handoff.md', filters: [{ name: 'Markdown', extensions: ['md'] }] })
+        return result.canceled ? null : result.filePath ?? null
+      }, guard),
+    })
+    registerHandoffIpc<IpcMainInvokeEvent>({ handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, service: handoffService })
     const sourceActions = new SourceActions({
       getEntry: id => sourceBrowser.getEntry(id),
       handler: applicationHandler,
       openExternal: url => shell.openExternal(url),
-      targets: async () => process.platform === 'darwin' ? [{ id: 'codex', name: 'Codex', configured: await codexTarget.configured() }] : [],
+      targets: () => nativeTargets.list(),
     })
     let choosingSource = false
     let choosingTextExport = false

@@ -487,7 +487,7 @@ export class SourceBrowser {
       }
       await this.getEntry(id)
       return { title: content.session.title, source: original.source, snapshot: window.snapshot, totalMessages: window.totalMessages,
-        offset: window.offset, textOffset: window.textOffset, fragments, next: window.next }
+        offset: window.offset, textOffset: window.textOffset, fragments, next: window.next, warnings: content.warnings }
     }, assertAllowed)
   }
   async page(input: SourceQuery): Promise<SourcePage> {

@@ -21,7 +21,11 @@
 .source-target-description { margin: 0 0 14px; color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.7; }
 .source-target-list { display: grid; gap: 8px; }
 .source-target-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-100); color: var(--ds-text-primary); text-align: left; }
-.source-target-card:is(:hover, :focus-visible, [aria-pressed='true']) { background: var(--ds-on-surface); border-color: var(--ds-text-secondary); }
+.source-target-card:is(:hover, :focus-visible, [aria-pressed='true']):not(:disabled) { background: var(--ds-on-surface); border-color: var(--ds-text-secondary); }
+.source-target-option { min-width: 0; }
+.source-target-card > span { min-width: 0; overflow-wrap: anywhere; }
+.source-target-card:disabled { cursor: default; color: var(--ds-text-secondary); }
+.source-target-unavailable { margin: 6px 14px 4px; color: var(--ds-text-secondary); font-size: var(--ds-text-xs); line-height: 1.6; overflow-wrap: anywhere; }
 .source-target-card-detail { margin-left: auto; font-size: var(--ds-text-xs); color: var(--ds-text-secondary); }
 .source-target-location { margin-top: 18px; }
 .source-target-destination-title { margin: 0 0 6px; color: var(--ds-text-primary); font-size: var(--ds-text-sm); font-weight: 600; }

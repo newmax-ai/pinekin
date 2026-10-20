@@ -6,9 +6,11 @@ export interface TransferPage {
   title: string; source: BrowsableSource; snapshot: string; totalMessages: number; offset: number; textOffset: number
   fragments: { position: number; role: 'user' | 'assistant'; content: string }[]
   next?: SourceReadCursor
+  warnings?: string[]
 }
 export interface SourceTransfer {
   title: string; source: BrowsableSource; snapshot: string; messages: Message[]
+  warnings?: string[]; sourceMessageCount?: number
 }
 
 /** 从来源重新读取完整文本；片段按原始位置合并，不能用阅读器当前缓存代替。 */
@@ -16,6 +18,8 @@ export async function collectSourceTransfer(read: (cursor: SourceReadCursor) => 
   let cursor: SourceReadCursor = { offset: 0, textOffset: 0 }
   let first: TransferPage | undefined
   const messages: Message[] = []
+  const warnings = new Set<string>()
+  let warningBytes = 0
   let lastPosition = -1, bytes = 0, pages = 0
   for (;;) {
     assertAllowed()
@@ -25,6 +29,12 @@ export async function collectSourceTransfer(read: (cursor: SourceReadCursor) => 
     first ??= page
     if (page.snapshot !== first.snapshot || page.source !== first.source || page.totalMessages !== first.totalMessages ||
       page.offset !== cursor.offset || page.textOffset !== cursor.textOffset) throw new Error('来源已变化或片段不连续，请重新接续。')
+    for (const warning of page.warnings ?? []) {
+      if (warnings.has(warning)) continue
+      warningBytes += Buffer.byteLength(warning, 'utf8')
+      if (warningBytes > 1024 * 1024) throw new Error('来源读取说明超过 1 MiB，未截断或交付。')
+      warnings.add(warning)
+    }
     let previous = cursor.offset - 1
     for (const fragment of page.fragments) {
       if (!Number.isSafeInteger(fragment.position) || fragment.position <= previous || fragment.position >= page.totalMessages) throw new Error('来源消息顺序不完整。')
@@ -51,5 +61,6 @@ export async function collectSourceTransfer(read: (cursor: SourceReadCursor) => 
   const visible = messages.map(message => ({ ...message, content: sourceUserText(message.content, first!.source, message.role) }))
     .filter(message => message.content.trim())
   if (!visible.length) throw new Error('没有可接续的用户或助手文本。')
-  return { title: first!.title, source: first!.source, snapshot: first!.snapshot, messages: visible }
+  return { title: first!.title, source: first!.source, snapshot: first!.snapshot, messages: visible,
+    warnings: [...warnings], sourceMessageCount: first!.totalMessages }
 }

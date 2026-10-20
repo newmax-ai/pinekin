@@ -1,5 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { registerCodexTargetIpc } from '../src/main/codex-target-ipc'
+import { HandoffService } from '../src/main/handoff-service'
+import { registerHandoffIpc } from '../src/main/handoff-ipc'
+import type { PreparedHandoff } from '../src/core/handoff'
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,10 +23,26 @@ it('从来源重新读取全部 101 条与完整长消息，阅读过哪个片�
   const entry = (await browser.page({})).items[0]
   const first = await browser.read(entry.id)
   await browser.read(entry.id, first.window!.next)
-  expect((await browser.transfer(entry.id)).messages).toEqual(messages)
+  const transfer = await browser.transfer(entry.id)
+  expect(transfer.messages).toEqual(messages)
+  expect(transfer.warnings).toEqual(expect.arrayContaining(first.warnings))
+  const copyFile = vi.fn()
+  const service = new HandoffService({ getEntry: id => browser.getEntry(id),
+    transfer: (id, guard) => browser.transfer(id, guard), copyFile, save: async () => false })
+  const handlers = new Map<string, (event: object, ...args: unknown[]) => Promise<unknown>>()
+  registerHandoffIpc({ handle: (name, handler) => { handlers.set(name, handler) }, assertSender: () => {}, service })
+  const prepared = await handlers.get('pinekin:handoff-file-prepare')!({}, entry.id) as PreparedHandoff
+  await handlers.get('pinekin:handoff-file-deliver')!({}, prepared.token, 'copy-file')
+  expect(copyFile).toHaveBeenCalledOnce()
+  expect(copyFile.mock.calls[0][0]).toContain('101 条消息')
+  expect(copyFile.mock.calls[0][0]).toContain(JSON.stringify(text))
+  expect(copyFile.mock.calls[0][0]).toContain('消息100')
+  expect(copyFile.mock.calls[0][0]).not.toContain('目标：')
   expect(await readFile(path)).toEqual(bytes)
   await browser.disconnect(connection.id)
   await expect(browser.transfer(entry.id)).rejects.toThrow()
+  await expect(service.deliver(prepared.token, 'copy-file')).rejects.toThrow()
+  expect(copyFile).toHaveBeenCalledOnce()
 })
 it('NewMax 数据库长消息中间的全空白片段不丢失，内部续轮不混入，来源不写入', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-transfer-db-'))); roots.push(root)
