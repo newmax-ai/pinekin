@@ -11,6 +11,14 @@ let pendingDismiss: (() => void) | null = null
 let lastDismissTime = 0
 
 type TriggerProps = ButtonHTMLAttributes<HTMLButtonElement>
+const restoringFocus = new WeakSet<HTMLElement>()
+
+// 仅抑制本次同步焦点恢复产生的提示，不影响后续悬停或键盘聚焦。
+export function restoreFocusWithoutTooltip(element: HTMLElement) {
+  restoringFocus.add(element)
+  try { element.focus({ preventScroll: true }) }
+  finally { restoringFocus.delete(element) }
+}
 
 export function Tooltip({ content, disabled = false, children }: { content: string; disabled?: boolean; children: ReactElement<TriggerProps> }) {
   const id = useId()
@@ -91,7 +99,7 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
       'aria-describedby': [props['aria-describedby'], visible ? id : undefined].filter(Boolean).join(' ') || undefined,
       onMouseEnter: event => { props.onMouseEnter?.(event); if (event.buttons === 0) show(event.currentTarget) },
       onMouseLeave: event => { props.onMouseLeave?.(event); dismiss() },
-      onFocus: event => { props.onFocus?.(event); show(event.currentTarget, true) },
+      onFocus: event => { props.onFocus?.(event); if (restoringFocus.has(event.currentTarget)) dismiss(); else show(event.currentTarget, true) },
       onBlur: event => { props.onBlur?.(event); dismiss() },
       onPointerDown: event => { props.onPointerDown?.(event); dismiss() },
       onClick: event => { props.onClick?.(event); dismiss() },

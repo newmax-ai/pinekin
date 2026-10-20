@@ -17,7 +17,7 @@ beforeEach(() => {
     inspect: vi.fn().mockResolvedValue(available), openOriginal: vi.fn().mockResolvedValue({ status: 'requested', app: 'NewMax' }), exportText: vi.fn().mockResolvedValue(true),
   } } as unknown as StaitheAPI
 })
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('会话操作以实际打开为主，复制导出为辅', () => {
   const preview = { app: 'Codex' as const, applicationPath: '/Applications/ChatGPT.app', applicationName: 'ChatGPT', dataPath: '/synthetic/.codex', locationSource: 'default' as const,
@@ -62,7 +62,55 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(moreButton.querySelectorAll('svg circle')).toHaveLength(3)
     expect(moreButton.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
     expect(moreButton.disabled).toBe(disabled)
+    expect([...container.querySelectorAll('.source-actions-buttons > button')]).toEqual([moreButton, original(), target])
+    expect(target.querySelector('svg')).toBeNull()
+    expect(original().querySelector('svg')).toBeNull()
     expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
+  it('切换会话时保留完整按钮组及原节点，能力检查期间不沿用旧会话能力', async () => {
+    const api = enableTarget()
+    const view = render(<SourceActions {...props} />)
+    await act(async () => {})
+    const buttons = [...view.container.querySelectorAll('.source-actions-buttons > button')]
+    const openButton = original()
+    let finish!: (value: SourceActionCapabilities) => void
+    vi.mocked(api.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    const nextId = 'b'.repeat(64)
+    view.rerender(<SourceActions {...props} entryId={nextId} />)
+    expect([...view.container.querySelectorAll('.source-actions-buttons > button')]).toEqual(buttons)
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(true)
+    expect(openButton.title).toContain('正在检查')
+    expect(openButton.parentElement?.getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(openButton)
+    expect(api.openOriginal).not.toHaveBeenCalled()
+    await act(async () => { finish(available) })
+    expect([...view.container.querySelectorAll('.source-actions-buttons > button')]).toEqual(buttons)
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(false)
+    expect(openButton.parentElement?.getAttribute('aria-busy')).not.toBe('true')
+    fireEvent.click(openButton)
+    await waitFor(() => expect(api.openOriginal).toHaveBeenCalledExactlyOnceWith(nextId))
+  })
+  it('能力检查失败及重试过程中原打开按钮始终保留，不能借用旧能力打开', async () => {
+    const view = render(<SourceActions {...props} />)
+    await act(async () => {})
+    const openButton = original()
+    vi.mocked(window.staithe.sourceActions!.inspect).mockRejectedValueOnce(new Error('合成检查失败'))
+    view.rerender(<SourceActions {...props} entryId={'b'.repeat(64)} />)
+    await screen.findByRole('alert')
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(true)
+    let finish!: (value: SourceActionCapabilities) => void
+    vi.mocked(window.staithe.sourceActions!.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '重试检查' }))
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(true)
+    fireEvent.click(openButton)
+    expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
+    await act(async () => { finish(available) })
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(false)
   })
   it.each(['created', 'existing'] as const)('%s：选择 App 不创建，明确接续后不提供撤销入口，也不传当前片段', async status => {
     const api = enableTarget()
@@ -458,11 +506,13 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(vi.mocked(window.staithe.copy).mock.calls[0][0]).toContain('来源已删除')
     more(); expect(screen.getByRole('menuitem', { name: '导出当前片段' })).toBeTruthy()
   })
-  it('不可用原App不占据主操作位，具体原因在更多中以说明展示', async () => {
+  it('原 App 不可用时保留次要按钮占位并禁用，title 与更多说明具体原因', async () => {
     vi.mocked(window.staithe.sourceActions!.inspect).mockResolvedValue({ original: { app: 'Codex', available: false, reason: '打开链路尚未验证' }, targets: [] })
     render(<SourceActions {...props} />)
     await act(async () => {})
-    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
+    expect(original().disabled).toBe(true)
+    expect(original().title).toBe('打开链路尚未验证')
+    fireEvent.click(original())
     expect(screen.queryByRole('button', { name: '在另一个 App 继续' })).toBeNull()
     expect(screen.queryByText('打开链路尚未验证')).toBeNull()
     more()
@@ -470,17 +520,19 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(screen.getAllByRole('menuitem')).toHaveLength(2)
     expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
   })
-  it('能力检查完成前不展示不可点击的主按钮，复制仍可使用', async () => {
+  it('能力检查完成前禁用原打开按钮并保留节点，复制仍可使用', async () => {
     let finish!: (value: SourceActionCapabilities) => void
     vi.mocked(window.staithe.sourceActions!.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
     render(<SourceActions {...props} />)
-    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
+    const openButton = original()
+    expect(openButton.disabled).toBe(true)
     more()
     expect(screen.getByRole('note').textContent).toContain('正在检查打开方式')
     fireEvent.click(screen.getByRole('menuitem', { name: '复制会话文本' }))
     await screen.findByRole('status')
     await act(async () => finish(available))
-    expect(original().disabled).toBe(false)
+    expect(original()).toBe(openButton)
+    expect(openButton.disabled).toBe(false)
   })
   it('能力检查失败可以重试，动作失败保留入口不误报成功', async () => {
     vi.mocked(window.staithe.sourceActions!.inspect).mockRejectedValueOnce(new Error('合成检查失败'))
@@ -512,7 +564,87 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     more()
     await screen.findByText('尚未验证')
     await act(async () => first(available))
-    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
+    expect(original().disabled).toBe(true)
+  })
+  it('关闭接续设置后焦点返回 more，但不自动弹出 Tooltip', async () => {
+    enableTarget()
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    const trigger = screen.getByRole('button', { name: '更多会话操作' })
+    act(() => trigger.focus())
+    more()
+    fireEvent.click(screen.getByRole('menuitem', { name: '接续目标设置' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: '关闭接续面板' }))
+    fireEvent(dialog, Object.assign(new Event('animationend', { bubbles: true }), { animationName: 'ds-dialog-exit' }))
+    await act(async () => {})
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(trigger.hasAttribute('aria-describedby')).toBe(false)
+    vi.useFakeTimers()
+    fireEvent.mouseEnter(trigger)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(screen.getByRole('tooltip').textContent).toBe('更多会话操作')
+    expect(window.staithe.sourceActions!.inspectCodexTarget).not.toHaveBeenCalled()
+  })
+  function mockMenuGeometry(anchor = new DOMRect(420, 90, 35, 28), root = new DOMRect(400, 60, 300, 90)) {
+    const geometry = { anchor, root, popup: new DOMRect(0, 0, 190, 120) }
+    const nativeRect = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('aria-label') === '更多会话操作' && this.tagName === 'BUTTON') return geometry.anchor
+      if (this.classList.contains('source-actions')) return geometry.root
+      if (this.classList.contains('source-actions-menu')) return geometry.popup
+      return nativeRect.call(this)
+    })
+    return geometry
+  }
+  it('更多菜单锚定 more 左下方 6px，而非按钮组右边缘或换行后整组底部，并跟随窗口与滚动变化', async () => {
+    const geometry = mockMenuGeometry()
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    more()
+    const popup = screen.getByRole('menu')
+    expect(popup.style.left).toBe('20px')
+    expect(popup.style.top).toBe('64px')
+    geometry.anchor = new DOMRect(460, 120, 35, 28)
+    fireEvent.resize(window)
+    expect(popup.style.left).toBe('60px')
+    expect(popup.style.top).toBe('94px')
+    geometry.anchor = new DOMRect(460, 110, 35, 28)
+    fireEvent.scroll(document)
+    expect(popup.style.top).toBe('84px')
+  })
+  it.each(['左', '右'])('more 靠近%s侧边缘时菜单保持至少 8px 窗口边距', async side => {
+    const rootLeft = side === '左' ? 0 : window.innerWidth - 300
+    const anchorLeft = side === '左' ? 2 : window.innerWidth - 30
+    mockMenuGeometry(new DOMRect(anchorLeft, 60, 28, 28), new DOMRect(rootLeft, 60, 300, 28))
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    more()
+    expect(screen.getByRole('menu').style.left).toBe(side === '左' ? '8px' : '102px')
+  })
+  it('按钮组、more 或菜单尺寸变化后重定位，关闭时断开观察并清理滚动与缩放监听', async () => {
+    let resized!: ResizeObserverCallback
+    const observe = vi.fn(), disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { resized = callback }
+      observe = observe
+      disconnect = disconnect
+    })
+    const removeDocument = vi.spyOn(document, 'removeEventListener'), removeWindow = vi.spyOn(window, 'removeEventListener')
+    const geometry = mockMenuGeometry()
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    more()
+    expect(observe).toHaveBeenCalledTimes(3)
+    geometry.anchor = new DOMRect(450, 90, 35, 28)
+    act(() => resized([], {} as ResizeObserver))
+    expect(screen.getByRole('menu').style.left).toBe('50px')
+    fireEvent.keyDown(screen.getByRole('menuitem', { name: '复制会话文本' }), { key: 'Escape' })
+    expect(disconnect).toHaveBeenCalledOnce()
+    expect(removeDocument).toHaveBeenCalledWith('scroll', expect.any(Function), true)
+    expect(removeWindow).toHaveBeenCalledWith('resize', expect.any(Function))
+    expect(screen.queryByRole('menu')).toBeNull()
   })
   it('更多菜单支持键盘移动、Escape关闭和焦点返回', () => {
     render(<SourceActions {...props} />); more()
@@ -526,6 +658,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     fireEvent.keyDown(first, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: '更多会话操作' }))
+    expect(screen.queryByRole('tooltip')).toBeNull()
   })
   it('空文本和读取中不开放更多操作，兼容旧桥时只保留复制', async () => {
     window.staithe = { ...window.staithe, sourceActions: undefined }

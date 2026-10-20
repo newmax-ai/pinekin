@@ -42,6 +42,13 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(floating).toContain('background: var(--ds-surface-300);')
     expect(styles).toContain('.ds-button:not(.ds-button-ghost):hover:not(:disabled) { opacity: 0.8; }')
   })
+  it('会话切换加载期间禁用操作但保持按钮不透明，避免明暗闪烁且不改全局禁用样式', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const pending = /\.source-actions-buttons\[aria-busy='true'\] > \.ds-button:disabled\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(pending).toContain('opacity: 1;')
+    expect(pending).not.toMatch(/pointer-events:|cursor:|display:|visibility:/)
+    expect(styles).not.toMatch(/(?:^|\n)\.ds-button:disabled\s*\{/)
+  })
   it('会话操作菜单的图标与文字垂直居中，使用统一的 8px 间距与图标色', () => {
     const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
     const item = /\.source-actions-menu button\s*\{([^}]*)\}/.exec(styles)?.[1]
@@ -84,13 +91,55 @@ describe('Staithe 中性主题与图标契约', () => {
     const button = /\.source-content-update > \.ds-button\s*\{([^}]*)\}/.exec(styles)?.[1]
     expect(button).toContain('max-width: 100%;')
     expect(button).toContain('height: auto;')
-    expect(button).toContain('min-height: 28px;')
+    expect(button).toContain('min-height: 32px;')
+    expect(button).toContain('padding: 8px 14px;')
     expect(button).toContain('white-space: normal;')
-    expect(button).toContain('background: var(--ds-surface-300);')
-    expect(button).toContain('box-shadow: var(--ds-input-shadow);')
+    expect(button).toContain('border: 0;')
+    expect(button).toContain('background: var(--ds-surface-100);')
+    expect(button).toContain('color: var(--ds-text-primary);')
+    expect(button).toContain('box-shadow: var(--ds-floating-card-shadow);')
+    expect(button).not.toMatch(/var\(--ds-(?:action-primary|surface-300)/)
+    expect(color(themes[0], 'surface-100')).toBe('#ffffff')
     const interaction = /\.source-content-update > \.ds-button:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
     expect(interaction).toContain('opacity: 1;')
-    expect(interaction).toContain('background: var(--ds-surface-300);')
+    expect(interaction).toContain('background: var(--ds-surface-100);')
+    for (const theme of themes) {
+      expect(contrast(color(theme, 'text-primary'), color(theme, 'surface-100'))).toBeGreaterThanOrEqual(7)
+      const shadow = declaration(theme, 'floating-card-shadow')
+      expect(shadow).toContain('0.5px')
+      expect(shadow.split(/,(?![^()]*\))/).length).toBeGreaterThanOrEqual(3)
+    }
+    expect(declaration(themes[0], 'floating-card-shadow')).toContain('0 24px 15px')
+  })
+  it('更新胶囊文案轻微淡入上移、宽度柔和过渡，进退场独立且遵守减少动态效果', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const labels = /\.source-update-labels\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(labels).toContain('transition: width var(--ds-motion-soft);')
+    expect(labels).toContain('overflow: hidden;')
+    const label = /\.source-update-label\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(label).toContain('animation: source-update-label-enter var(--ds-motion-swift);')
+    expect(styles).toMatch(/@keyframes source-update-label-enter\s*\{\s*from\s*\{[^}]*opacity: 0;[^}]*transform: translateY\(3px\);/)
+    expect(styles).toMatch(/\.source-content-update\[data-state='closing'\]\s*\{[^}]*animation: source-update-exit 140ms/)
+    expect(styles).toMatch(/@media\s*\(prefers-reduced-motion: reduce\)\s*\{[^]*?animation: none !important; transition: none !important;/)
+  })
+  it('更多菜单与更新胶囊共用白色表面和浮层阴影，以单层 0.5px 半透明轮廓增强边缘而非 border', () => {
+    const menuStyles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const contentStyles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const menu = /\.source-actions-menu\s*\{([^}]*)\}/.exec(menuStyles)?.[1]
+    const capsule = /\.source-content-update > \.ds-button\s*\{([^}]*)\}/.exec(contentStyles)?.[1]
+    for (const card of [menu, capsule]) {
+      expect(card).toContain('border: 0;')
+      expect(card).toContain('background: var(--ds-surface-100);')
+      expect(card).toContain('box-shadow: var(--ds-floating-card-shadow);')
+      expect(card).not.toMatch(/border:\s*1px|background:\s*var\(--ds-surface-200\)/)
+    }
+    expect(color(themes[0], 'surface-100')).toBe('#ffffff')
+    for (const theme of themes) {
+      const shadow = declaration(theme, 'floating-card-shadow')
+      expect(shadow).toMatch(/^0 0 0 0\.5px rgba\(var\(--ds-text-rgb\), 0\.12\), /)
+      expect(shadow.match(/0 0 0 0\.5px/g)).toHaveLength(1)
+      expect(shadow).not.toContain('inset')
+    }
   })
   it('详情标签紧跟标题 8px，右上角主操作不收缩且窄阅读区允许换行', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')

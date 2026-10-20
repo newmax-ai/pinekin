@@ -3,7 +3,9 @@
 .source-actions { position: relative; flex: 0 0 auto; margin-left: auto; max-width: 100%; }
 .source-actions-buttons { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .source-actions-buttons .ds-button { white-space: nowrap; }
-.source-actions-menu { position: absolute; z-index: 30; top: calc(100% + 6px); right: 0; width: max-content; min-width: 170px; max-width: min(300px, calc(100vw - 48px)); padding: 5px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-200); box-shadow: 0 8px 24px #0002; }
+/* 加载时保留按钮表面，交互仍由原生 disabled 阻断，避免切换会话时反复明暗闪烁。 */
+.source-actions-buttons[aria-busy='true'] > .ds-button:disabled { opacity: 1; }
+.source-actions-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: max-content; min-width: 170px; max-width: min(300px, calc(100vw - 48px)); padding: 5px; border: 0; border-radius: var(--ds-radius-md); background: var(--ds-surface-100); box-shadow: var(--ds-floating-card-shadow); }
 .source-actions-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border: 0; border-radius: var(--ds-radius-sm); background: transparent; color: var(--ds-text-primary); text-align: left; white-space: nowrap; font-size: var(--ds-text-sm); }
 .source-actions-menu button > .design-icon { flex-shrink: 0; color: var(--ds-icon); }
 .source-actions-menu button:is(:hover, :focus-visible):not(:disabled) { background: var(--ds-on-surface); }

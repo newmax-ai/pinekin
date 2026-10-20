@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { SourceContent } from '../../../core/sources'
 import type { SourceActionCapabilities } from '../../../core/source-actions'
 import { buildSourceTranscript } from '../../../core/source-transcript'
 import { DsButton, DesignIcon, DsDialogPresence } from './ui'
 import { SourceTargetDialog } from './SourceTargetDialog'
+import { restoreFocusWithoutTooltip } from './Tooltip'
 import './SourceActions.css'
 
 export function SourceActions({ entryId, content, disabled = false, snapshotNotice }: {
@@ -48,9 +49,32 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     const timer = setTimeout(() => setFeedback(current => current === status ? undefined : current), 3000)
     return () => clearTimeout(timer)
   }, [status])
+  useLayoutEffect(() => {
+    if (!menuOpen) return
+    const anchor = trigger.current, root = container.current, popup = menu.current
+    if (!anchor || !root || !popup) return
+    const position = () => {
+      const button = anchor.getBoundingClientRect(), parent = root.getBoundingClientRect()
+      const width = popup.getBoundingClientRect().width
+      const left = Math.max(8, Math.min(button.left, window.innerWidth - width - 8))
+      // 相对操作容器定位，但锚点始终取 more 本身，避免按钮换行后落到整组底部。
+      popup.style.left = `${left - parent.left}px`
+      popup.style.top = `${button.bottom + 6 - parent.top}px`
+    }
+    position()
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(position)
+    observer?.observe(root); observer?.observe(anchor); observer?.observe(popup)
+    window.addEventListener('resize', position)
+    document.addEventListener('scroll', position, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', position)
+      document.removeEventListener('scroll', position, true)
+    }
+  }, [menuOpen])
   useEffect(() => {
     if (!menuOpen) return
-    menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
     function outside(event: PointerEvent) {
       if (event.target instanceof Node && !container.current?.contains(event.target)) setMenuOpen(false)
     }
@@ -61,7 +85,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   useEffect(() => { if (disabled) { setMenuOpen(false); closeTarget() } }, [disabled])
   function closeTarget() { targetEpoch.current += 1; setTargetMode(undefined) }
   function chooseTarget(mode: 'continue' | 'configure') { targetEpoch.current += 1; setMenuOpen(false); setFeedback(undefined); setTargetMode(mode) }
-  function closeMenu() { setMenuOpen(false); trigger.current?.focus() }
+  function closeMenu() { setMenuOpen(false); if (trigger.current) restoreFocusWithoutTooltip(trigger.current) }
   function menuKeys(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeMenu(); return }
     if (event.key === 'Tab') { setMenuOpen(false); return }
@@ -92,13 +116,13 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     } finally { pending.current.delete(id); if (currentId.current === id) setBusyId('') }
   }
   return <div className="source-actions" ref={container}>
-    <div className="source-actions-buttons">
-      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" size="small" title="选择目标 App，创建承接历史的新会话"
-        disabled={disabled || busy} onClick={() => chooseTarget('continue')}>在其他 App 继续<DesignIcon name="arrow" size={14} /></DsButton>}
-      {capability?.value?.original.available && <DsButton size="small" title="定位原 App 中的这条会话，不创建副本"
-        disabled={disabled || busy} onClick={() => void run('open')}>在原 App 打开<DesignIcon name="arrow" size={14} /></DsButton>}
+    <div className="source-actions-buttons" aria-busy={disabled || busy || (!!api && !capability)}>
       <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content?.session.messages.length}
         size="small" variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" size={14} /></DsButton>
+      {api && <DsButton size="small" title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
+        disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
+      {api?.continueInCodex && <DsButton ref={targetTrigger} variant="primary" size="small" title="选择目标 App，创建承接历史的新会话"
+        disabled={disabled || busy} onClick={() => chooseTarget('continue')}>在其他 App 继续</DsButton>}
     </div>
     {menuOpen && <div ref={menu} className="source-actions-menu" role="menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>

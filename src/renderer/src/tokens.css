@@ -41,6 +41,8 @@
   --ds-elevation-100: inset 0.5px 0.5px 0.5px #ffffff, 0 0 0.5px 0.5px rgba(0, 0, 0, 0.04), 0.5px 0.5px 1px rgba(0, 0, 0, 0.08);
   --ds-elevation-200: 0 0 0 0.5px rgba(32, 32, 32, 0.12), 0 9px 4px rgba(0, 0, 0, 0.01), 0 5px 3px rgba(0, 0, 0, 0.02), 0 2px 2px rgba(0, 0, 0, 0.03), 0 1px 1px rgba(0, 0, 0, 0.04), inset 0.5px 0.5px 0.5px rgba(255, 255, 255, 0.85);
   --ds-elevation-300: inset 0 0 0.5px 0.5px rgba(255, 255, 255, 0.8), 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 6px rgba(0, 0, 0, 0.04), 0 11px 11px rgba(0, 0, 0, 0.03), 0 24px 15px rgba(0, 0, 0, 0.02), 0 43px 17px rgba(0, 0, 0, 0.01);
+  /* 菜单与更新胶囊共用：单层半透明 0.5px 轮廓增强边缘，柔和投影提供浮层高度。 */
+  --ds-floating-card-shadow: 0 0 0 0.5px rgba(var(--ds-text-rgb), 0.12), 0 3px 6px rgba(0, 0, 0, 0.04), 0 11px 11px rgba(0, 0, 0, 0.03), 0 24px 15px rgba(0, 0, 0, 0.02), 0 43px 17px rgba(0, 0, 0, 0.01);
   --ds-input-shadow: 0 0 0.5px 0.5px rgba(0, 0, 0, 0.1), 0.5px 0.5px 1px rgba(0, 0, 0, 0.18);
   --ds-input-shadow-focus: 0 0 0.5px 0.5px rgba(0, 0, 0, 0.04), 0 0 0 3px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent), 0.5px 0.5px 1px rgba(0, 0, 0, 0.08);
   --ds-ease-swift: cubic-bezier(0.33, 1, 0.68, 1);
@@ -87,6 +89,7 @@
     --ds-elevation-100: 0 0 0 0.5px rgba(255, 255, 255, 0.08);
     --ds-elevation-200: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 0 9px -4px rgba(0, 0, 0, 0.40), 0 0 32px -8px rgba(0, 0, 0, 0.16);
     --ds-elevation-300: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 2px 12px -6px rgba(0, 0, 0, 0.44), 0 5px 36px -12px rgba(0, 0, 0, 0.20);
+    --ds-floating-card-shadow: 0 0 0 0.5px rgba(var(--ds-text-rgb), 0.12), 0 2px 12px -6px rgba(0, 0, 0, 0.44), 0 5px 36px -12px rgba(0, 0, 0, 0.20);
     --ds-input-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12);
     --ds-input-shadow-focus: 0 0 1px 0.5px color-mix(in srgb, var(--ds-brand-primary) 56%, transparent), 0 0 0 4px color-mix(in srgb, var(--ds-brand-primary) 10%, transparent);
   }

@@ -73,6 +73,35 @@ describe('不打断阅读的来源刷新', () => {
     expect(header.querySelector('.detail-message-count')?.textContent).toBe('0 条消息')
     expect(pin.disabled).toBe(true)
   })
+  it('切换会话时正文和能力分别加载，右侧三个按钮保持同一顺序、节点及加载外观标记', async () => {
+    const available = { original: { available: true, app: 'NewMax' }, targets: [] }
+    const api = { inspect: vi.fn().mockResolvedValue(available), openOriginal: vi.fn(), exportText: vi.fn(), continueInCodex: vi.fn() }
+    window.staithe = { ...window.staithe, sourceActions: api }
+    await open()
+    const group = document.querySelector('.source-actions-buttons')!
+    const buttons = [...group.querySelectorAll('button')]
+    expect(buttons.map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['更多会话操作', '在原 App 打开', '在其他 App 继续'])
+    let finishRead!: (result: SourceContent) => void
+    let finishInspect!: (value: typeof available) => void
+    vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finishRead = resolve }))
+    api.inspect.mockReturnValueOnce(new Promise(resolve => { finishInspect = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    expect(document.querySelector('.source-actions-buttons')).toBe(group)
+    expect([...group.querySelectorAll('button')]).toEqual(buttons)
+    expect(group.getAttribute('aria-busy')).toBe('true')
+    expect(buttons.every(button => button.disabled)).toBe(true)
+    await act(async () => { finishInspect(available) })
+    expect([...group.querySelectorAll('button')]).toEqual(buttons)
+    expect(group.getAttribute('aria-busy')).toBe('true')
+    expect(buttons.every(button => button.disabled)).toBe(true)
+    await act(async () => { finishRead({ ...content, session: { ...content.session, id: entries[1].id, title: '会话 1' } }) })
+    expect([...group.querySelectorAll('button')]).toEqual(buttons)
+    expect(group.getAttribute('aria-busy')).not.toBe('true')
+    expect(buttons.every(button => !button.disabled)).toBe(true)
+    expect(group.querySelector('svg.lucide-arrow-right')).toBeNull()
+    expect(api.openOriginal).not.toHaveBeenCalled()
+    expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
   it('首次读取失败仍保留禁用接续按钮和未知消息数，不伪造可交接内容', async () => {
     vi.mocked(window.staithe.sources.read).mockRejectedValueOnce(new Error('合成正文读取失败'))
     render(<SourceApp />)
@@ -182,6 +211,10 @@ describe('不打断阅读的来源刷新', () => {
     await screen.findByText('此对话有更新')
     const update = screen.getByRole('button', { name: '查看更新' })
     expect(update.textContent).toBe('此对话有更新')
+    expect(update.classList.contains('ds-button-primary')).toBe(false)
+    expect(update.classList.contains('ds-button-tertiary')).toBe(true)
+    expect(update.classList.contains('ds-button-small')).toBe(false)
+    expect(update.querySelector('svg')).toBeNull()
     expect(update.getAttribute('data-ds-pill-control')).toBe('true')
     const overlay = update.closest('.source-content-update')!
     expect(overlay.getAttribute('role')).toBe('status')
@@ -200,9 +233,84 @@ describe('不打断阅读的来源刷新', () => {
     await screen.findByText('新追加正文')
     expect(messages.scrollTop).toBe(120)
     expect(screen.queryByText('此对话有更新')).toBeNull()
-    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+    const jump = screen.getByRole('button', { name: '跳到新增消息' })
+    expect(jump).toBe(update)
+    expect(jump.closest('.source-content-update')).toBe(overlay)
+    expect(document.querySelectorAll('.source-content-update')).toHaveLength(1)
+    expect(document.querySelector('.source-update-notice')).toBeNull()
+    const added = messages.querySelectorAll('article')[content.session.messages.length]
+    const scroll = vi.fn()
+    Object.defineProperty(added, 'scrollIntoView', { configurable: true, value: scroll })
+    const reads = vi.mocked(window.staithe.sources.read).mock.calls.length
+    fireEvent.click(jump)
+    expect(scroll).toHaveBeenCalledExactlyOnceWith({ block: 'start' })
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(reads)
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    await waitFor(() => expect(document.querySelector('.source-content-update')).toBeNull())
   })
-  it('更新胶囊读取期间禁止重复点击，保留消息视口，成功后移除浮层', async () => {
+  it.each([
+    { label: '全部新增消息完整可见', bounds: [[180, 240], [260, 340]], visible: true },
+    { label: '第一条可见但最后一条被下沿裁切', bounds: [[180, 240], [460, 540]], visible: false },
+    { label: '第一条被上沿裁切', bounds: [[80, 160], [260, 340]], visible: false },
+    { label: '新增内容超出一屏', bounds: [[160, 680], [700, 760]], visible: false },
+    { label: '新增内容落在上沿渐隐区', bounds: [[120, 180], [260, 340]], visible: false },
+    { label: '新增内容落在下沿渐隐区', bounds: [[180, 240], [420, 480]], visible: false },
+    { label: '新增消息尚无可测量高度', bounds: [[180, 180], [260, 340]], visible: false },
+  ])('读取更新后按全部新增内容判断是否需要跳转：$label', async ({ bounds, visible }) => {
+    const messages = await open(); messages.scrollTop = 120
+    Object.defineProperties(messages, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    const rect = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 600, width: 600, height: bottom - top, x: 0, y: top, toJSON() {} })
+    const original = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === messages) return rect(100, 500)
+      const index = [...messages.querySelectorAll('article')].indexOf(this) - content.session.messages.length
+      return index >= 0 && bounds[index] ? rect(...bounds[index] as [number, number]) : original.call(this)
+    })
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const pill = await screen.findByRole('button', { name: '查看更新' })
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
+      messages: [...content.session.messages, { role: 'user', content: '新增问题' }, { role: 'assistant', content: '新增回答' }] } })
+    await act(async () => { fireEvent.click(pill) })
+    expect(messages.scrollTop).toBe(120)
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+    if (visible) {
+      expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+      // 退场也不能闪现跳转文案，沿用读取态完成原胶囊的退出动画。
+      expect(pill.closest('.source-content-update')?.getAttribute('data-update-state')).not.toBe('jump')
+      expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+      await waitFor(() => expect(document.querySelector('.source-content-update')).toBeNull())
+    } else expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+  })
+  it('读取后还需跳转时，手动滚动到新增内容完整可见就收起，且不再次读取', async () => {
+    const messages = await open()
+    Object.defineProperties(messages, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    let top = 600
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const start = this === messages ? 100 : top
+      const height = this === messages ? 400 : 80
+      return { top: start, bottom: start + height, height, left: 0, right: 600, width: 600, x: 0, y: start, toJSON() {} }
+    })
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const pill = await screen.findByRole('button', { name: '查看更新' })
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
+      messages: [...content.session.messages, { role: 'assistant', content: '滚动查看的新增回答' }] } })
+    await act(async () => { fireEvent.click(pill) })
+    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+    top = 200; messages.scrollTop = 400
+    fireEvent.scroll(messages)
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(messages.scrollTop).toBe(400)
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+  })
+  it('更新胶囊读取期间禁止重复点击，保留消息视口；没有新增消息时退场收起', async () => {
     const messages = await open(); messages.scrollTop = 120
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
     fireEvent.focus(window)
@@ -213,15 +321,90 @@ describe('不打断阅读的来源刷新', () => {
     expect(update.hasAttribute('disabled')).toBe(true)
     expect(update.getAttribute('aria-busy')).toBe('true')
     expect(update.textContent).toBe('读取中…')
+    expect(update.querySelector('svg')).toBeNull()
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
     expect(messages.scrollTop).toBe(120)
     fireEvent.click(update)
     expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
     await act(async () => { finish({ ...content, revision: 'v2' }) })
     expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
-    expect(document.querySelector('.source-content-update')).toBeNull()
+    expect(document.querySelector('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+    await waitFor(() => expect(document.querySelector('.source-content-update')).toBeNull())
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
     expect(messages.scrollTop).toBe(120)
+  })
+  it.each([false, true])('正文读取已领先目录时确认本次更新，不把旧目录反复当成新变化（append=%s）', async append => {
+    const messages = await open(); messages.scrollTop = 120
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const pill = await screen.findByRole('button', { name: '查看更新' })
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v3', session: { ...content.session,
+      messages: append ? [...content.session.messages, { role: 'assistant', content: '比目录更新的正文' }] : content.session.messages } })
+    await act(async () => { fireEvent.click(pill) })
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    if (append) expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+    else expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+    expect(messages.scrollTop).toBe(120)
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+    fireEvent.focus(window)
+    await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v4' } : item); version++
+    clock.mockReturnValue(Date.now() + 60_000)
+    fireEvent.focus(window)
+    expect(await screen.findByRole('button', { name: '查看更新' })).toBeTruthy()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+  })
+  it('读取期间新到的目录版本不能被较旧正文响应确认，下一次点击才处理该更新', async () => {
+    await open()
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const pill = await screen.findByRole('button', { name: '查看更新' })
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.click(pill)
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v4' } : item); version++
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+    fireEvent.focus(window)
+    await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalledTimes(2))
+    await act(async () => { finish({ ...content, revision: 'v3' }) })
+    expect(screen.getByRole('button', { name: '查看更新' })).toBe(pill)
+    expect(pill.textContent).toBe('此对话有更新')
+    expect(pill.hasAttribute('disabled')).toBe(false)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v5' })
+    await act(async () => { fireEvent.click(pill) })
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(3)
+  })
+  it('首次读取快照领先所选目录时，迟到的原目录检查不产生虚假更新', async () => {
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2' })
+    await open()
+    fireEvent.focus(window)
+    await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+  })
+  it.each([true, false])('末条回复流式补全后出现新增消息，只有前文稳定时保留跳转胶囊（stable=%s）', async stable => {
+    await open()
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const pill = await screen.findByRole('button', { name: '查看更新' })
+    const messages = content.session.messages.map((message, index) => index === content.session.messages.length - 1
+      ? { ...message, content: message.content + '\n流式补全的尾部' }
+      : !stable && index === 0 ? { ...message, content: '早前问题被改写' } : message)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
+      messages: [...messages, { role: 'user', content: '真正新增的一条消息' }] } })
+    await act(async () => { fireEvent.click(pill) })
+    if (stable) {
+      expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+      const overlay = pill.closest('.source-content-update')!
+      expect(overlay.getAttribute('data-state')).toBe('open')
+      fireEvent(overlay, Object.assign(new Event('animationend', { bubbles: true }), { animationName: 'source-update-exit' }))
+      expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+    } else {
+      expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+      expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+    }
   })
   it('手动刷新即使目录版本不变也重读正文，正文等待期间保持忙碌且不重复请求', async () => {
     const messages = await open(); messages.scrollTop = 120
@@ -240,9 +423,32 @@ describe('不打断阅读的来源刷新', () => {
     expect(button.hasAttribute('disabled')).toBe(false)
     expect(messages.scrollTop).toBe(120)
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
-    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+    const jump = screen.getByRole('button', { name: '跳到新增消息' })
+    expect(jump.closest('.source-content-update')?.parentElement).toBe(messages.parentElement)
+    expect(document.querySelector('.source-update-notice')).toBeNull()
     expect(document.querySelector('.detail-footer')).toBeNull()
     expect(screen.queryByRole('button', { name: '重新读取正文' })).toBeNull()
+  })
+  it('跳转态又收到更新时原胶囊优先切回读取更新；切换会话不残留旧跳转入口', async () => {
+    await open()
+    const appended = { ...content, revision: 'v2', session: { ...content.session, messages: [...content.session.messages, { role: 'assistant' as const, content: '待跳转的新增正文' }] } }
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce(appended)
+    await refresh()
+    const pill = screen.getByRole('button', { name: '跳到新增消息' })
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v3' } : item); version++
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
+    fireEvent.focus(window)
+    const update = await screen.findByRole('button', { name: '查看更新' })
+    expect(update).toBe(pill)
+    expect(update.textContent).toBe('此对话有更新')
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, session: { ...content.session, id: entries[1].id, title: entries[1].title } })
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    await screen.findByRole('heading', { level: 2, name: '会话 1' })
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
   })
   it('手动刷新重读失败保留原文与位置，支持就地重试且不递归重读', async () => {
     const messages = await open(); messages.scrollTop = 120

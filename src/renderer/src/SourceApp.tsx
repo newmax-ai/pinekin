@@ -3,6 +3,7 @@ import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { SourceActions } from './components/SourceActions'
+import { SourceUpdatePill } from './components/SourceUpdatePill'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
@@ -22,6 +23,19 @@ const displaySources = browsableSources
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
 type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
+function newMessagesAreVisible(viewport: HTMLDivElement, firstIndex: number) {
+  const bounds = viewport.getBoundingClientRect()
+  if (viewport.clientHeight <= 0 || bounds.height <= 0) return false
+  // 与 ScrollArea 的 48px 渐隐和 4px 边界容差一致；渐隐区内不算完整可读。
+  const top = bounds.top + viewport.clientTop + (viewport.scrollTop > 4 ? 48 : 0)
+  const bottom = bounds.top + viewport.clientTop + viewport.clientHeight
+    - (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 4 ? 48 : 0)
+  const added = [...viewport.querySelectorAll('article.message')].slice(firstIndex)
+  return added.length > 0 && added.every(message => {
+    const rect = message.getBoundingClientRect()
+    return rect.height > 0 && rect.top >= top && rect.bottom <= bottom
+  })
+}
 function countLabel(connections: SourceConnection[]) {
   if (!connections.length) return ''
   if (connections.some(item => item.status === 'scanning')) return <LoadingMark />
@@ -50,7 +64,7 @@ export function SourceApp() {
   const [connecting, setConnecting] = useState(false)
   const [connectionNotice, setConnectionNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [readContent, setContent] = useState<{ entryId: string; value: SourceContent }>()
+  const [readContent, setContent] = useState<{ entryId: string; value: SourceContent; acknowledgedRevision?: string }>()
   // 会话切换的首次渲染就隔离旧结果，不等待 effect 清理后再隐藏上一条正文。
   const content = readContent?.entryId === selected?.id ? readContent?.value : undefined
   const [readError, setReadError] = useState('')
@@ -62,6 +76,7 @@ export function SourceApp() {
   const [catalogVersion, setCatalogVersion] = useState(0)
   const [latestEntry, setLatestEntry] = useState<SourceEntry | null>()
   const [newMessageIndex, setNewMessageIndex] = useState<number>()
+  const pendingNewMessageIndex = useRef<number | undefined>(undefined)
   const listViewport = useRef<HTMLDivElement>(null)
   const messagesViewport = useRef<HTMLDivElement>(null)
   const restoreScroll = useRef<number | undefined>(undefined)
@@ -73,7 +88,9 @@ export function SourceApp() {
   const listRequest = useRef(0)
   const current = useRef({ source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList })
   current.current = { source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList }
+  // 目录可能落后于刚读取的正文；已处理的目录提示不能仅因指纹不同而再次出现。
   const contentChanged = !!content && !!latestEntry && latestEntry.revision !== (content.revision ?? selected?.revision)
+    && latestEntry.revision !== readContent?.acknowledgedRevision
   const search = useRef<HTMLInputElement>(null)
   const searchTrigger = useRef<HTMLElement | null>(null)
   const connectionTrigger = useRef<HTMLElement | null>(null)
@@ -116,21 +133,30 @@ export function SourceApp() {
     if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); setWindowHistory([]); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
-    void readSelected(selected, request, previous)
+    void readSelected(selected, request, previous, latestEntry?.id === selected.id ? latestEntry.revision : selected.revision)
     return () => { readRequest.current += 1 }
   }, [selected?.id, readAttempt])
-  async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent) {
+  async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent, observedRevision = entry.revision) {
     setReading(true); setReadError(''); setNewMessageIndex(undefined)
+    pendingNewMessageIndex.current = undefined
     return window.staithe.sources.read(entry.id).then(result => {
       if (request === readRequest.current) {
         if (previous) {
           restoreScroll.current = previous.window?.offset || previous.window?.textOffset ? 0 : messagesViewport.current?.scrollTop
           const before = previous.session.messages, after = result.session.messages
-          // 只有完整旧消息逐条保持不变才称为追加；窗口切换不能冒充新增消息。
-          if (!previous.window?.hasMore && !previous.window?.offset && !previous.window?.textOffset && !result.window?.hasMore && after.length > before.length && before.every((message, index) => JSON.stringify(message) === JSON.stringify(after[index]))) setNewMessageIndex(before.length)
+          // 前文保持稳定，末条助手回复可以仅补全流式尾部；改写早前消息或分段切换不能冒充追加。
+          const stablePrefix = before.every((message, index) => {
+            const next = after[index]
+            if (!next || next.role !== message.role) return false
+            return next.content === message.content || index === before.length - 1 && message.role === 'assistant' && next.content.startsWith(message.content)
+          })
+          const completeWindows = !previous.window?.hasMore && !previous.window?.offset && !previous.window?.textOffset
+            && !result.window?.hasMore && !result.window?.offset && !result.window?.textOffset
+          if (completeWindows && after.length > before.length && stablePrefix) pendingNewMessageIndex.current = before.length
         }
         setWindowHistory([]); setWindowError('')
-        setContent({ entryId: entry.id, value: result })
+        // 仅确认请求开始时已观察到的目录版本，不吞掉读取期间新到的更新。
+        setContent({ entryId: entry.id, value: result, acknowledgedRevision: observedRevision })
         setPage(previous => ({ ...previous, items: previous.items.map(item => item.id === entry.id
           ? { ...item, title: result.session.title, availability: 'readable', reason: undefined } : item) }))
       }
@@ -157,17 +183,39 @@ export function SourceApp() {
       setWindowHistory(previous => direction === 'next'
         ? [...previous, { offset: window.offset, textOffset: window.textOffset, snapshot: window.snapshot }]
         : previous.slice(0, -1))
-      setContent({ entryId, value: result })
+      setContent({ entryId, value: result, acknowledgedRevision: readContent?.acknowledgedRevision })
     } catch (reason) {
       if (request === readRequest.current && mounted.current) setWindowError(errorText(reason))
     } finally { if (request === readRequest.current && mounted.current) setReading(false) }
   }
   useLayoutEffect(() => {
-    if (restoreScroll.current !== undefined && messagesViewport.current) {
-      messagesViewport.current.scrollTop = restoreScroll.current
+    const viewport = messagesViewport.current
+    if (restoreScroll.current !== undefined && viewport) {
+      viewport.scrollTop = restoreScroll.current
       restoreScroll.current = undefined
     }
-  }, [content])
+    const index = pendingNewMessageIndex.current ?? newMessageIndex
+    pendingNewMessageIndex.current = undefined
+    if (!content || !viewport || index === undefined) return
+    const dismissIfVisible = () => {
+      const visible = newMessagesAreVisible(viewport, index)
+      if (visible) setNewMessageIndex(undefined)
+      return visible
+    }
+    // 恢复位置并完成 DOM 布局后才决定跳转态，避免可见内容也闪现跳转文案。
+    if (dismissIfVisible()) return
+    setNewMessageIndex(index)
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(dismissIfVisible)
+    observer?.observe(viewport)
+    if (viewport.firstElementChild) observer?.observe(viewport.firstElementChild)
+    viewport.addEventListener('scroll', dismissIfVisible, { passive: true })
+    window.addEventListener('resize', dismissIfVisible)
+    return () => {
+      observer?.disconnect()
+      viewport.removeEventListener('scroll', dismissIfVisible)
+      window.removeEventListener('resize', dismissIfVisible)
+    }
+  }, [content, newMessageIndex])
   const automaticCheck = useRef<() => void>(() => {})
   automaticCheck.current = () => { void checkSources('automatic') }
   useEffect(() => {
@@ -418,9 +466,6 @@ export function SourceApp() {
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? content.window ? `${content.window.totalMessages} 条来源消息 · 当前片段 ${content.session.messages.length} 条文本` : `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
             </div>
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
-            {newMessageIndex !== undefined && <div className="source-update-notice"><DsButton size="small" onClick={() => {
-              messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' }); setNewMessageIndex(undefined)
-            }}>跳到新增消息</DsButton></div>}
             {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
             {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
@@ -432,7 +477,12 @@ export function SourceApp() {
                 {content.window.next && <DsButton size="small" disabled={reading} onClick={() => void readWindow('next')}>下一段</DsButton>}
               </nav>}
               <div className="source-messages-region">
-              {contentChanged && <div className="source-content-update" role="status"><DsButton size="small" aria-label="查看更新" aria-busy={reading} disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>{reading ? '读取中…' : '此对话有更新'}</DsButton></div>}
+              <SourceUpdatePill state={contentChanged ? reading ? 'reading' : 'updated' : newMessageIndex !== undefined ? 'jump' : undefined}
+                onRead={() => setReadAttempt(value => value + 1)} onJump={() => {
+                  if (newMessageIndex === undefined) return
+                  messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' })
+                  setNewMessageIndex(undefined)
+                }} />
               <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column" key={`${selected.id}:${content.window?.offset ?? 0}:${content.window?.textOffset ?? 0}:${content.window?.snapshot ?? ''}`}>
                 {!content.session.messages.length && !content.presentation && (content.window?.hasMore ? <p className="privacy-note">当前片段没有可显示的问答文本，可以继续读取下一段。</p> : <EmptyState kind="messages" />)}
                 {content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`${content.window ? '当前片段' : ''}第 ${index + 1} 条消息 · ${roles[message.role]}`}>

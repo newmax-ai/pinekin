@@ -254,6 +254,42 @@ describe('共享弹窗进退场', () => {
     fireEvent.click(trigger)
     expect((screen.getByRole('textbox', { name: '编辑内容' }) as HTMLInputElement).value).toBe('保留内容')
   })
+  it.each(['关闭', 'Escape', '遮罩'])('通过%s退出后恢复图标触发焦点，不自动弹出 Tooltip，后续悬停和 Tab 聚焦仍正常', async method => {
+    function Example() {
+      const [open, setOpen] = useState(false)
+      return <><DsButton iconOnly aria-label="更多会话操作" onClick={() => setOpen(true)}>…</DsButton>
+        <DsDialogPresence>{open && <DsDialog titleId="return-title" busy={false} onDismiss={() => setOpen(false)}>
+          <h2 id="return-title">接续目标设置</h2><DsDialogClose onClick={() => setOpen(false)} />
+        </DsDialog>}</DsDialogPresence></>
+    }
+    render(<Example />)
+    const trigger = screen.getByRole('button', { name: '更多会话操作' })
+    act(() => trigger.focus())
+    expect(screen.getByRole('tooltip').textContent).toBe('更多会话操作')
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog')
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    if (method === 'Escape') fireEvent(dialog, new Event('cancel', { cancelable: true }))
+    else if (method === '遮罩') {
+      vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 400, 300))
+      fireEvent(dialog, new MouseEvent('pointerdown', { bubbles: true, clientX: 50, clientY: 200, button: 0 }))
+      fireEvent.click(dialog, { clientX: 50, clientY: 200 })
+    } else fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    finish(dialog)
+    await act(async () => {})
+    expect(document.activeElement).toBe(trigger)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    expect(trigger.hasAttribute('aria-describedby')).toBe(false)
+    vi.useFakeTimers()
+    fireEvent.mouseEnter(trigger)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(screen.getByRole('tooltip').textContent).toBe('更多会话操作')
+    fireEvent.mouseLeave(trigger)
+    act(() => trigger.blur())
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    act(() => trigger.focus())
+    expect(screen.getByRole('tooltip').textContent).toBe('更多会话操作')
+  })
   it('面板轻微缩放并淡入淡出，遮罩只渐变，减少动态效果覆盖伪元素', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.ds-dialog\[open\]\s*\{[^}]*animation: ds-dialog-enter 180ms/)

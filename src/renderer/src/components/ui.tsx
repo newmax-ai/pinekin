@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
 import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, Inbox, Info, Link, LockKeyhole, MessageSquareText, PanelLeft, PanelLeftClose, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
 
-import { Tooltip } from './Tooltip'
+import { restoreFocusWithoutTooltip, Tooltip } from './Tooltip'
 
 // 视觉契约源自 NewMax DS；这是独立实现，不引用宿主 store、窗口或运行时。
 export function DsButton({ variant = 'tertiary', size = 'default', iconOnly = false, iconRelaxed = false, className = '', type = 'button', title, ...props }:
@@ -111,7 +111,7 @@ export function DsDialog({ titleId, onDismiss, busy, children, returnFocus, dism
       if (autofocus === null) initial.removeAttribute('autofocus')
       else initial.setAttribute('autofocus', autofocus)
     }
-    return () => { queueMicrotask(() => { if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus() }) }
+    return () => { queueMicrotask(() => { if (trigger instanceof HTMLElement && trigger.isConnected) restoreFocusWithoutTooltip(trigger) }) }
   }, [returnFocus])
   return <dialog ref={dialog} tabIndex={-1} className="ds-dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={busy}
     data-state={present ? 'open' : 'closing'} data-animate-height={animateHeight || undefined} inert={!present} aria-hidden={!present || undefined}
