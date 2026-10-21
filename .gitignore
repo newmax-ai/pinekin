@@ -12,3 +12,6 @@ playwright-report/
 
 # 本地界面验收截图
 /outputs/**/*.png
+
+# NewMax 本地验证产物
+/.newmax/outputs/
