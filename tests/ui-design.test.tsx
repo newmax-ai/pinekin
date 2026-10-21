@@ -104,6 +104,19 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(row).not.toMatch(/radius-pill|padding-inline:\s*0|position:\s*absolute/)
     expect(styles).not.toMatch(/\.source-read-notes-raw\s*\{[^}]*margin-inline:/)
   })
+  it('更换 App 保持卡片体量和等高圆角，改用无边框 tertiary 表面及交互反馈', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const shared = /\.source-target-card, \.source-target-change\s*\{([^}]*)\}/.exec(styles)?.[1]
+    for (const rule of ['padding: 12px 14px;', 'border-radius: var(--ds-radius-md);']) expect(shared).toContain(rule)
+    const selected = /\.source-target-list\[data-selected='true'\]\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(selected).toContain('align-items: stretch;')
+    const change = /(?:^|\n)\.source-target-change\s*\{([^}]*)\}/.exec(styles)?.[1]
+    for (const rule of ['height: 100%;', 'width: auto;', 'justify-content: center;', 'white-space: nowrap;', 'border: 0;', 'background: var(--ds-action-subtle-surface);', 'color: var(--ds-action-subtle-text);']) expect(change).toContain(rule)
+    expect(change).not.toMatch(/radius-pill|font-size:|font-weight:/)
+    expect(styles).toMatch(/\.source-target-change:is\(:hover, :focus-visible\):not\(:disabled\)\s*\{\s*opacity: 0\.8;/)
+    expect(styles).toMatch(/\.source-target-change:active:not\(:disabled\)\s*\{\s*opacity: 0\.7;/)
+    expect(styles).not.toMatch(/, \.source-target-change(?::disabled|:is\([^\n]+\))[^\n]*\{[^}]*background:/)
+  })
   it('接续设置路径复用中性表面与等宽字体，可选择复制且长路径自然换行', () => {
     const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
     const path = /\.source-target-setting-path\s*\{([^}]*)\}/.exec(styles)?.[1]
