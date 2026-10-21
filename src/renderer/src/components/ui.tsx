@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
-import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, Inbox, Info, Link, LockKeyhole, MessageSquareText, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, History, Inbox, Info, Link, LockKeyhole, MessageSquareText, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
 
 import { restoreFocusWithoutTooltip, Tooltip } from './Tooltip'
 
@@ -141,6 +141,7 @@ const icons = {
   back: ArrowLeft,
   copy: Copy,
   download: Download,
+  history: History,
   settings: Settings,
   chevron: ChevronRight,
   'chevron-down': ChevronDown,

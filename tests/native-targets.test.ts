@@ -18,26 +18,23 @@ function setup(sources: BrowsableSource[] = [...browsableSources], adapters = [a
   return { service: new NativeTargets({ connections, adapters }), connections, adapters }
 }
 
-describe('所有已连接 App 的原生目标注册与门禁', () => {
-  it('列出所有已连接 App，多个位置合并；不能把来源读取能力冒充原生写入', async () => {
-    const { service } = setup([...browsableSources, 'codex', 'newmax'])
+describe('已实现原生目标的注册与门禁', () => {
+  it('仅列出注册适配的目标，不把已连接来源展示成迁移能力', async () => {
+    const { service, connections } = setup([...browsableSources, 'codex', 'newmax'], [adapter(), adapter('newmax')])
     const targets = await service.list()
-    expect(targets.map(target => target.id)).toEqual(browsableSources)
-    expect(targets.find(target => target.id === 'codex')).toMatchObject({ name: 'Codex', available: true, configured: true })
-    for (const target of targets.filter(target => target.id !== 'codex')) {
-      expect(target).toMatchObject({ name: sourceNames[target.id], available: false })
-      expect(target.reason).toContain('原生接续尚未支持')
-    }
+    expect(targets.map(target => target.id)).toEqual(['newmax', 'codex'])
+    expect(targets.every(target => target.implemented && target.available && target.configured)).toBe(true)
+    expect(connections).not.toHaveBeenCalled()
   })
-  it('只展示已连接的未适配 App，保留已有可用目标而不扫描或自动连接来源', async () => {
+  it('来源列表读取失败不影响已注册目标，也不读取来源连接', async () => {
     const { service, connections } = setup(['newmax'])
-    expect((await service.list()).map(target => target.id)).toEqual(['newmax', 'codex'])
-    connections.mockResolvedValue([])
+    connections.mockRejectedValue(new Error('来源连接不可读'))
     expect((await service.list()).map(target => target.id)).toEqual(['codex'])
+    expect(connections).not.toHaveBeenCalled()
   })
-  it('无原生适配的平台仍能列出所有已连接 App，但不提供伪造的创建入口', async () => {
+  it('无原生适配的平台返回空列表，主进程仍拒绝伪造的创建请求', async () => {
     const { service } = setup([...browsableSources], [])
-    expect((await service.list()).every(target => !target.available && !!target.reason)).toBe(true)
+    expect(await service.list()).toEqual([])
     await expect(service.continue(id, 'codex', { kind: 'standalone' })).rejects.toThrow('原生接续尚未支持')
   })
   it('一项配置检查失败不会隐藏其他 App，也不将失败当作未配置成功', async () => {

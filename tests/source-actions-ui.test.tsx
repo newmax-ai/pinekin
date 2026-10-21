@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { SourceActions } from '../src/renderer/src/components/SourceActions'
 import type { SourceContent } from '../src/core/sources'
 import type { SourceActionCapabilities } from '../src/core/source-actions'
@@ -43,24 +43,120 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     fireEvent.click(await screen.findByRole('button', { name: '选择 Codex' }))
     await screen.findByText('/synthetic/.codex')
   }
-  it('所有已连接 App 都展示原生能力，未适配目标明确禁用且不触发 Codex、剪贴板或打开原会话', async () => {
+  it.each(['continue', 'configure'] as const)('%s：旧主进程返回未适配 App 时也移除卡片和原因，不触发外部操作', async mode => {
     const api = enableTarget()
     vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
       { id: 'codex', name: 'Codex', available: true },
-      ...(['newmax', 'claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code'] as const).map(id => ({
+      { id: 'newmax', name: 'NewMax', available: true },
+      ...(['claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code'] as const).map(id => ({
         id, name: id, available: false, reason: `${id} 原生接续尚未支持。`,
       })),
     ] })
     render(<SourceActions {...props} />)
-    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
-    for (const name of ['newmax', 'claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code']) {
-      const button = await screen.findByRole('button', { name: `在 ${name} 继续` }) as HTMLButtonElement
-      expect(button.disabled).toBe(true)
-      expect(screen.getByText(`${name} 原生接续尚未支持。`)).toBeTruthy()
-      fireEvent.click(button)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: mode === 'continue' ? '原生历史迁移（高级）' : '接续目标设置' }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => expect(dialog.querySelectorAll('.source-target-card')).toHaveLength(2))
+    expect(within(dialog).getByText('NewMax')).toBeTruthy()
+    expect(within(dialog).getByText('Codex')).toBeTruthy()
+    for (const name of ['claude-code', 'cindy', 'deepseek', 'workbuddy', 'qwen-code']) {
+      expect(within(dialog).queryByText(name)).toBeNull()
+      expect(within(dialog).queryByText(`${name} 原生接续尚未支持。`)).toBeNull()
     }
     expect(api.continueInCodex).not.toHaveBeenCalled(); expect(api.inspectCodexTarget).not.toHaveBeenCalled()
     expect(window.staithe.copy).not.toHaveBeenCalled(); expect(api.openOriginal).not.toHaveBeenCalled()
+  })
+  it('已实现目标配置失败仍显示故障原因，不误标成未支持', async () => {
+    const api = enableTarget()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
+      { id: 'codex', name: 'Codex', available: false, reason: 'Codex 目标配置检查失败' },
+      { id: 'newmax', name: 'NewMax', available: false, reason: 'NewMax 目标配置检查失败' },
+      { id: 'cindy', name: '合成未来适配器', implemented: true, available: false, reason: '合成配置检查失败' },
+    ] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    for (const name of ['Codex', 'NewMax', '合成未来适配器']) {
+      expect((await screen.findByRole('button', { name: `在 ${name} 继续` }) as HTMLButtonElement).disabled).toBe(true)
+    }
+    expect(screen.getByText('合成配置检查失败')).toBeTruthy()
+    expect(screen.queryByText('未支持原生接续')).toBeNull()
+    expect(screen.getAllByText('暂不可用')).toHaveLength(3)
+  })
+  it('过滤后无目标时显示准确空状态，不提示连接来源即可获得迁移能力', async () => {
+    const api = enableTarget()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
+      { id: 'claude-code', name: 'Claude Code', available: false },
+      { id: 'newmax', name: 'NewMax', implemented: false, available: false },
+    ] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
+    expect(await screen.findByText('当前平台没有已接入的原生迁移目标，可使用复制或保存接续文件。')).toBeTruthy()
+    expect(screen.getByRole('dialog').querySelectorAll('.source-target-card')).toHaveLength(0)
+  })
+  it.each(['continue', 'configure'] as const)('%s：选中 App 后隐藏其他目标与说明，更换后恢复列表并清除目标详情', async mode => {
+    const api = enableTarget()
+    vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
+      { id: 'newmax', name: 'NewMax', available: true }, { id: 'codex', name: 'Codex', available: true },
+      { id: 'claude-code', name: 'Claude Code', available: false, reason: '合成未支持原因' },
+    ] })
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: mode === 'continue' ? '原生历史迁移（高级）' : '接续目标设置' }))
+    const codexLabel = mode === 'continue' ? '在 Codex 继续' : '选择 Codex'
+    const newmaxLabel = mode === 'continue' ? '在 NewMax 继续' : '选择 NewMax'
+    const codex = await screen.findByRole('button', { name: codexLabel })
+    expect(screen.queryByText('合成未支持原因')).toBeNull()
+    expect(screen.queryByRole('button', { name: '更换 App' })).toBeNull()
+    fireEvent.click(codex)
+    if (mode === 'configure') await screen.findByText('/synthetic/.codex')
+    else await screen.findByText('暂无已保存的本地项目')
+    expect(screen.getByRole('button', { name: codexLabel }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('button', { name: newmaxLabel })).toBeNull()
+    expect(screen.queryByText('Claude Code')).toBeNull()
+    expect(screen.queryByText('合成未支持原因')).toBeNull()
+    expect(screen.getByRole('dialog').querySelectorAll('.source-target-card')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '更换 App' }))
+    expect(screen.getByRole('button', { name: newmaxLabel })).toBeTruthy()
+    expect(screen.getByRole('button', { name: codexLabel }).getAttribute('aria-pressed')).toBe('false')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: newmaxLabel }))
+    expect(screen.queryByText('合成未支持原因')).toBeNull()
+    expect(screen.queryByRole('group', { name: '在哪里继续？' })).toBeNull()
+    expect(screen.queryByText('/synthetic/.codex')).toBeNull()
+    expect(screen.queryByRole('button', { name: '保存位置' })).toBeNull()
+    expect(api.configureCodex).not.toHaveBeenCalled(); expect(api.continueInCodex).not.toHaveBeenCalled()
+    expect(window.staithe.copy).not.toHaveBeenCalled()
+  })
+  it('原生迁移在途时禁止更换 App，失败后允许返回并清除旧错误与项目', async () => {
+    const api = enableTarget()
+    let reject!: (cause: Error) => void
+    vi.mocked(api.continueInCodex!).mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail }))
+    render(<SourceActions {...props} />); fireEvent.click(await openTargets())
+    await waitFor(() => expect(api.continueInCodex).toHaveBeenCalledOnce())
+    const change = screen.getByRole('button', { name: '更换 App' }) as HTMLButtonElement
+    expect(change.disabled).toBe(true)
+    fireEvent.click(change)
+    expect(screen.getByRole('group', { name: '在哪里继续？' })).toBeTruthy()
+    await act(async () => { reject(new Error('合成迁移失败')) })
+    expect((await screen.findByRole('alert')).textContent).toBe('合成迁移失败')
+    expect(change.disabled).toBe(false)
+    fireEvent.click(change)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('group', { name: '在哪里继续？' })).toBeNull()
+    expect(api.continueInCodex).toHaveBeenCalledOnce()
+  })
+  it('设置识别期间禁止更换 App，完成后更换不会保存旧设置', async () => {
+    const api = enableTarget()
+    let finish!: (value: typeof preview) => void
+    vi.mocked(api.inspectCodexTarget!).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    render(<SourceActions {...props} />)
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '接续目标设置' }))
+    fireEvent.click(await screen.findByRole('button', { name: '选择 Codex' }))
+    const change = screen.getByRole('button', { name: '更换 App' }) as HTMLButtonElement
+    expect(change.disabled).toBe(true)
+    await act(async () => { finish(preview) })
+    expect(change.disabled).toBe(false)
+    fireEvent.click(change)
+    expect(screen.queryByText(preview.dataPath)).toBeNull()
+    expect(screen.queryByRole('button', { name: '保存位置' })).toBeNull()
+    expect(api.configureCodex).not.toHaveBeenCalled()
   })
   it('通用原生桥按所选 App 识别、选项目和创建，不沿用 Codex 专用接口', async () => {
     const api = enableTarget()
@@ -146,12 +242,13 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [{ id: 'codex', name: 'Codex', available: true }, { id: 'newmax', name: 'NewMax', available: true }] })
     render(<SourceActions {...props} />)
     await openTargets()
+    fireEvent.click(screen.getByRole('button', { name: '更换 App' }))
     fireEvent.click(screen.getByRole('button', { name: '在 NewMax 继续' }))
     await screen.findByText('暂无已保存的本地项目')
     await act(async () => { finish({ projects: [{ id: preview.token, name: '旧目标项目', path: '/synthetic/old-project' }] }) })
     expect(screen.queryByText('旧目标项目')).toBeNull()
     expect(screen.getByRole('button', { name: '在 NewMax 继续' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: '在 Codex 继续' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('button', { name: '在 Codex 继续' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '独立会话继续' }))
     await waitFor(() => expect(api.continueInTarget).toHaveBeenCalledWith(props.entryId, 'newmax', { kind: 'standalone' }))
     expect(api.chooseTargetProject).not.toHaveBeenCalled()
@@ -664,7 +761,10 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     const items = [
       { label: partial ? '复制当前片段' : '复制会话文本', icon: 'lucide-copy' },
       { label: partial ? '导出当前片段' : '导出 Markdown', icon: 'lucide-download' },
+      { label: '保存接续文件', icon: 'lucide-download' },
+      { label: '原生历史迁移（高级）', icon: 'lucide-history' },
       { label: '接续目标设置', icon: 'lucide-settings' },
+      { label: '读取说明', icon: 'lucide-info' },
     ]
     for (const { label, icon } of items) {
       const item = screen.getByRole('menuitem', { name: label })
@@ -680,6 +780,27 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(window.staithe.copy).not.toHaveBeenCalled()
     expect(window.staithe.sourceActions!.exportText).not.toHaveBeenCalled()
     expect(window.staithe.sourceActions!.configureCodex).not.toHaveBeenCalled()
+  })
+  it.each([[true, true], [true, false], [false, true], [false, false]])('菜单按功能分组，条件入口缺失时不留空组（迁移=%s，设置=%s）', async (migration, settings) => {
+    const api = enableTarget()
+    if (!migration) delete api.continueInCodex
+    if (!settings) delete api.configureCodex
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    more()
+    const menu = screen.getByRole('menu', { name: '更多会话操作' })
+    const groups = [
+      { label: '复制与导出', items: ['复制会话文本', '导出 Markdown'] },
+      { label: '接续与迁移', items: ['保存接续文件', ...(migration ? ['原生历史迁移（高级）'] : [])] },
+      { label: '设置与说明', items: [...(settings ? ['接续目标设置'] : []), '读取说明'] },
+    ]
+    expect(within(menu).getAllByRole('group')).toHaveLength(3)
+    for (const { label, items } of groups) {
+      const group = within(menu).getByRole('group', { name: label })
+      expect(within(group).getAllByRole('menuitem').map(item => item.textContent)).toEqual(items)
+    }
+    expect(within(menu).getAllByRole('separator')).toHaveLength(2)
+    expect([...menu.children].map(child => child.getAttribute('role'))).toEqual(['group', 'separator', 'group', 'separator', 'group'])
   })
   it('更多菜单中直接复制，没有二次确认或目标选择', async () => {
     render(<SourceActions {...props} />); more()

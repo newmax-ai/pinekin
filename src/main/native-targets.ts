@@ -28,7 +28,7 @@ function unsupported(source: BrowsableSource) {
   return `${sourceNames[source]} 原生接续尚未支持：${missingEvidence[source]}`
 }
 
-/** 只枚举 Pinekin 已保存的连接与显式注册的原生适配，不发现或扫描真实客户端。 */
+/** 只枚举显式注册的原生适配；来源连接不代表写入能力，也不为列出目标读取或扫描客户端。 */
 export class NativeTargets {
   private readonly adapters = new Map<BrowsableSource, NativeTargetAdapter>()
   constructor(private readonly deps: { connections(): Promise<Pick<SourceConnection, 'source'>[]>; adapters: NativeTargetAdapter[] }) {
@@ -39,14 +39,12 @@ export class NativeTargets {
     }
   }
   async list(): Promise<SourceNativeTarget[]> {
-    const sources = new Set((await this.deps.connections()).map(connection => sourceSchema.parse(connection.source)))
-    for (const id of this.adapters.keys()) sources.add(id)
-    return Promise.all(browsableSources.filter(id => sources.has(id)).map(async id => {
-      const adapter = this.adapters.get(id)
-      if (!adapter) return { id, name: sourceNames[id], available: false, reason: unsupported(id) }
-      try { return { id, name: sourceNames[id], available: true, configured: await adapter.configured(),
-        ...(adapter.destinationKind ? { destinationKind: adapter.destinationKind } : {}) } }
-      catch { return { id, name: sourceNames[id], available: false, reason: `${sourceNames[id]} 目标配置检查失败，请检查已授权配置后重试。` } }
+    return Promise.all(browsableSources.filter(id => this.adapters.has(id)).map(async id => {
+      const adapter = this.adapters.get(id)!
+      const target = { id, name: sourceNames[id], implemented: true,
+        ...(adapter.destinationKind ? { destinationKind: adapter.destinationKind } : {}) }
+      try { return { ...target, available: true, configured: await adapter.configured() } }
+      catch { return { ...target, available: false, reason: `${sourceNames[id]} 目标配置检查失败，请检查已授权配置后重试。` } }
     }))
   }
   private adapter(rawTarget: unknown, assertAllowed: () => void) {

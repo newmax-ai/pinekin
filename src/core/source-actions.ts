@@ -9,12 +9,14 @@ export interface SourceActionAvailability {
 }
 export interface SourceNativeTarget {
   id: BrowsableSource; name: string; configured?: boolean
+  // 注册适配与运行时可用性分开；配置失败不等于未实现。旧主进程可能没有此字段。
+  implemented?: boolean
   // 旧主进程缺少此字段时，只兼容已有的 Codex 适配，不推断其他目标可写。
   available?: boolean; reason?: string; destinationKind?: 'folder' | 'workspace'
 }
 export interface SourceActionCapabilities {
   original: SourceActionAvailability
-  // 已连接 App 与已注册原生目标；是否可创建由 available 明确说明。
+  // 仅已注册原生目标；是否可创建由 available 明确说明，不由来源连接推断。
   targets: SourceNativeTarget[]
 }
 export interface NativeTransferResult {

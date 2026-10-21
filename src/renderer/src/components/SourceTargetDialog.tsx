@@ -25,6 +25,9 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
   onConfigured(): void; onSettings(): void; returnFocus?: HTMLElement | null
 }) {
   const settings = mode === 'configure'
+  // 热更新兼容旧主进程的占位列表；保留既有适配的故障提示，但不据此启用写入。
+  const implementedTargets = targets.filter(target => target.implemented
+    ?? (target.available === true || target.id === 'codex' || target.id === 'newmax'))
   const [selected, setSelected] = useState<BrowsableSource>()
   const [preview, setPreview] = useState<NativeTargetPreview>()
   const [applicationExpanded, setApplicationExpanded] = useState(false)
@@ -33,9 +36,12 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
   const [checking, setChecking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
-  const pending = useRef(false), alive = useRef(true), destinations = useRef<HTMLDivElement>(null)
+  const pending = useRef(false), alive = useRef(true), destinations = useRef<HTMLDivElement>(null), targetList = useRef<HTMLDivElement>(null)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
-  useEffect(() => { if (selected && !settings) destinations.current?.querySelector('button')?.focus() }, [selected, settings])
+  useEffect(() => {
+    const focusArea = selected ? settings ? undefined : destinations.current : targetList.current
+    focusArea?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
+  }, [selected, settings])
   const active = () => alive.current && isActive()
   function fail(cause: unknown) {
     if (!active()) return
@@ -45,10 +51,10 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
     setError(message.includes('No handler registered') ? restartMessage
       : /来源正文已变化|来源已变化或片段不连续|数据库在读取期间变化/.test(message) ? sourceChangedMessage : message)
   }
-  function select(target: BrowsableSource) {
+  function select(target?: BrowsableSource) {
     if (pending.current || !active()) return
     setSelected(target); setPreview(undefined); setProject(undefined); setError(undefined); setApplicationExpanded(false)
-    if (settings) void inspect('automatic', target)
+    if (settings && target) void inspect('automatic', target)
   }
   async function inspect(kind: CodexSetupMode, target = selected) {
     if (pending.current || !active() || !target) return
@@ -112,11 +118,11 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
     <DsDialogHeader titleId="target-dialog-title" title={settings ? '接续目标设置' : '原生历史迁移（高级）'}
       closeLabel="关闭接续面板" busy={busy} onDismiss={onDismiss} />
     <div className="source-target-body" data-mode={mode}>
-      <p className="source-target-description">{settings ? '通常无需修改。使用自定义数据目录时，可在这里调整。' : '选择 App，再决定在哪里继续。只承接对话文字，不会自动发送；未接通原生创建的 App 会标明原因。'}</p>
-      <div className="source-target-list" aria-label="接续目标">
-        {targets.map(target => {
+      <p className="source-target-description">{settings ? '通常无需修改。使用自定义数据目录时，可在这里调整。' : '选择 App，再决定在哪里继续。只承接对话文字，不会自动发送，不迁移附件和工具状态。'}</p>
+      <div className="source-target-list" aria-label="接续目标" ref={targetList} data-selected={!!selected}>
+        {implementedTargets.filter(target => !selected || target.id === selected).map(target => {
           const supported = target.available ?? target.id === 'codex'
-          const reason = target.reason ?? `${target.name} 原生接续尚未支持。`
+          const reason = target.reason ?? `${target.name} 当前不可用，请检查客户端与平台支持。`
           const chosen = selected === target.id
           return <div key={target.id} className="source-target-option">
             <button type="button" className="source-target-card"
@@ -126,13 +132,14 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
               disabled={working || !supported} data-dialog-initial-focus={supported ? 'true' : undefined}
               onClick={() => select(target.id)}>
               <SourceIcon source={target.id} /><span>{target.name}</span><span className="source-target-card-detail" role={working && chosen ? 'status' : undefined}>
-                {!supported ? '未支持原生接续' : working && chosen ? checking ? '正在准备…' : '正在接续…' : settings ? '设置' : chosen ? '已选择' : '选择'}
+                {!supported ? '暂不可用' : working && chosen ? checking ? '正在准备…' : '正在接续…' : settings ? '设置' : chosen ? '已选择' : '选择'}
               </span>
             </button>
             {!supported && <p id={`${targetReasonId}-${target.id}`} className="source-target-unavailable" role="note">{reason}</p>}
           </div>
         })}
-        {!targets.length && <p className="source-target-description">{loadingTargets ? '正在读取可用目标…' : '当前没有可用目标，请连接来源 App 或重新检查客户端与平台支持。'}</p>}
+        {selected && <DsButton variant="ghost" size="small" disabled={working} onClick={() => select()}>更换 App</DsButton>}
+        {!implementedTargets.length && <p className="source-target-description">{loadingTargets ? '正在读取可用目标…' : '当前平台没有已接入的原生迁移目标，可使用复制或保存接续文件。'}</p>}
       </div>
       {!settings && selected && <div className="source-target-location source-target-destination" role="group" aria-label="在哪里继续？" ref={destinations}>
         <p className="source-target-destination-title">在哪里继续？</p>

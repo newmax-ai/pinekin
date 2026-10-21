@@ -183,12 +183,20 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     </div>
     <DsMenu open={menuOpen} ref={menu} className="source-actions-menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
-      <button role="menuitem" disabled={!hasMessages} onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
-      <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
-      <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
-      {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('continue')}>原生历史迁移（高级）</button>}
-      {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
-      <button role="menuitem" aria-haspopup="dialog" onClick={() => { setMenuOpen(false); setReadingNotesId(entryId) }}><DesignIcon name="info" size={16} />读取说明</button>
+      <div role="group" aria-label="复制与导出">
+        <button role="menuitem" disabled={!hasMessages} onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
+        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
+      </div>
+      <div className="source-actions-menu-separator" role="separator" />
+      <div role="group" aria-label="接续与迁移">
+        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
+        {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('continue')}><DesignIcon name="history" size={16} />原生历史迁移（高级）</button>}
+      </div>
+      <div className="source-actions-menu-separator" role="separator" />
+      <div role="group" aria-label="设置与说明">
+        {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
+        <button role="menuitem" aria-haspopup="dialog" onClick={() => { setMenuOpen(false); setReadingNotesId(entryId) }}><DesignIcon name="info" size={16} />读取说明</button>
+      </div>
       {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
     </DsMenu>
     <DsDialogPresence>{readingNotesId === entryId && content && !disabled && <SourceReadNotesDialog warnings={content.warnings}
