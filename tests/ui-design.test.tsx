@@ -131,7 +131,7 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(overlay).toContain('transform: translateX(-50%);')
     expect(overlay).toContain('width: max-content;')
     expect(overlay).toContain('max-width: calc(100% - 48px);')
-    const button = /\.source-content-update > \.ds-button\s*\{([^}]*)\}/.exec(styles)?.[1]
+    const button = /\.source-content-update > \.ds-toast-surface\s*\{([^}]*)\}/.exec(styles)?.[1]
     expect(button).toContain('max-width: 100%;')
     expect(button).toContain('height: auto;')
     expect(button).toContain('min-height: 32px;')
@@ -143,9 +143,9 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(button).toContain('box-shadow: var(--ds-floating-card-shadow);')
     expect(button).not.toMatch(/var\(--ds-(?:action-primary|surface-300)/)
     expect(color(themes[0], 'surface-100')).toBe('#ffffff')
-    const interaction = /\.source-content-update > \.ds-button:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    const interaction = /\.ds-toast-surface > \.ds-toast-action:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
     expect(interaction).toContain('opacity: 1;')
-    expect(interaction).toContain('background: var(--ds-surface-100);')
+    expect(interaction).toContain('background: transparent;')
     for (const theme of themes) {
       expect(contrast(color(theme, 'text-primary'), color(theme, 'surface-100'))).toBeGreaterThanOrEqual(7)
       const shadow = declaration(theme, 'floating-card-shadow')
@@ -154,14 +154,15 @@ describe('Staithe 中性主题与图标契约', () => {
     }
     expect(declaration(themes[0], 'floating-card-shadow')).toContain('0 24px 15px')
   })
-  it('更新胶囊文案轻微淡入上移、宽度柔和过渡，进退场独立且遵守减少动态效果', () => {
+  it('Toast 文字与卡片共用整体进退场，文字层没有独立位移、淡入或宽度过渡', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const labels = /\.source-update-labels\s*\{([^}]*)\}/.exec(styles)?.[1]
-    expect(labels).toContain('transition: width var(--ds-motion-soft);')
-    expect(labels).toContain('overflow: hidden;')
     const label = /\.source-update-label\s*\{([^}]*)\}/.exec(styles)?.[1]
-    expect(label).toContain('animation: source-update-label-enter var(--ds-motion-swift);')
-    expect(styles).toMatch(/@keyframes source-update-label-enter\s*\{\s*from\s*\{[^}]*opacity: 0;[^}]*transform: translateY\(3px\);/)
+    expect(labels).toBeDefined()
+    expect(label).toBeDefined()
+    for (const layer of [labels, label]) expect(layer).not.toMatch(/(?:animation|transition|transform):/)
+    expect(styles).not.toContain('source-update-label-enter')
+    expect(styles).toMatch(/\.source-content-update\s*\{[^}]*animation: source-update-enter var\(--ds-motion-swift\);/)
     expect(styles).toMatch(/\.source-content-update\[data-state='closing'\]\s*\{[^}]*animation: source-update-exit 140ms/)
     expect(styles).toMatch(/@media\s*\(prefers-reduced-motion: reduce\)\s*\{[^]*?animation: none !important; transition: none !important;/)
   })
@@ -169,7 +170,7 @@ describe('Staithe 中性主题与图标契约', () => {
     const menuStyles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
     const contentStyles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const menu = /\.source-actions-menu\s*\{([^}]*)\}/.exec(menuStyles)?.[1]
-    const capsule = /\.source-content-update > \.ds-button\s*\{([^}]*)\}/.exec(contentStyles)?.[1]
+    const capsule = /\.source-content-update > \.ds-toast-surface\s*\{([^}]*)\}/.exec(contentStyles)?.[1]
     for (const card of [menu, capsule]) {
       expect(card).toContain('border: 0;')
       expect(card).toContain('background: var(--ds-surface-100);')

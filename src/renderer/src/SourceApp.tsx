@@ -78,6 +78,7 @@ export function SourceApp() {
   const [pendingList, setPendingList] = useState(false)
   const [catalogVersion, setCatalogVersion] = useState(0)
   const [latestEntry, setLatestEntry] = useState<SourceEntry | null>()
+  const [dismissedUpdate, setDismissedUpdate] = useState<{ entryId: string; revision?: string }>()
   const [newMessageIndex, setNewMessageIndex] = useState<number>()
   const pendingNewMessageIndex = useRef<number | undefined>(undefined)
   const listViewport = useRef<HTMLDivElement>(null)
@@ -133,7 +134,7 @@ export function SourceApp() {
     const previous = sameConversation ? current.current.content : undefined
     displayedId.current = selected?.id
     setReadError(''); setReading(false); setNewMessageIndex(undefined); setWindowError('')
-    if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); setWindowHistory([]); restoreScroll.current = undefined }
+    if (!sameConversation) { setContent(undefined); setLatestEntry(undefined); setDismissedUpdate(undefined); setWindowHistory([]); restoreScroll.current = undefined }
     if (!selected) return
     if (selected.availability === 'unsupported') { setReadError(selected.reason ?? '正文暂未支持'); return }
     void readSelected(selected, request, previous, latestEntry?.id === selected.id ? latestEntry.revision : selected.revision)
@@ -482,7 +483,13 @@ export function SourceApp() {
                 {content.window.next && <DsButton size="small" disabled={reading} onClick={() => void readWindow('next')}>下一段</DsButton>}
               </nav>}
               <div className="source-messages-region">
-              <SourceUpdatePill state={contentChanged ? reading ? 'reading' : 'updated' : newMessageIndex !== undefined ? 'jump' : undefined}
+              <SourceUpdatePill state={contentChanged ? dismissedUpdate?.entryId === selected.id && dismissedUpdate.revision === latestEntry?.revision ? undefined
+                  : reading ? 'reading' : 'updated' : newMessageIndex !== undefined ? 'jump' : undefined}
+                onDismiss={() => {
+                  if (reading) return
+                  if (contentChanged && latestEntry) setDismissedUpdate({ entryId: selected.id, revision: latestEntry.revision })
+                  setNewMessageIndex(undefined)
+                }}
                 onRead={() => setReadAttempt(value => value + 1)} onJump={() => {
                   if (newMessageIndex === undefined) return
                   messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' })

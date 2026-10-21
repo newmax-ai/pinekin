@@ -9,12 +9,60 @@ beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks() })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('同一个正文更新胶囊', () => {
+  it.each(['updated', 'jump'] as const)('%s 使用统一 Toast 表面，关闭按钮独立于文字操作且不触发读取或跳转', state => {
+    const dismiss = vi.fn()
+    render(<SourceUpdatePill {...actions} state={state} onDismiss={dismiss} />)
+    const action = screen.getByRole('button', { name: state === 'jump' ? '跳到新增消息' : '查看更新' })
+    const close = screen.getByRole('button', { name: '关闭更新提示' })
+    expect(action.parentElement?.classList.contains('ds-toast-surface')).toBe(true)
+    expect(close.parentElement).toBe(action.parentElement)
+    expect(action.contains(close)).toBe(false)
+    fireEvent.click(close)
+    expect(dismiss).toHaveBeenCalledOnce()
+    expect(actions.onRead).not.toHaveBeenCalled()
+    expect(actions.onJump).not.toHaveBeenCalled()
+  })
+  it('读取期间保留关闭入口但禁用，避免关闭在途更新', () => {
+    const dismiss = vi.fn()
+    render(<SourceUpdatePill {...actions} state="reading" onDismiss={dismiss} />)
+    const close = screen.getByRole('button', { name: '关闭更新提示' })
+    expect(close.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(close)
+    expect(dismiss).not.toHaveBeenCalled()
+  })
+  it('操作 Toast 与更新提示复用同一居中浮层，短暂反馈结束后恢复待处理更新', () => {
+    const view = render(<SourceUpdatePill {...actions} state="updated" />)
+    const overlay = screen.getByRole('status')
+    expect(overlay.getAttribute('data-toast')).toBe('true')
+    const dismiss = vi.fn()
+    view.rerender(<SourceUpdatePill {...actions} state="updated" notice={{ text: '文件已复制', onDismiss: dismiss }} />)
+    expect(screen.getByRole('status')).toBe(overlay)
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    expect(screen.getByText('文件已复制')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
+    expect(dismiss).toHaveBeenCalledOnce()
+    expect(actions.onRead).not.toHaveBeenCalled()
+    view.rerender(<SourceUpdatePill {...actions} state="updated" />)
+    expect(screen.getByRole('status')).toBe(overlay)
+    expect(screen.getByRole('button', { name: '查看更新' })).toBeTruthy()
+    expect(document.querySelectorAll('[data-toast]')).toHaveLength(1)
+  })
+  it('错误 Toast 保留原始错误、关闭与重试操作，不冒充更新提示', () => {
+    const retry = vi.fn(), dismiss = vi.fn()
+    render(<SourceUpdatePill {...actions} notice={{ text: '合成检查失败', error: true, onDismiss: dismiss, retry: { label: '重试检查', onClick: retry } }} />)
+    expect(screen.getByRole('alert').getAttribute('data-toast')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '重试检查' }))
+    expect(retry).toHaveBeenCalledOnce()
+    expect(actions.onRead).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
+    expect(dismiss).toHaveBeenCalledOnce()
+  })
   it('无状态时不显示，不创建退场计时器', () => {
     const view = render(<SourceUpdatePill {...actions} />)
     expect(view.container.firstChild).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
   })
-  it('更新、读取、跳转复用原按钮和浮层，测量文字宽度用于平滑过渡，读取时禁止操作', () => {
+  it('更新、读取、跳转复用原按钮、文字节点和浮层，内容与卡片同帧更新，读取时禁止操作', () => {
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
       return this.classList.contains('source-update-label') ? this.textContent === '读取中…' ? 52 : 78 : 0
     })
@@ -22,8 +70,9 @@ describe('同一个正文更新胶囊', () => {
     const button = screen.getByRole('button', { name: '查看更新' })
     const overlay = button.closest('.source-content-update')!
     const labels = button.querySelector<HTMLElement>('.source-update-labels')!
+    const text = labels.firstElementChild
     expect(button.textContent).toBe('此对话有更新')
-    expect(labels.style.width).toBe('78px')
+    expect(labels.style.width).toBe('')
     fireEvent.click(button)
     expect(actions.onRead).toHaveBeenCalledOnce()
     view.rerender(<SourceUpdatePill {...actions} state="reading" />)
@@ -31,7 +80,8 @@ describe('同一个正文更新胶囊', () => {
     expect(button.textContent).toBe('读取中…')
     expect(button.getAttribute('aria-busy')).toBe('true')
     expect(button.hasAttribute('disabled')).toBe(true)
-    expect(labels.style.width).toBe('52px')
+    expect(labels.style.width).toBe('')
+    expect(labels.firstElementChild).toBe(text)
     fireEvent.click(button)
     expect(actions.onRead).toHaveBeenCalledOnce()
     view.rerender(<SourceUpdatePill {...actions} state="jump" />)
@@ -39,7 +89,8 @@ describe('同一个正文更新胶囊', () => {
     expect(button.closest('.source-content-update')).toBe(overlay)
     expect(button.textContent).toBe('跳到新增消息')
     expect(button.hasAttribute('disabled')).toBe(false)
-    expect(labels.style.width).toBe('78px')
+    expect(labels.style.width).toBe('')
+    expect(labels.firstElementChild).toBe(text)
     expect(button.querySelector('svg')).toBeNull()
     fireEvent.click(button)
     expect(actions.onJump).toHaveBeenCalledOnce()
@@ -118,26 +169,21 @@ describe('同一个正文更新胶囊', () => {
     expect(view.container.firstChild).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
   })
-  it('字体尺寸变化重新测量标签，状态切换与卸载时断开旧观察器', () => {
-    let resized!: ResizeObserverCallback
-    let width = 70
-    const observe = vi.fn(), disconnect = vi.fn()
+  it('文字交给自然布局，不再创建独立的尺寸观察器或测量任务', () => {
+    const observer = vi.fn()
     vi.stubGlobal('ResizeObserver', class {
-      constructor(callback: ResizeObserverCallback) { resized = callback }
-      observe = observe
-      disconnect = disconnect
+      constructor() { observer() }
+      observe() {}
+      disconnect() {}
     })
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => width)
+    const measure = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(70)
     const view = render(<SourceUpdatePill {...actions} state="updated" />)
-    const labels = view.container.querySelector<HTMLElement>('.source-update-labels')!
-    expect(labels.style.width).toBe('70px')
-    width = 80
-    act(() => resized([], {} as ResizeObserver))
-    expect(labels.style.width).toBe('80px')
     view.rerender(<SourceUpdatePill {...actions} state="reading" />)
-    expect(disconnect).toHaveBeenCalledOnce()
-    expect(observe).toHaveBeenCalledTimes(2)
+    view.rerender(<SourceUpdatePill {...actions} notice={{ text: '文件已复制' }} />)
+    expect(observer).not.toHaveBeenCalled()
+    expect(measure).not.toHaveBeenCalled()
+    expect(view.container.querySelector<HTMLElement>('.source-update-labels')?.style.width).toBe('')
     view.unmount()
-    expect(disconnect).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
