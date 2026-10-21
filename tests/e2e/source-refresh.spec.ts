@@ -149,7 +149,7 @@ test('标题下方显示加载描述，刷新图标在请求期间旋转且遵�
   await expect.poll(() => icon.evaluate(element => getComputedStyle(element).transform)).toBe('none')
 })
 
-test('真实滚动位置、分页和阅读容器保持稳定，更新提示与删除快照分离', async () => {
+test('手动刷新直接展示最新列表并回到顶部，保留分页、阅读容器和正文位置', async () => {
   await page.getByRole('button', { name: '刷新验收会话 .', exact: true }).click()
   const messages = page.getByRole('region', { name: '会话消息' })
   await expect(messages).toBeVisible()
@@ -166,12 +166,12 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
   await expect(messages).toContainText('刷新后新增的合成消息')
   await expect(page.locator('.session-card')).toHaveCount(65)
-  expect(await page.evaluate(() => ({ list: document.querySelector('.session-list')!.scrollTop, messages: document.querySelector('.messages')!.scrollTop }))).toEqual({ list: 360, messages: 180 })
+  expect(await page.evaluate(() => ({ list: document.querySelector('.session-list')!.scrollTop, messages: document.querySelector('.messages')!.scrollTop }))).toEqual({ list: 0, messages: 180 })
   await expect(page.locator('.detail-footer')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '重新读取正文', exact: true })).toHaveCount(0)
   expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
   await expect(page.getByRole('button', { name: '跳到新增消息', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: '列表有更新，点击查看', exact: true }).click()
+  await expect(page.getByRole('button', { name: '列表有更新，点击查看', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '新出现的会话 .', exact: true })).toBeVisible()
   await expect(page.locator('.session-card')).toHaveCount(65)
   expect(await page.evaluate(() => {
@@ -365,7 +365,7 @@ test('扫描在侧栏右侧数量位置显示微型流动点，不影响其他�
   expect((await source.boundingBox())!.height).toBe(rowHeight)
 })
 
-test('Cindy 旧会话不受其他 App 更新影响，真正变化才提示且保留滚动和正文', async () => {
+test('Cindy 旧会话不受其他 App 更新影响，手动刷新直接展示真正变化且保留正文', async () => {
   const directory = join(root, 'appData', 'Cindy'); await mkdir(directory, { recursive: true })
   const db = new DatabaseSync(join(directory, 'cindy-synthetic.db'))
   try {
@@ -397,9 +397,11 @@ test('Cindy 旧会话不受其他 App 更新影响，真正变化才提示且保
     await page.locator('.session-list').evaluate(element => { element.scrollTop = 240 })
     db.exec("UPDATE sessions SET title='Cindy 真正有变化',updated_at=2000 WHERE id='old-64'")
     await refresh()
-    await expect(page.getByRole('button', { name: '列表有更新，点击查看' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '列表有更新，点击查看' })).toHaveCount(0)
     await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
-    expect(await page.locator('.session-list').evaluate(element => element.scrollTop)).toBe(240)
+    expect(await page.locator('.session-list').evaluate(element => element.scrollTop)).toBe(0)
+    await expect(page.getByRole('button', { name: 'Cindy 真正有变化', exact: true })).toBeVisible()
+    await expect(page.locator('.session-card')).toHaveCount(65)
     await expect(page.getByRole('heading', { level: 2, name: 'Cindy 真正有变化', exact: true })).toBeVisible()
     await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
   } finally { db.close() }

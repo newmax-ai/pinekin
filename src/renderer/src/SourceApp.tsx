@@ -387,8 +387,9 @@ export function SourceApp() {
           setPage(previous => ({ ...previous, version: probe.version, snapshot: probe.snapshot, connections: probe.connections })); setPendingList(false)
         } else {
           const viewport = listViewport.current
-          if (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement)))) setPendingList(true)
-          else await replaceLoadedList(request)
+          // 显式刷新已表达查看最新列表的意图，不再要求点击底部更新；后台及读取失败后的能力核对仍避免打断浏览。
+          if (!refreshContent && (current.current.pendingList || (viewport && (viewport.scrollTop > 4 || viewport.contains(document.activeElement))))) setPendingList(true)
+          else await replaceLoadedList(request, refreshContent)
         }
       }
       // 仅显式刷新重读本次范围内的选中会话；后台／失败后的能力检查仍只检查目录。

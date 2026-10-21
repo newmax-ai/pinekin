@@ -194,7 +194,7 @@ describe('不打断阅读的来源刷新', () => {
     expect(button.getAttribute('aria-busy')).toBe('false')
     expect(button.hasAttribute('disabled')).toBe(false)
   })
-  it('手动刷新保留正文、选择、分页及两个滚动位置；向下翻找时仅提示列表更新', async () => {
+  it('手动刷新直接应用列表并回到顶部，保留正文、选择、已加载范围和阅读位置', async () => {
     const messages = await open()
     await act(async () => intersectSessionList())
     await screen.findByText('100 / 120 条已加载')
@@ -206,14 +206,61 @@ describe('不打断阅读的来源刷新', () => {
     expect(document.querySelectorAll('.session-card')).toHaveLength(100)
     expect(document.querySelector('.session-list')).toBe(list)
     expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
-    expect(list.scrollTop).toBe(350); expect(messages.scrollTop).toBe(160)
-    expect(screen.queryByRole('button', { name: '新会话 .' })).toBeNull()
+    expect(list.scrollTop).toBe(0); expect(messages.scrollTop).toBe(160)
+    expect(screen.getByRole('button', { name: '新会话 .' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
     expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
-    fireEvent.click(screen.getByRole('button', { name: '列表有更新，点击查看' }))
-    await screen.findByRole('button', { name: '新会话 .' })
-    expect(document.querySelectorAll('.session-card')).toHaveLength(100)
-    expect(messages.scrollTop).toBe(160)
     expect(screen.getByRole('button', { name: '原会话 .' }).getAttribute('aria-pressed')).toBe('true')
+  })
+  it.each(['所有会话', '当前来源'])('手动刷新%s时列表内有键盘焦点也直接应用新增、改名和删除', async scope => {
+    render(<SourceApp />)
+    await screen.findByRole('button', { name: '原会话 .' })
+    if (scope === '当前来源') {
+      fireEvent.click(screen.getByRole('button', { name: /Claude Code.*120/ }))
+      await screen.findByRole('button', { name: '原会话 .' })
+    }
+    screen.getByRole('button', { name: '会话 1 .' }).focus()
+    rows = [{ ...entry, id: 'f'.repeat(64), title: '主动刷新新增' }, ...rows.filter(item => item.id !== entries[1].id)
+      .map(item => item.id === entry.id ? { ...item, title: '主动刷新改名' } : item)]; version++
+    await refresh()
+    expect(screen.getByRole('button', { name: '主动刷新新增 .' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '主动刷新改名 .' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '会话 1 .' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+    expect(window.staithe.sources.read).not.toHaveBeenCalled()
+  })
+  it('后台已提示更新时点顶部刷新直接应用，并清除提示、恢复分页', async () => {
+    const messages = await open()
+    const list = document.querySelector('.session-list') as HTMLElement
+    list.scrollTop = 350; messages.scrollTop = 160
+    rows = [{ ...entry, id: 'f'.repeat(64), title: '后台发现新会话' }, ...rows]; version++
+    fireEvent.focus(window)
+    await screen.findByRole('button', { name: '列表有更新，点击查看' })
+    expect(screen.queryByRole('button', { name: '后台发现新会话 .' })).toBeNull()
+    expect(list.scrollTop).toBe(350)
+    await refresh()
+    expect(screen.getByRole('button', { name: '后台发现新会话 .' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+    expect(list.scrollTop).toBe(0); expect(messages.scrollTop).toBe(160)
+    expect(screen.getByRole('button', { name: '原会话 .' }).getAttribute('aria-pressed')).toBe('true')
+    await act(async () => intersectSessionList())
+    await screen.findByText('100 / 121 条已加载')
+  })
+  it('手动刷新重建列表失败时保留旧列表和位置，重试可直接应用', async () => {
+    await open()
+    const list = document.querySelector('.session-list') as HTMLElement; list.scrollTop = 350
+    rows = [{ ...entry, id: 'f'.repeat(64), title: '重试刷新新会话' }, ...rows]; version++
+    const loadPage = vi.mocked(window.staithe.sources.page).getMockImplementation()!
+    vi.mocked(window.staithe.sources.page).mockImplementationOnce(loadPage).mockRejectedValueOnce(new Error('合成列表重建失败'))
+    await refresh()
+    expect(screen.getByText('合成列表重建失败')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重试刷新新会话 .' })).toBeNull()
+    expect(list.scrollTop).toBe(350)
+    expect(document.querySelectorAll('.session-card')).toHaveLength(50)
+    await refresh()
+    expect(screen.getByRole('button', { name: '重试刷新新会话 .' })).toBeTruthy()
+    expect(screen.queryByText('合成列表重建失败')).toBeNull()
+    expect(list.scrollTop).toBe(0)
   })
   it('列表更新按钮出现时加高下沿 mask，查看更新后恢复普通渐隐', async () => {
     const masks = new WeakMap<CSSStyleDeclaration, string>()
@@ -228,7 +275,7 @@ describe('不打断阅读的来源刷新', () => {
     await waitFor(() => expect(list.style.maskImage).toContain('calc(100% - 48px)'))
     list.scrollTop = 350
     rows = [{ ...entry, id: 'f'.repeat(64), title: '遮罩验收新会话' }, ...rows]; version++
-    await refresh()
+    fireEvent.focus(window)
     await screen.findByRole('button', { name: '列表有更新，点击查看' })
     await waitFor(() => expect(list.style.maskImage).toContain('calc(100% - 96px)'))
     expect(list.style.paddingBottom).toBe('108px')
@@ -688,7 +735,11 @@ describe('不打断阅读的来源刷新', () => {
     await screen.findByText('100 / 120 条已加载')
     rows = rows.map((item, index) => index === 119 ? { ...item, title: '末页更新' } : item); version++
     await refresh()
-    await screen.findByRole('button', { name: '列表有更新，点击查看' })
+    expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
+    expect(document.querySelectorAll('.session-card')).toHaveLength(100)
+    expect(list.scrollTop).toBe(0)
+    await act(async () => intersectSessionList())
+    await screen.findByRole('button', { name: '末页更新 .' })
   })
   it('分页只遇到全局变化且筛选结果相同时继续合并', async () => {
     await open(); version++
