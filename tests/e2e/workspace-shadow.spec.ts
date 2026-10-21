@@ -48,6 +48,36 @@ test.afterEach(async () => {
   }
 })
 
+test('macOS 外壳共用半透明底色，浅深主题的内容区保持实色', async () => {
+  const platform = await page.locator('.shell').getAttribute('data-platform')
+  if (platform === 'darwin') {
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toBe('#00000000')
+  }
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    const surfaces = await page.evaluate(() => {
+      const sample = document.createElement('canvas').getContext('2d')!
+      const alpha = (selector: string) => {
+        const style = getComputedStyle(document.querySelector(selector)!)
+        sample.clearRect(0, 0, 1, 1)
+        sample.fillStyle = style.backgroundColor
+        sample.fillRect(0, 0, 1, 1)
+        return { alpha: sample.getImageData(0, 0, 1, 1).data[3], opacity: style.opacity }
+      }
+      return {
+        reduced: matchMedia('(prefers-reduced-transparency: reduce)').matches,
+        root: alpha(':root'), shell: alpha('.shell'), sidebar: alpha('.sidebar'), toolbar: alpha('.window-toolbar'),
+        content: ['.workspace-card', '.session-pane', '.detail', '.topbar'].map(alpha),
+      }
+    })
+    expect(surfaces.root.alpha).toBe(platform === 'darwin' ? 0 : 255)
+    expect(surfaces.shell.alpha).toBe(platform === 'darwin' && !surfaces.reduced ? 140 : 255)
+    expect(surfaces.sidebar).toEqual({ alpha: 0, opacity: '1' })
+    expect(surfaces.toolbar).toEqual({ alpha: 0, opacity: '1' })
+    expect(surfaces.content.every(surface => surface.alpha === 255 && surface.opacity === '1')).toBe(true)
+  }
+})
+
 test('工作区外阴影四边实际可见，不被侧栏背景覆盖且保留原有布局', async () => {
   const card = page.locator('main.workspace-card')
   for (const { width, height, colorScheme } of [

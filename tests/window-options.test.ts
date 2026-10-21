@@ -3,8 +3,12 @@ import { getBackgroundTestMode, getTestWindowOptions, getWindowChrome, presentWi
 
 describe('原生窗口标题栏', () => {
   it('macOS 隐藏独立标题栏并保留原生红绿灯位置', () => {
-    expect(getWindowChrome('darwin')).toEqual({ titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 12 } })
+    expect(getWindowChrome('darwin')).toEqual({
+      titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 12 },
+      vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000',
+    })
     expect(getWindowChrome('darwin')).not.toHaveProperty('frame', false)
+    expect(getWindowChrome('darwin')).not.toHaveProperty('transparent', true)
   })
   it.each(['win32', 'linux', 'freebsd'])('%s 保留系统标题栏与原生控制按钮', platform => {
     expect(getWindowChrome(platform)).toEqual({})

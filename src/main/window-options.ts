@@ -1,9 +1,12 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron'
 
-// 仅调整 macOS 窗口装饰；不关闭原生控制按钮，也不改变沙箱或内容隔离。
-export function getWindowChrome(platform: string): Pick<BrowserWindowConstructorOptions, 'titleBarStyle' | 'trafficLightPosition'> {
+// 原生磨砂只用于 macOS 外壳；内容区由渲染层实色覆盖，保留原生控制按钮与窗口行为。
+export function getWindowChrome(platform: string): Pick<BrowserWindowConstructorOptions, 'titleBarStyle' | 'trafficLightPosition' | 'vibrancy' | 'visualEffectState' | 'backgroundColor'> {
   return platform === 'darwin'
-    ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 12 } }
+    ? {
+      titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 12 },
+      vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000',
+    }
     : {}
 }
 

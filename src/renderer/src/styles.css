@@ -45,8 +45,15 @@ h1, h2, h3, strong { font-weight: 500; }
 
 /* 全高桌面工作台：各栏独立滚动，不挤压阅读与主操作。 */
 .shell { --sidebar-width: 240px; --list-width: 310px; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--ds-surface-300); }
+/* 仅 macOS 露出原生 vibrancy；侧栏与四周外框共用单层底色，避免叠色接缝。
+   不使用整层 opacity 或网页 blur，文字保持清晰，其他平台继续使用实色。 */
+:root:has(.shell[data-platform='darwin']) { background: transparent; }
+.shell[data-platform='darwin'] { background: color-mix(in srgb, var(--ds-surface-300) 55%, transparent); }
+@media (prefers-reduced-transparency: reduce) {
+  .shell[data-platform='darwin'] { background: var(--ds-surface-300); }
+}
 .app-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: var(--ds-surface-300); }
+.sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: transparent; }
 /* 只裁切固定宽度画布；拖拽手柄留在裁切框外，侧栏文字不随开合挤压。 */
 .sidebar-content-clip { position: absolute; inset: 0; overflow: clip; }
 .sidebar-content { display: flex; flex-direction: column; height: 100%; container-type: inline-size; }
@@ -89,7 +96,7 @@ h1, h2, h3, strong { font-weight: 500; }
 .workspace-card { position: relative; z-index: 1; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; margin: 0 8px 8px 0; border-radius: var(--ds-radius-lg); background: var(--ds-surface-200); box-shadow: var(--ds-workspace-shadow); overflow: hidden; }
 .topbar { height: 64px; padding-left: 20px; gap: 16px; display: flex; align-items: center; flex-shrink: 0; background: var(--ds-surface-200); }
 /* 38px 顶行让 28px 按钮上下各留 5px，中心仍与原生红绿灯 y=19 同轴。 */
-.window-toolbar { height: 38px; display: flex; flex-shrink: 0; align-items: center; background: var(--ds-surface-300); }
+.window-toolbar { height: 38px; display: flex; flex-shrink: 0; align-items: center; background: transparent; }
 .window-controls-space { width: 80px; height: 100%; flex-shrink: 0; }
 .header-navigation { display: flex; flex-shrink: 0; align-items: center; gap: 1px; }
 .header-navigation .sidebar-toggle[aria-expanded='true']:not(:hover) { background: transparent; }

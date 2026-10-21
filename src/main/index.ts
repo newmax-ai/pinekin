@@ -61,9 +61,9 @@ function createWindow() {
   rendererReady = false
   window = new BrowserWindow({
     width: 1380, height: 900, minWidth: 1000, minHeight: 680,
+    title: 'Pinekin', icon: appIconPath, backgroundColor: '#f5f2eb',
     ...getWindowChrome(process.platform),
     ...getTestWindowOptions(backgroundTesting),
-    title: 'Pinekin', icon: appIconPath, backgroundColor: '#f5f2eb',
     webPreferences: { preload: join(here, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true,
       ...(backgroundTesting ? { backgroundThrottling: false, focusOnNavigation: false } : {}) },
   })
