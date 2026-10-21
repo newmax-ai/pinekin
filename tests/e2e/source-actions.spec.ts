@@ -14,7 +14,8 @@ async function connect(name: 'NewMax' | 'Codex' = 'NewMax') {
   await control.click(); await expect(control).toBeChecked(); await expect(control).toBeEnabled()
   await page.getByRole('button', { name: '完成', exact: true }).click()
   await page.locator('.session-card').first().click()
-  await expect(page.getByRole('button', { name: '在原 App 打开' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '复制接续文件' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '在原 App 打开' })).toHaveCount(0)
 }
 async function more() { await page.getByRole('button', { name: '更多会话操作' }).click() }
 test.beforeEach(async () => {
@@ -174,7 +175,7 @@ test('高级原生入口仍可明确选择独立会话或项目；取消项目�
   await expect(menu.getByRole('group')).toHaveCount(3)
   await expect(menu.getByRole('group', { name: '复制与导出' }).getByRole('menuitem')).toHaveCount(2)
   await expect(menu.getByRole('group', { name: '接续与迁移' }).getByRole('menuitem')).toHaveCount(2)
-  await expect(menu.getByRole('group', { name: '设置与说明' }).getByRole('menuitem')).toHaveCount(2)
+  await expect(menu.getByRole('group', { name: '设置与说明' }).getByRole('menuitem')).toHaveCount(3)
   await expect(menu.getByRole('separator')).toHaveCount(2)
   await expect(menu.getByRole('separator').first()).toHaveCSS('height', '1px')
   await expect(menu.getByRole('menuitem', { name: '原生历史迁移（高级）' }).locator('svg.lucide-history')).toBeVisible()
@@ -281,12 +282,13 @@ test('高级原生入口仍可明确选择独立会话或项目；取消项目�
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([])
 })
 
-test('主操作直接请求NewMax原会话，辅助复制和导出不再有目标或敏感表单', async () => {
+test('更多菜单查看NewMax原会话，辅助复制和导出不再有目标或敏感表单', async () => {
   const before = await readFile(dbPath)
   await connect()
   await expect(page.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
   await expect(page.locator('.detail-header').getByText('来源直读')).toHaveCount(0)
-  await page.getByRole('button', { name: '在原 App 打开' }).click()
+  await more()
+  await page.getByRole('menuitem', { name: '查看原会话' }).click()
   await expect(page.locator('.source-actions-feedback')).toContainText('已请求 NewMax 打开原会话')
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual(['newmax://open?conversation=synthetic-one'])
   await page.getByRole('button', { name: '关闭操作提示' }).click()
@@ -376,8 +378,10 @@ test('长标题优先分配宽度，窄窗口操作另起一行；协议不可�
   await page.reload()
   await page.locator('.session-card').first().click()
   await more()
-  await expect(page.getByRole('note')).toContainText('未找到已关联此协议的 NewMax 客户端')
-  await expect(header.getByRole('button', { name: '在原 App 打开' })).toBeDisabled()
+  await expect(page.getByRole('note')).toHaveCount(0)
+  await expect(page.getByText('原会话打开方式')).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '查看原会话' })).toHaveCount(0)
+  await expect(header.getByRole('button', { name: '在原 App 打开' })).toHaveCount(0)
   await expect(header.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: '复制会话文本' })).toBeEnabled()
   await page.getByRole('menuitem', { name: '复制会话文本' }).click()
@@ -387,7 +391,8 @@ test('长标题优先分配宽度，窄窗口操作另起一行；协议不可�
 
 test('Codex只打开既有UUID线程，不创建、不注入或触发模型请求', async () => {
   await connect('Codex')
-  await page.getByRole('button', { name: '在原 App 打开' }).click()
+  await more()
+  await page.getByRole('menuitem', { name: '查看原会话' }).click()
   await expect(page.locator('.source-actions-feedback')).toContainText('已请求 Codex 打开原会话')
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([`codex://threads/${codexThreadId}`])
 })
@@ -405,7 +410,8 @@ test('IPC拒绝任意URL、未知ID及断开后的打开请求；协议失效不
   }, entry.id)
   expect(rejected).toEqual({ results: [true, true, true], inspected: true })
   await app.evaluate(() => { (globalThis as unknown as { actionTest: State }).actionTest.handler = false })
-  await page.getByRole('button', { name: '在原 App 打开' }).click()
+  await more()
+  await page.getByRole('menuitem', { name: '查看原会话' }).click()
   await expect(page.locator('.source-actions-feedback')).toContainText('未找到已关联此协议')
   await page.evaluate(async id => window.staithe.sources.disconnect(id), entry.connectionId)
   expect(await page.evaluate(async id => window.staithe.sourceActions!.openOriginal(id).then(() => false, () => true), entry.id)).toBe(true)

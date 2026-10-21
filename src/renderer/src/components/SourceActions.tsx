@@ -41,7 +41,6 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const busy = busyId === entryId
   const hasMessages = !!content?.session.messages.length
   const status = feedback?.id === entryId ? feedback : undefined
-  const originalReason = capability?.value?.original.reason ?? (capability?.error ? '打开方式检查失败，请重试。' : '正在检查打开方式…')
 
   function releaseFile() {
     const token = fileToken.current
@@ -173,8 +172,6 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     <div className="source-actions-buttons" aria-busy={disabled || busy || (!!api && !capability)}>
       <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content}
         variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" /></DsButton>
-      {api && <DsButton title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
-        disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
       {api && <DsButton variant="primary" aria-label={copied?.id === entryId ? '已复制' : '复制接续文件'} title="复制包含完整可读历史的通用 Markdown 文件；原附件需另行添加"
         disabled={disabled || busy} onClick={() => void run('handoff-copy')}>
         <span className="source-copy-label"><span className="source-copy-size" aria-hidden="true">复制接续文件</span>
@@ -195,9 +192,10 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       <div className="source-actions-menu-separator" role="separator" />
       <div role="group" aria-label="设置与说明">
         {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
+        {api && capability?.value?.original.available && <button role="menuitem" title="定位原 App 中的这条会话，不创建副本"
+          disabled={disabled || busy} onClick={() => void run('open')}><DesignIcon name="history" size={16} />查看原会话</button>}
         <button role="menuitem" aria-haspopup="dialog" onClick={() => { setMenuOpen(false); setReadingNotesId(entryId) }}><DesignIcon name="info" size={16} />读取说明</button>
       </div>
-      {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
     </DsMenu>
     <DsDialogPresence>{readingNotesId === entryId && content && !disabled && <SourceReadNotesDialog warnings={content.warnings}
       returnFocus={trigger.current} onDismiss={() => setReadingNotesId(undefined)} />}</DsDialogPresence>

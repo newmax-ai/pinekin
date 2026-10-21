@@ -110,14 +110,14 @@ describe('不打断阅读的来源刷新', () => {
     expect(count.textContent).toBe(summary.getAttribute('title'))
     expect(date.textContent).toBe('2026-10-21')
   })
-  it('切换会话时正文和能力分别加载，右侧三个按钮保持同一顺序、节点及加载外观标记', async () => {
+  it('切换会话时正文和能力分别加载，右侧两个按钮保持同一顺序、节点及加载外观标记', async () => {
     const available = { original: { available: true, app: 'NewMax' }, targets: [] }
     const api = { inspect: vi.fn().mockResolvedValue(available), openOriginal: vi.fn(), exportText: vi.fn(), continueInCodex: vi.fn() }
     window.staithe = { ...window.staithe, sourceActions: api }
     await open()
     const group = document.querySelector('.source-actions-buttons')!
     const buttons = [...group.querySelectorAll('button')]
-    expect(buttons.map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['更多会话操作', '在原 App 打开', '复制接续文件'])
+    expect(buttons.map(button => button.getAttribute('aria-label') ?? button.textContent)).toEqual(['更多会话操作', '复制接续文件'])
     let finishRead!: (result: SourceContent) => void
     let finishInspect!: (value: typeof available) => void
     vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finishRead = resolve }))

@@ -9,8 +9,9 @@ import type { StaitheAPI } from '../src/core/types'
 const content: SourceContent = { session: { id: 'a'.repeat(64), title: '合成会话', source: 'newmax', updatedAt: '2026-10-19T00:00:00Z', tags: [], demo: false, messages: [{ role: 'user', content: '合成正文' }] }, warnings: [] }
 const available: SourceActionCapabilities = { original: { available: true, app: 'NewMax' }, targets: [] }
 const props = { entryId: content.session.id, content }
-const original = () => screen.getByRole('button', { name: '在原 App 打开' }) as HTMLButtonElement
+const original = () => screen.getByRole('menuitem', { name: '查看原会话' }) as HTMLButtonElement
 function more() { fireEvent.click(screen.getByRole('button', { name: '更多会话操作' })) }
+function openOriginal() { more(); fireEvent.click(original()) }
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   window.staithe = { copy: vi.fn().mockResolvedValue(undefined), sourceActions: {
@@ -19,7 +20,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
-describe('会话操作以实际打开为主，复制导出为辅', () => {
+describe('会话操作以接续文件为主，原会话查看与文本导出为辅', () => {
   const preview = { app: 'Codex' as const, applicationPath: '/Applications/ChatGPT.app', applicationName: 'ChatGPT', dataPath: '/synthetic/.codex', locationSource: 'default' as const,
     token: '11111111-1111-4111-8111-111111111111', configured: false, canChooseApplication: false }
   function enableTarget(configured = true) {
@@ -253,7 +254,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     await waitFor(() => expect(api.continueInTarget).toHaveBeenCalledWith(props.entryId, 'newmax', { kind: 'standalone' }))
     expect(api.chooseTargetProject).not.toHaveBeenCalled()
   })
-  it.each([false, true])('复制接续文件是唯一主按钮，原 App 和更多保持次要层级（disabled=%s）', async disabled => {
+  it.each([false, true])('顶部只保留更多与复制接续文件，复制是唯一主按钮（disabled=%s）', async disabled => {
     const api = enableTarget()
     const { container } = render(<SourceActions {...props} disabled={disabled} />)
     await act(async () => {})
@@ -262,7 +263,8 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(target.classList.contains('ds-button-small')).toBe(false)
     expect(target.disabled).toBe(disabled)
     expect(container.querySelectorAll('.ds-button-primary')).toHaveLength(1)
-    expect(original().classList.contains('ds-button-tertiary')).toBe(true)
+    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
     const moreButton = screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement
     expect(moreButton.classList.contains('ds-button-tertiary')).toBe(true)
     expect(moreButton.classList.contains('ds-button-icon')).toBe(true)
@@ -272,55 +274,48 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(moreButton.querySelectorAll('svg circle')).toHaveLength(3)
     expect(moreButton.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
     expect(moreButton.disabled).toBe(disabled)
-    expect([...container.querySelectorAll('.source-actions-buttons > button')]).toEqual([moreButton, original(), target])
+    expect([...container.querySelectorAll('.source-actions-buttons > button')]).toEqual([moreButton, target])
     expect(target.querySelector('svg')).toBeNull()
-    expect(original().querySelector('svg')).toBeNull()
     expect(api.continueInCodex).not.toHaveBeenCalled()
   })
-  it('切换会话时保留完整按钮组及原节点，能力检查期间不沿用旧会话能力', async () => {
+  it('切换会话时顶部节点稳定，检查期间隐藏查看入口且不沿用旧能力', async () => {
     const api = enableTarget()
     const view = render(<SourceActions {...props} />)
     await act(async () => {})
     const buttons = [...view.container.querySelectorAll('.source-actions-buttons > button')]
-    const openButton = original()
+    more()
+    expect(original().disabled).toBe(false)
     let finish!: (value: SourceActionCapabilities) => void
     vi.mocked(api.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
     const nextId = 'b'.repeat(64)
     view.rerender(<SourceActions {...props} entryId={nextId} />)
     expect([...view.container.querySelectorAll('.source-actions-buttons > button')]).toEqual(buttons)
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(true)
-    expect(openButton.title).toContain('正在检查')
-    expect(openButton.parentElement?.getAttribute('aria-busy')).toBe('true')
-    fireEvent.click(openButton)
+    more()
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
     expect(api.openOriginal).not.toHaveBeenCalled()
     await act(async () => { finish(available) })
     expect([...view.container.querySelectorAll('.source-actions-buttons > button')]).toEqual(buttons)
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(false)
-    expect(openButton.parentElement?.getAttribute('aria-busy')).not.toBe('true')
-    fireEvent.click(openButton)
+    expect(original().disabled).toBe(false)
+    fireEvent.click(original())
     await waitFor(() => expect(api.openOriginal).toHaveBeenCalledExactlyOnceWith(nextId))
   })
-  it('能力检查失败及重试过程中原打开按钮始终保留，不能借用旧能力打开', async () => {
+  it('能力检查失败和重试时隐藏查看入口，不借用旧能力', async () => {
     const view = render(<SourceActions {...props} />)
     await act(async () => {})
-    const openButton = original()
     vi.mocked(window.staithe.sourceActions!.inspect).mockRejectedValueOnce(new Error('合成检查失败'))
     view.rerender(<SourceActions {...props} entryId={'b'.repeat(64)} />)
     await screen.findByRole('alert')
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(true)
+    more()
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
     let finish!: (value: SourceActionCapabilities) => void
     vi.mocked(window.staithe.sourceActions!.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
     fireEvent.click(screen.getByRole('button', { name: '重试检查' }))
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(true)
-    fireEvent.click(openButton)
+    more()
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
     expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
     await act(async () => { finish(available) })
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(false)
+    expect(original().disabled).toBe(false)
   })
   it.each(['created', 'existing'] as const)('%s：选择 App 不创建，明确接续后不提供撤销入口，也不传当前片段', async status => {
     const api = enableTarget()
@@ -666,7 +661,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
   })
   it('只检查能力，主界面没有目标下拉、预览、任务表单或敏感确认', async () => {
     render(<SourceActions {...props} />)
-    await waitFor(() => expect(original().disabled).toBe(false))
+    await act(async () => {})
     expect(screen.queryByRole('combobox')).toBeNull()
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
@@ -674,14 +669,14 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(screen.queryByText(/敏感/)).toBeNull()
     expect(screen.queryByRole('menu')).toBeNull()
     expect(screen.queryByRole('button', { name: '在另一个 App 继续' })).toBeNull()
-    expect(original().classList.contains('ds-button-small')).toBe(false)
+    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
     expect(window.staithe.copy).not.toHaveBeenCalled()
     expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
   })
-  it('原App打开直接请求主进程，仅报告发出请求，不称为已恢复', async () => {
+  it('查看原会话直接请求主进程，仅报告发出请求，不称为已恢复', async () => {
     render(<SourceActions {...props} />)
-    await waitFor(() => expect(original().disabled).toBe(false))
-    fireEvent.click(original())
+    await act(async () => {})
+    openOriginal()
     expect((await screen.findByRole('status')).textContent).toContain('已请求 NewMax 打开原会话')
     expect(window.staithe.sourceActions!.openOriginal).toHaveBeenCalledExactlyOnceWith(props.entryId)
     expect(window.staithe.copy).not.toHaveBeenCalled()
@@ -692,7 +687,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     render(<SourceActions {...props} />)
     await act(async () => {})
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    if (kind !== 'open') more()
+    more()
     await act(async () => {
       if (kind === 'open') fireEvent.click(original())
       else fireEvent.click(screen.getByRole('menuitem', { name: kind === 'copy' ? '复制会话文本' : '导出 Markdown' }))
@@ -707,6 +702,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     render(<SourceActions {...props} />)
     await act(async () => {})
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    more()
     await act(async () => { fireEvent.click(original()) })
     await act(async () => { vi.advanceTimersByTime(2000) })
     more()
@@ -720,9 +716,11 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     render(<SourceActions {...props} />)
     await act(async () => {})
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    more()
     await act(async () => { fireEvent.click(original()) })
     await act(async () => { vi.advanceTimersByTime(2000) })
     vi.mocked(window.staithe.sourceActions!.openOriginal).mockRejectedValueOnce(new Error('合成打开失败'))
+    more()
     await act(async () => { fireEvent.click(original()) })
     await act(async () => { vi.advanceTimersByTime(30_000) })
     expect(screen.getByRole('alert').textContent).toContain('合成打开失败')
@@ -733,10 +731,12 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     const view = render(<SourceActions {...props} />)
     await act(async () => {})
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    more()
     await act(async () => { fireEvent.click(original()) })
     await act(async () => { vi.advanceTimersByTime(2000) })
     await act(async () => { view.rerender(<SourceActions {...props} entryId={'b'.repeat(64)} />) })
     expect(screen.queryByRole('status')).toBeNull()
+    more()
     await act(async () => { fireEvent.click(original()) })
     await act(async () => { vi.advanceTimersByTime(1000) })
     expect(screen.getByRole('status')).toBeTruthy()
@@ -747,6 +747,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     const view = render(<SourceActions {...props} />)
     await act(async () => {})
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    more()
     await act(async () => { fireEvent.click(original()) })
     expect(screen.getByRole('status')).toBeTruthy()
     expect(vi.getTimerCount()).toBeGreaterThan(0)
@@ -764,6 +765,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
       { label: '保存接续文件', icon: 'lucide-download' },
       { label: '原生历史迁移（高级）', icon: 'lucide-history' },
       { label: '接续目标设置', icon: 'lucide-settings' },
+      { label: '查看原会话', icon: 'lucide-history' },
       { label: '读取说明', icon: 'lucide-info' },
     ]
     for (const { label, icon } of items) {
@@ -792,7 +794,7 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     const groups = [
       { label: '复制与导出', items: ['复制会话文本', '导出 Markdown'] },
       { label: '接续与迁移', items: ['保存接续文件', ...(migration ? ['原生历史迁移（高级）'] : [])] },
-      { label: '设置与说明', items: [...(settings ? ['接续目标设置'] : []), '读取说明'] },
+      { label: '设置与说明', items: [...(settings ? ['接续目标设置'] : []), '查看原会话', '读取说明'] },
     ]
     expect(within(menu).getAllByRole('group')).toHaveLength(3)
     for (const { label, items } of groups) {
@@ -828,52 +830,65 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     expect(vi.mocked(window.staithe.copy).mock.calls[0][0]).toContain('来源已删除')
     more(); expect(screen.getByRole('menuitem', { name: '导出当前片段' })).toBeTruthy()
   })
-  it('原 App 不可用时保留次要按钮占位并禁用，title 与更多说明具体原因', async () => {
+  it('原 App 不可用时不留按钮占位、查看入口或底部说明', async () => {
     vi.mocked(window.staithe.sourceActions!.inspect).mockResolvedValue({ original: { app: 'Codex', available: false, reason: '打开链路尚未验证' }, targets: [] })
     render(<SourceActions {...props} />)
     await act(async () => {})
-    expect(original().disabled).toBe(true)
-    expect(original().title).toBe('打开链路尚未验证')
-    fireEvent.click(original())
-    expect(screen.queryByRole('button', { name: '在另一个 App 继续' })).toBeNull()
-    expect(screen.queryByText('打开链路尚未验证')).toBeNull()
+    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
     more()
-    expect(screen.getByRole('note').textContent).toContain('打开链路尚未验证')
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.queryByText('原会话打开方式')).toBeNull()
+    expect(screen.queryByText('打开链路尚未验证')).toBeNull()
     expect(screen.getAllByRole('menuitem')).toHaveLength(4)
     expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
   })
-  it('能力检查完成前禁用原打开按钮并保留节点，复制仍可使用', async () => {
+  it('可用的原会话仅作为更多菜单中的查看入口，点击关闭菜单并恢复焦点', async () => {
+    render(<SourceActions {...props} />)
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: '在原 App 打开' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
+    more()
+    const item = screen.getByRole('menuitem', { name: '查看原会话' })
+    expect(item.closest('[role="menu"]')).toBeTruthy()
+    fireEvent.click(item)
+    await screen.findByRole('status')
+    expect(window.staithe.sourceActions!.openOriginal).toHaveBeenCalledExactlyOnceWith(props.entryId)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '更多会话操作' }))
+  })
+  it('能力检查完成前隐藏查看入口与说明，复制仍可使用', async () => {
     let finish!: (value: SourceActionCapabilities) => void
     vi.mocked(window.staithe.sourceActions!.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
     render(<SourceActions {...props} />)
-    const openButton = original()
-    expect(openButton.disabled).toBe(true)
     more()
-    expect(screen.getByRole('note').textContent).toContain('正在检查打开方式')
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: '复制会话文本' }))
     await screen.findByRole('status')
     await act(async () => finish(available))
-    expect(original()).toBe(openButton)
-    expect(openButton.disabled).toBe(false)
+    more()
+    expect(original().disabled).toBe(false)
   })
   it('能力检查失败可以重试，动作失败保留入口不误报成功', async () => {
     vi.mocked(window.staithe.sourceActions!.inspect).mockRejectedValueOnce(new Error('合成检查失败'))
     render(<SourceActions {...props} />)
     await screen.findByRole('alert'); fireEvent.click(screen.getByRole('button', { name: '重试检查' }))
-    await waitFor(() => expect(original().disabled).toBe(false))
+    await act(async () => {})
     vi.mocked(window.staithe.sourceActions!.openOriginal).mockRejectedValueOnce(new Error('合成打开失败'))
-    fireEvent.click(original())
+    openOriginal()
     expect((await screen.findByRole('alert')).textContent).toContain('合成打开失败')
-    fireEvent.click(original()); await screen.findByRole('status')
+    openOriginal(); await screen.findByRole('status')
   })
   it('异步动作中不能重复执行或打开更多，结果返回后恢复', async () => {
     let done!: () => void
     vi.mocked(window.staithe.copy).mockReturnValueOnce(new Promise(resolve => { done = resolve }))
     render(<SourceActions {...props} />)
-    await waitFor(() => expect(original().disabled).toBe(false))
+    await act(async () => {})
     more(); fireEvent.click(screen.getByRole('menuitem', { name: '复制会话文本' }))
     expect((screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(original().disabled).toBe(true)
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect((screen.getByRole('button', { name: '复制接续文件' }) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => done())
     expect(window.staithe.copy).toHaveBeenCalledOnce()
   })
@@ -884,9 +899,11 @@ describe('会话操作以实际打开为主，复制导出为辅', () => {
     vi.mocked(window.staithe.sourceActions!.inspect).mockResolvedValue({ original: { app: 'Cindy', available: false, reason: '尚未验证' }, targets: [] })
     rerender(<SourceActions {...props} entryId={'b'.repeat(64)} />)
     more()
-    await screen.findByText('尚未验证')
+    await act(async () => {})
     await act(async () => first(available))
-    expect(original().disabled).toBe(true)
+    expect(screen.queryByRole('menuitem', { name: '查看原会话' })).toBeNull()
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(window.staithe.sourceActions!.openOriginal).not.toHaveBeenCalled()
   })
   it('关闭接续设置后焦点返回 more，但不自动弹出 Tooltip', async () => {
     enableTarget()

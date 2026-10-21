@@ -10,9 +10,6 @@
 .source-actions-menu button > .design-icon { flex-shrink: 0; color: var(--ds-icon); }
 .source-actions-menu button:is(:hover, :focus-visible):not(:disabled) { background: var(--ds-on-surface); }
 .source-actions-menu-separator { height: 1px; margin: 5px 7px; background: var(--ds-divider); }
-.source-actions-note { margin-top: 5px; padding: 10px 12px 6px; border-top: 1px solid var(--ds-divider); font-size: var(--ds-text-sm); color: var(--ds-text-secondary); line-height: 1.6; overflow-wrap: anywhere; }
-.source-actions-note > span { color: var(--ds-text-primary); }
-.source-actions-note p { margin: 4px 0 0; }
 .source-copy-label { display: grid; place-items: center; }
 .source-copy-label > span { grid-area: 1 / 1; }
 .source-copy-size { visibility: hidden; pointer-events: none; }
