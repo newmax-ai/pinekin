@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { setTimeout } from 'node:timers/promises'
 import { createHash } from 'node:crypto'
 import { sourceReadCursorSchema, type SourceReadCursor } from '../core/sources'
 import { textWindowQuery } from './source-read-window'
@@ -12,6 +13,7 @@ import { SOURCE_TEXT_POLICY_VERSION } from '../core/source-user-content'
 import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery } from './cindy-source-query'
 
 const execute = promisify(execFile)
+class SourceDatabaseChangedError extends Error {}
 export type DatabaseRow = Record<string, unknown>
 export interface DatabaseProjection { rows: DatabaseRow[]; session?: DatabaseRow; budget?: DatabaseRow; snapshot?: string; source?: 'newmax' | 'cindy' }
 const conversationColumns = ['id', 'title', 'source', 'created_at', 'updated_at', 'forked_from_id', 'is_private', 'message_count']
@@ -41,15 +43,27 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
   if (process.platform !== 'darwin') throw new Error('此平台的无副作用数据库读取尚未验证')
   if (source !== 'newmax' && source !== 'cindy') throw new Error('数据库来源未支持')
   if (rowId !== undefined && (!rowId.trim() || rowId.length > 512)) throw new Error('数据库会话 ID 无效')
+  // 仅重试明确的瞬态变化；每次重新校验路径、结构并读取完整事务，不复用失败投影。
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await readDatabaseSnapshot(path, source, rowId, cursor) }
+    catch (error) {
+      if (!(error instanceof SourceDatabaseChangedError)) throw error
+      if (attempt === 2) throw new Error(`${error.message}；已自动重试 2 次，请稍后再试`, { cause: error })
+      await setTimeout(50 * (attempt + 1))
+    }
+  }
+}
+
+async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', rowId: string | undefined, cursor: SourceReadCursor): Promise<DatabaseProjection> {
   const before = await ordinary(path)
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
     const held = await handle.stat()
-    if (!sameFile(before, held)) throw new Error('数据库文件身份已变化，请刷新')
+    if (!sameFile(before, held)) throw new SourceDatabaseChangedError('数据库文件身份已变化')
     const header = Buffer.alloc(100)
     if ((await handle.read(header, 0, 100, 0)).bytesRead !== 100 || header.toString('ascii', 0, 16) !== 'SQLite format 3\0') throw new Error('数据库结构未支持：文件头无效')
     const wal = await ordinary(path + '-wal', true), shm = await ordinary(path + '-shm', true)
-    if (await ordinary(path + '-journal', true)) throw new Error('来源正在使用事务日志，请等待事务结束后刷新；不会恢复或删除外部日志')
+    if (await ordinary(path + '-journal', true)) throw new SourceDatabaseChangedError('来源正在使用事务日志；不会恢复或删除外部日志')
     // 无副文件的静态库才能使用 immutable；活跃 WAL 必须交给 SQLite 原生事务处理。
     const immutable = !wal && !shm
     const table = source === 'cindy' ? 'sessions' : 'conversations'
@@ -102,12 +116,13 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       if (reason.code === 'ENOENT') throw new Error('安全数据库读取组件不可用，未回退到可能写入来源的读法')
       if (reason.killed || reason.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw new Error('数据库读取超时或投影超过安全预算，请稍后重试；未返回截断结果')
       const detail = reason.stderr?.trim().slice(0, 500) || '来源暂时不可读，请稍后刷新'
+      if (/database (?:is )?(?:locked|busy)/i.test(detail)) throw new SourceDatabaseChangedError('来源数据库暂时忙碌')
       throw new Error(`${/no such (table|column)|malformed|not a database/i.test(detail) ? '数据库结构未支持' : '数据库只读访问失败'}：${detail}`)
     }
     const current = await ordinary(path), heldAfter = await handle.stat()
     if (!sameFile(before, current) || !sameFile(wal, await ordinary(path + '-wal', true)) || !sameFile(shm, await ordinary(path + '-shm', true)) ||
       immutable && (held.mtimeMs !== heldAfter.mtimeMs || held.ctimeMs !== heldAfter.ctimeMs || held.size !== heldAfter.size) || await ordinary(path + '-journal', true)) {
-      throw new Error('数据库或副文件在读取期间变化，请刷新；未返回不完整快照')
+      throw new SourceDatabaseChangedError('数据库或副文件在读取期间持续变化；未返回不完整快照')
     }
     const records = stdout.trim() ? stdout.trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>) : []
     for (const [name, columns] of Object.entries(required)) {
@@ -115,6 +130,7 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       const actual = schema?.columns
       if (schema?.type !== 'table' || !Array.isArray(actual) || columns.some(column => !actual.includes(column))) throw new Error('数据库结构未支持：会话表或字段不匹配')
     }
+    const rows = records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow)
     const session = records.find(row => row.kind === 'session')?.value as DatabaseRow | undefined
     const budget = records.find(row => row.kind === 'budget')?.value as DatabaseRow | undefined
     let snapshot: string
@@ -125,11 +141,10 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
       if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) throw new Error('来源正文指纹不可用，未跳过一致性校验')
       snapshot = createHash('sha256').update(JSON.stringify([SOURCE_TEXT_POLICY_VERSION, source, rowId, held.dev, held.ino, session, digest])).digest('hex')
     } else {
-      const stamp = (value: Stats | undefined) => value ? [value.dev, value.ino, value.size, value.mtimeMs, value.ctimeMs] : null
-      const walAfter = await ordinary(path + '-wal', true)
-      if (JSON.stringify([stamp(before), stamp(wal)]) !== JSON.stringify([stamp(current), stamp(walAfter)])) throw new Error('数据库在读取期间变化，请刷新；未混合不同版本的片段')
-      snapshot = createHash('sha256').update(JSON.stringify([source, stamp(before), stamp(wal)])).digest('hex')
+      // 目录已由同一 SQLite 事务保证一致；正常 WAL 提交或 checkpoint 不否定已读快照。
+      // 指纹只绑定本次元数据投影，不因事务外的文件时间变化而误报或循环追赶写入。
+      snapshot = createHash('sha256').update(JSON.stringify([source, held.dev, held.ino, rows])).digest('hex')
     }
-    return { source, snapshot, rows: records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow), session, budget }
+    return { source, snapshot, rows, session, budget }
   } finally { await handle.close() }
 }
