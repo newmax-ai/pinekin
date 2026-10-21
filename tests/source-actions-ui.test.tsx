@@ -90,7 +90,7 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     ] })
     render(<SourceActions {...props} />)
     more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
-    expect(await screen.findByText('当前平台没有已接入的原生迁移目标，可使用复制或保存接续文件。')).toBeTruthy()
+    expect(await screen.findByText('当前平台没有已接入的原生迁移目标，可使用复制或保存完整接续文件。')).toBeTruthy()
     expect(screen.getByRole('dialog').querySelectorAll('.source-target-card')).toHaveLength(0)
   })
   it.each(['continue', 'configure'] as const)('%s：选中 App 后隐藏其他目标与说明，更换后恢复列表并清除目标详情', async mode => {
@@ -690,7 +690,7 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     more()
     await act(async () => {
       if (kind === 'open') fireEvent.click(original())
-      else fireEvent.click(screen.getByRole('menuitem', { name: kind === 'copy' ? '复制会话文本' : '导出 Markdown' }))
+      else fireEvent.click(screen.getByRole('menuitem', { name: kind === 'copy' ? '复制会话文本' : '导出聊天记录' }))
     })
     expect(screen.getByRole('status')).toBeTruthy()
     await act(async () => { vi.advanceTimersByTime(2999) })
@@ -761,8 +761,8 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     more()
     const items = [
       { label: partial ? '复制当前片段' : '复制会话文本', icon: 'lucide-copy' },
-      { label: partial ? '导出当前片段' : '导出 Markdown', icon: 'lucide-download' },
-      { label: '保存接续文件', icon: 'lucide-download' },
+      { label: partial ? '导出当前片段' : '导出聊天记录', icon: 'lucide-download' },
+      { label: '保存完整接续文件', icon: 'lucide-download' },
       { label: '原生历史迁移（高级）', icon: 'lucide-history' },
       { label: '接续目标设置', icon: 'lucide-settings' },
       { label: '查看原会话', icon: 'lucide-history' },
@@ -792,8 +792,8 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     more()
     const menu = screen.getByRole('menu', { name: '更多会话操作' })
     const groups = [
-      { label: '复制与导出', items: ['复制会话文本', '导出 Markdown'] },
-      { label: '接续与迁移', items: ['保存接续文件', ...(migration ? ['原生历史迁移（高级）'] : [])] },
+      { label: '复制与导出', items: ['复制会话文本', '导出聊天记录'] },
+      { label: '接续与迁移', items: ['保存完整接续文件', ...(migration ? ['原生历史迁移（高级）'] : [])] },
       { label: '设置与说明', items: [...(settings ? ['接续目标设置'] : []), '查看原会话', '读取说明'] },
     ]
     expect(within(menu).getAllByRole('group')).toHaveLength(3)
@@ -816,11 +816,11 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
   it('导出使用相同通用文本，取消不报成功', async () => {
     vi.mocked(window.staithe.sourceActions!.exportText).mockResolvedValueOnce(false)
     render(<SourceActions {...props} />); more()
-    fireEvent.click(screen.getByRole('menuitem', { name: '导出 Markdown' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出聊天记录' }))
     await waitFor(() => expect(window.staithe.sourceActions!.exportText).toHaveBeenCalledOnce())
     expect(screen.queryByRole('status')).toBeNull()
-    more(); fireEvent.click(screen.getByRole('menuitem', { name: '导出 Markdown' }))
-    expect((await screen.findByRole('status')).textContent).toContain('已导出')
+    more(); fireEvent.click(screen.getByRole('menuitem', { name: '导出聊天记录' }))
+    expect((await screen.findByRole('status')).textContent).toBe('已导出聊天记录')
     expect(window.staithe.copy).not.toHaveBeenCalled()
   })
   it('分段时明确命名为复制/导出当前片段，带上快照说明', async () => {
@@ -1027,11 +1027,11 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
   it('更多菜单支持键盘移动、Escape关闭和焦点返回', () => {
     render(<SourceActions {...props} />); more()
     const first = screen.getByRole('menuitem', { name: '复制会话文本' })
-    const second = screen.getByRole('menuitem', { name: '导出 Markdown' })
+    const second = screen.getByRole('menuitem', { name: '导出聊天记录' })
     expect(document.activeElement).toBe(first)
     fireEvent.keyDown(first, { key: 'ArrowDown' }); expect(document.activeElement).toBe(second)
     fireEvent.keyDown(second, { key: 'Home' }); expect(document.activeElement).toBe(first)
-    const third = screen.getByRole('menuitem', { name: '保存接续文件' })
+    const third = screen.getByRole('menuitem', { name: '保存完整接续文件' })
     const last = screen.getByRole('menuitem', { name: '读取说明' })
     fireEvent.keyDown(first, { key: 'End' }); expect(document.activeElement).toBe(last)
     fireEvent.keyDown(last, { key: 'ArrowUp' }); expect(document.activeElement).toBe(third)
@@ -1047,7 +1047,7 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     const { rerender } = render(<SourceActions entryId={props.entryId} />)
     expect((screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement).disabled).toBe(true)
     rerender(<SourceActions {...props} />); more()
-    expect((screen.getByRole('menuitem', { name: '导出 Markdown' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('menuitem', { name: '导出聊天记录' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('menuitem', { name: '复制会话文本' })); await screen.findByRole('status')
     rerender(<SourceActions {...props} disabled />)
     expect((screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement).disabled).toBe(true)

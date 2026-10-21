@@ -140,7 +140,7 @@ describe('默认直接复制通用文件，不再选择目标 App', () => {
     vi.mocked(api().deliverHandoffFile!).mockResolvedValueOnce({ status })
     render(<SourceActions entryId={id} content={{ warnings: [], session: { id, title: '合成', source: 'codex', updatedAt: '2026-10-20T00:00:00Z', demo: false, tags: [], messages: [{ role: 'user', content: '当前片段' }] } }} />)
     fireEvent.click(screen.getByRole('button', { name: '更多会话操作' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '保存接续文件' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '保存完整接续文件' }))
     await waitFor(() => expect(api().discardHandoffFile).toHaveBeenCalledWith(token))
     expect(api().prepareHandoffFile).toHaveBeenCalledExactlyOnceWith(id)
     expect(api().deliverHandoffFile).toHaveBeenCalledExactlyOnceWith(token, 'export')

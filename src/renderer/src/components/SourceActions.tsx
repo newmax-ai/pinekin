@@ -155,7 +155,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       } else {
         if (!transcript?.text || transcript.error) throw new Error(transcript?.error ?? '当前没有可复制的文本。')
         if (kind === 'copy') { await window.staithe.copy(transcript.text); text = transcript.partial ? '已复制当前片段' : '已复制会话文本' }
-        else if (api && await api.exportText(transcript.text)) text = transcript.partial ? '已导出当前片段' : '已导出 Markdown'
+        else if (api && await api.exportText(transcript.text)) text = transcript.partial ? '已导出当前片段' : '已导出聊天记录'
       }
       if (text && active()) setFeedback({ id, text })
     } catch (error) {
@@ -182,11 +182,11 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
       <div role="group" aria-label="复制与导出">
         <button role="menuitem" disabled={!hasMessages} onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
-        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
+        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出聊天记录'}</button>
       </div>
       <div className="source-actions-menu-separator" role="separator" />
       <div role="group" aria-label="接续与迁移">
-        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
+        <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存完整接续文件</button>
         {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('continue')}><DesignIcon name="history" size={16} />原生历史迁移（高级）</button>}
       </div>
       <div className="source-actions-menu-separator" role="separator" />

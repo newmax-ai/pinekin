@@ -79,7 +79,7 @@ describe('详情页读取说明按需查看', () => {
   it('无文字消息时仍能查看说明，但复制、导出和保存不可用', async () => {
     await openSession({ ...content, session: { ...content.session, messages: [] } })
     fireEvent.click(screen.getByRole('button', { name: '更多会话操作' }))
-    for (const name of ['复制会话文本', '导出 Markdown', '保存接续文件']) {
+    for (const name of ['复制会话文本', '导出聊天记录', '保存完整接续文件']) {
       expect((screen.getByRole('menuitem', { name }) as HTMLButtonElement).disabled).toBe(true)
     }
     fireEvent.click(screen.getByRole('menuitem', { name: '读取说明' }))

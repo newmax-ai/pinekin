@@ -139,7 +139,7 @@ export function SourceTargetDialog({ entryId, api, targets, loadingTargets, mode
           </div>
         })}
         {selected && <DsButton variant="ghost" size="small" disabled={working} onClick={() => select()}>更换 App</DsButton>}
-        {!implementedTargets.length && <p className="source-target-description">{loadingTargets ? '正在读取可用目标…' : '当前平台没有已接入的原生迁移目标，可使用复制或保存接续文件。'}</p>}
+        {!implementedTargets.length && <p className="source-target-description">{loadingTargets ? '正在读取可用目标…' : '当前平台没有已接入的原生迁移目标，可使用复制或保存完整接续文件。'}</p>}
       </div>
       {!settings && selected && <div className="source-target-location source-target-destination" role="group" aria-label="在哪里继续？" ref={destinations}>
         <p className="source-target-destination-title">在哪里继续？</p>

@@ -1035,7 +1035,7 @@ test('空档案库直接连接、完整计数、分页搜索、按需正文，�
   await page.getByRole('button', { name: '更多会话操作' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('menuitem', { name: '复制会话文本' })).toBeVisible()
-  await expect(page.getByRole('menuitem', { name: '导出 Markdown' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '导出聊天记录' })).toBeVisible()
   await expect(page.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
   await page.keyboard.press('Escape')
   await background(); await app.close()
