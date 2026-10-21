@@ -160,12 +160,13 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
   await connect()
   // 只挂起隔离测试的正文 IPC，不接触真实来源、剪贴板或文件选择器。
   await app.evaluate(({ ipcMain }, session) => {
-    type Pending = { resolve: () => void; reject: () => void }
+    type Pending = { resolve: (title?: string) => void; reject: () => void }
     const state = globalThis as unknown as { headerReadPending?: Pending }
     ipcMain.removeHandler('pinekin:sources-read')
     ipcMain.handle('pinekin:sources-read', (_event, id: string) => new Promise((resolve, reject) => {
       state.headerReadPending = {
-        resolve: () => { state.headerReadPending = undefined; resolve({ session: { ...session, id, title: '合成问题：整理项目计划' }, warnings: [] }) },
+        resolve: (title = '合成问题：整理项目计划') => { state.headerReadPending = undefined; resolve({ session: { ...session, id, title }, warnings: [],
+          window: { offset: 0, textOffset: 0, totalMessages: session.messages.length, hasMore: false, snapshot: 'c'.repeat(64) } }) },
         reject: () => { state.headerReadPending = undefined; reject(new Error('合成页头读取失败')) },
       }
     }))
@@ -174,9 +175,10 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
   const pin = header.getByRole('button', { name: '更多会话操作' })
   const count = header.locator('.detail-message-count')
   async function layout() {
-    return header.evaluate(element => [element, ...element.querySelectorAll('.detail-title-group, .detail-meta, .detail-title-row > button')].map(node => {
+    return header.evaluate(element => [element, ...element.querySelectorAll('.detail-title-group, .detail-meta, .source-detail-meta > *, .detail-title-row > button')].map(node => {
       const { x, y, width, height } = node.getBoundingClientRect()
-      return { x, y, width, height }
+      // 数字和日期随内容自然占宽，只约束这一行的位置和高度不跳动。
+      return node.parentElement?.classList.contains('source-detail-meta') ? { y, height } : { x, y, width, height }
     }))
   }
   async function pending() {
@@ -192,13 +194,17 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
       text.selectNodeContents(item)
       const bounds = text.getBoundingClientRect()
       const dotWidth = parseFloat(getComputedStyle(item, '::before').width)
-      return { left: box.x - previous.right, right: bounds.x - box.x - dotWidth, trailing: box.right - bounds.right }
+      return { left: box.x - previous.right, right: bounds.x - box.x - dotWidth, trailing: box.right - bounds.right,
+        flexible: item.classList.contains('source-detail-summary') }
     }))
     for (const gap of gaps) {
       expect(gap.left).toBeCloseTo(8, 1)
       expect(gap.right).toBeCloseTo(8, 1)
-      expect(gap.trailing).toBeCloseTo(0, 1)
+      if (!gap.flexible) expect(gap.trailing).toBeCloseTo(0, 1)
     }
+    const summaryBounds = (await meta.locator('.source-detail-summary').boundingBox())!, dateBounds = (await meta.locator('time').boundingBox())!
+    expect(dateBounds.x - summaryBounds.x - summaryBounds.width).toBeCloseTo(8, 1)
+    await expect(meta.locator('.source-detail-summary-text')).toHaveCSS('text-overflow', 'ellipsis')
   }
   for (const { width, colorScheme } of [{ width: 1440, colorScheme: 'light' }, { width: 1000, colorScheme: 'dark' }] as const) {
     await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 800), width)
@@ -206,21 +212,32 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
     await openMatchingSession('synthetic-0')
     await pending()
     await expect(pin).toBeDisabled()
-    await expect(count).toHaveText('— 条消息')
+    await expect(count).toHaveText('— 条来源消息 · 当前片段 — 条文本')
     await spacing()
     const node = await header.elementHandle()
     const loading = await layout()
     await expect(header.locator('.detail-meta')).toHaveCSS('margin-top', '2px')
-    expect(await count.evaluate(element => ({ width: getComputedStyle(element, '::before').width, height: getComputedStyle(element, '::before').height }))).toEqual({ width: '2px', height: '2px' })
+    expect(await header.locator('.source-detail-summary').evaluate(element => ({ width: getComputedStyle(element, '::before').width, height: getComputedStyle(element, '::before').height }))).toEqual({ width: '2px', height: '2px' })
     await app.evaluate(() => (globalThis as unknown as { headerReadPending: { resolve: () => void } }).headerReadPending.resolve())
     await expect(pin).toBeEnabled()
-    await expect(count).toHaveText(`${fixtureSessions[0].messages.length} 条消息`)
+    await expect(count).toHaveText(`${fixtureSessions[0].messages.length} 条来源消息 · 当前片段 ${fixtureSessions[0].messages.length} 条文本`)
+    await expect(header.locator('.source-detail-summary')).toHaveAttribute('title', `${fixtureSessions[0].messages.length} 条来源消息 · 当前片段 ${fixtureSessions[0].messages.length} 条文本`)
     await spacing()
+    expect(await layout()).toEqual(loading)
+    await openMatchingSession('synthetic-63')
+    await pending()
+    await expect(count).toHaveText('— 条来源消息 · 当前片段 — 条文本')
+    expect(await layout()).toEqual(loading)
+    const longTitle = '合成双行标题用于验证切换时描述与正文位置保持稳定。'.repeat(12)
+    await app.evaluate((_electron, title) => (globalThis as unknown as { headerReadPending: { resolve(title?: string): void } }).headerReadPending.resolve(title), longTitle)
+    await expect(pin).toBeEnabled()
+    await expect(header.locator('h2')).toHaveText(longTitle)
+    await expect(header.locator('h2')).toHaveCSS('height', '48px')
     expect(await layout()).toEqual(loading)
     await openMatchingSession('synthetic-64')
     await pending()
     await expect(pin).toBeDisabled()
-    await expect(count).toHaveText('— 条消息')
+    await expect(count).toHaveText('— 条来源消息 · 当前片段 — 条文本')
     expect(await node!.evaluate(element => element === document.querySelector('.detail-header'))).toBe(true)
     expect(await layout()).toEqual(loading)
     await app.evaluate(() => (globalThis as unknown as { headerReadPending: { reject: () => void } }).headerReadPending.reject())
@@ -1005,7 +1022,8 @@ test('空档案库直接连接、完整计数、分页搜索、按需正文，�
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
   await expect(page.locator('.session-card')).toHaveCount(50)
   await expect(page.getByText('50 / 66 条已加载')).toBeVisible()
-  await page.getByRole('button', { name: '加载更多', exact: true }).click()
+  await expect(page.getByRole('button', { name: '加载更多', exact: true })).toHaveCount(0)
+  await page.locator('.session-list').evaluate(element => { element.scrollTop = element.scrollHeight - element.clientHeight - 120 })
   await expect(page.locator('.session-card')).toHaveCount(66)
   await openMatchingSession('synthetic-64')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()

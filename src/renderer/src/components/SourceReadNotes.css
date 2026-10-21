@@ -1,5 +1,17 @@
 .source-read-notes { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.8; overflow-wrap: anywhere; }
-.source-read-notes > p { margin: 0 0 12px; }
-.source-read-notes > ul { margin: 0; padding-left: 18px; }
-.source-read-notes li + li { margin-top: 8px; }
-.source-read-notice > ul { margin: 0; padding: 0; list-style: none; line-height: 1.7; overflow-wrap: anywhere; }
+.source-read-notes p { margin: 0; line-break: strict; word-break: normal; text-wrap: pretty; }
+.source-read-notes-summary { margin-top: 20px; color: var(--ds-text-primary); font-size: var(--ds-text-base); line-height: 1.7; }
+.source-read-notes-summary > h3 { margin: 0 0 8px; font-size: var(--ds-text-base); font-weight: 500; line-height: 1.5; }
+.source-read-notes-summary > p + p { margin-top: 8px; }
+.source-read-notes-details { margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--ds-divider); }
+.source-read-notes-details > .source-read-notes-toggle { width: calc(100% + 24px); height: auto; min-height: 36px; margin-inline: -12px; padding: 8px 12px; justify-content: space-between; border-radius: var(--ds-radius-md); corner-shape: var(--ds-corner-shape); color: var(--ds-text-secondary); font-weight: 400; }
+.source-read-notes-toggle[aria-expanded='true'] > .design-icon { transform: rotate(180deg); }
+.source-read-notes-raw { padding-top: 8px; white-space: pre-wrap; }
+.source-read-notes-raw > p + p { margin-top: 12px; }
+.source-detail-context { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; margin-top: 2px; }
+.source-detail-context > .source-detail-meta { min-width: 0; max-width: 100%; margin-top: 0; }
+.source-read-notice { display: inline-flex; flex-shrink: 0; }
+.source-read-notice-trigger { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-pill); background: transparent; color: var(--ds-text-secondary); font: inherit; font-size: var(--ds-text-xs); line-height: 16px; white-space: nowrap; cursor: pointer; }
+.source-read-notice-trigger:not(:disabled):hover { background: var(--ds-on-surface); color: var(--ds-text-primary); }
+.source-read-notice-trigger:focus-visible { outline: 2px solid var(--ds-brand-primary); outline-offset: 2px; }
+.source-read-notice-trigger:disabled { opacity: .5; cursor: default; }

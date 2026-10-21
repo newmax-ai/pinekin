@@ -103,9 +103,19 @@ test('读取说明收进更多菜单，正常阅读不显示报告，关闭后�
 test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
   const before = await readFile(dbPath)
   await connect()
-  await page.getByRole('button', { name: '复制接续文件' }).click()
+  const copyButton = page.getByRole('button', { name: '复制接续文件' })
+  const size = await copyButton.boundingBox()
+  await copyButton.click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.getByRole('status')).toContainText('文件已复制')
+  const copied = page.getByRole('button', { name: '已复制', exact: true })
+  await expect(copied).toBeVisible()
+  expect(await copied.boundingBox()).toEqual(size)
+  const toast = page.locator('.source-messages-region > [data-toast]')
+  await expect(toast).toHaveText('文件已复制')
+  await expect(page.locator('.detail-header [data-toast]')).toHaveCount(0)
+  const regionBounds = (await page.locator('.source-messages-region').boundingBox())!
+  const toastBounds = (await toast.boundingBox())!
+  expect(toastBounds.x + toastBounds.width / 2).toBeCloseTo(regionBounds.x + regionBounds.width / 2, 0)
   const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
   expect(state.opened).toEqual([]); expect(state.launched).toEqual([]); expect(state.copied).toEqual([])
   expect(state.files).toHaveLength(1)
@@ -115,7 +125,7 @@ test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文�
   expect(text).toContain('不是原生会话恢复'); expect(text).not.toContain('目标：')
   await page.getByRole('button', { name: '关闭操作提示' }).click()
   await more(); await page.getByRole('menuitem', { name: '保存接续文件' }).click()
-  await expect(page.getByRole('status')).toContainText('接续文件已保存')
+  await expect(toast).toHaveText('文件已保存')
   expect(await readFile(output, 'utf8')).toContain('先明确目标，再逐项验证实际能力。')
   expect(await readFile(new URL(state.files[0]), 'utf8')).toBe(text)
   expect(await readFile(dbPath)).toEqual(before)
@@ -286,7 +296,42 @@ test('长标题优先分配宽度，窄窗口操作另起一行；协议不可�
   for (const width of [1440, 1000]) {
     await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 800), width)
     await page.emulateMedia({ colorScheme: width === 1440 ? 'light' : 'dark' })
-    await expect(header.getByRole('heading', { name: title })).toBeVisible()
+    const heading = header.getByRole('heading', { name: title })
+    await expect(heading).toBeVisible()
+    await expect(heading).toHaveAttribute('title', title)
+    const overflow = await heading.evaluate(element => element.scrollWidth > element.clientWidth)
+    await expect(heading).toHaveAttribute('data-overflow', String(overflow))
+    const typography = await heading.evaluate(element => {
+      const style = getComputedStyle(element)
+      return { whiteSpace: style.whiteSpace, mask: style.maskImage, height: element.getBoundingClientRect().height, text: element.textContent }
+    })
+    expect(typography.whiteSpace).toBe('nowrap')
+    if (overflow) expect(typography.mask).toContain('linear-gradient')
+    else expect(typography.mask).toBe('none')
+    expect(typography.height).toBeCloseTo(24, 0)
+    expect(typography.text).toBe(title)
+    await expect(heading).toHaveAttribute('data-scroll-on-hover', 'true')
+    const track = heading.locator('.ds-fade-text-content')
+    if (overflow) {
+      await page.emulateMedia({ reducedMotion: 'no-preference' })
+      await heading.hover()
+      await expect(track).toHaveCSS('animation-name', 'ds-fade-text-scroll')
+      await expect.poll(() => track.evaluate(element => new DOMMatrixReadOnly(getComputedStyle(element).transform).m41)).toBeLessThan(0)
+      const end = await track.evaluate(element => {
+        element.getAnimations()[0].finish()
+        return { x: new DOMMatrixReadOnly(getComputedStyle(element).transform).m41,
+          distance: parseFloat(getComputedStyle(element.parentElement!).getPropertyValue('--fade-scroll-distance')) }
+      })
+      expect(end.x).toBeCloseTo(-end.distance, 1)
+      await page.mouse.move(0, 0)
+      await expect(track).toHaveCSS('animation-name', 'none')
+      await expect(track).toHaveCSS('transform', 'none')
+      await heading.hover()
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await expect(track).toHaveCSS('animation-name', 'none')
+      await expect(track).toHaveCSS('transform', 'none')
+      await page.mouse.move(0, 0)
+    } else await expect(track).toHaveCSS('animation-name', 'none')
     const group = (await header.locator('.detail-title-group').boundingBox())!
     const actions = (await header.locator('.source-actions').boundingBox())!
     expect(group.width).toBeGreaterThan(actions.width)

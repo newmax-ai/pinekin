@@ -153,7 +153,7 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await page.getByRole('button', { name: '刷新验收会话 .', exact: true }).click()
   const messages = page.getByRole('region', { name: '会话消息' })
   await expect(messages).toBeVisible()
-  await page.getByRole('button', { name: '加载更多', exact: true }).click()
+  await page.locator('.session-list').evaluate(element => { element.scrollTop = element.scrollHeight - element.clientHeight - 120 })
   await expect(page.locator('.session-card')).toHaveCount(65)
   await page.evaluate(() => {
     const list = document.querySelector('.session-list')!, messages = document.querySelector('.messages')!
@@ -184,7 +184,7 @@ test('真实滚动位置、分页和阅读容器保持稳定，更新提示与�
   await expect(page.getByRole('button', { name: '重试读取', exact: true })).toHaveCount(0)
 })
 
-test('后台检查仍只提示正文更新，主动查看才加载且不改变阅读位置', async () => {
+test('后台检查只提示正文更新，点击一次直接定位新增消息，不再显示跳转按钮', async () => {
   await page.getByRole('button', { name: '刷新验收会话 .', exact: true }).click()
   const messages = page.getByRole('region', { name: '会话消息' })
   await expect(messages).toBeVisible()
@@ -204,7 +204,10 @@ test('后台检查仍只提示正文更新，主动查看才加载且不改变�
   expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
   await page.getByRole('button', { name: '查看更新', exact: true }).click()
   await expect(messages).toContainText('后台发现的合成新消息')
-  expect(await messages.evaluate(element => element.scrollTop)).toBe(180)
+  const added = messages.locator('article.message').last()
+  await expect(added).toBeInViewport({ ratio: 1 })
+  expect(await messages.evaluate(element => element.scrollTop)).toBeGreaterThan(180)
+  await expect(page.getByRole('button', { name: '跳到新增消息', exact: true })).toHaveCount(0)
   await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
 })
 
@@ -388,9 +391,9 @@ test('Cindy 旧会话不受其他 App 更新影响，真正变化才提示且保
     await expect(page.getByText('此对话有更新', { exact: true })).toHaveCount(0)
     expect(await page.locator('.session-list').evaluate(element => element.scrollTop)).toBe(240)
     await expect(messages).toBeVisible()
-    await page.getByRole('button', { name: '加载更多', exact: true }).click()
+    await page.locator('.session-list').evaluate(element => { element.scrollTop = element.scrollHeight - element.clientHeight - 120 })
     await expect(page.locator('.session-card')).toHaveCount(65)
-    // 点击分页按钮会自然滚到按钮所在位置；重新设定本轮要验证的阅读位置。
+    // 滚动接近底部已自动追加下一页；重新设定本轮要验证的阅读位置。
     await page.locator('.session-list').evaluate(element => { element.scrollTop = 240 })
     db.exec("UPDATE sessions SET title='Cindy 真正有变化',updated_at=2000 WHERE id='old-64'")
     await refresh()

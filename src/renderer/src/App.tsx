@@ -222,7 +222,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
           {selected ? <>
             <div className="detail-header">
               <div className="detail-title-row">
-                <div className="detail-title-group"><h2>{selected.title}</h2><div className="reader-state"><span className="archive-badge">本地档案</span></div></div>
+                <div className="detail-title-group"><FadeText as="h2" text={selected.title} scrollOnHover /><div className="reader-state"><span className="archive-badge">本地档案</span></div></div>
                 <DsButton variant="primary" disabled={busy} onClick={() => { setStatus(''); setHandoff(true) }}>Pin 走这段对话<DesignIcon name="arrow" /></DsButton>
               </div>
               <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{names[selected.source]}</span><span>{selected.messages.length} 条消息</span><time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time><span>仅文本 · 非原生会话</span></div>

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { SourceApp } from '../src/renderer/src/SourceApp'
 import { mockSourcesAPI } from './fixtures/source-api'
+import { installListIntersectionObserver, intersectSessionList } from './fixtures/list-intersection'
 import { fixtureSessions } from './fixtures/sessions'
 import type { SourceCheckResult, SourceContent, SourceEntry, SourcePage } from '../src/core/sources'
 
@@ -17,7 +18,9 @@ function page(offset = 0, limit = 50, source?: string, query = ''): SourcePage {
 }
 function checked(): SourceCheckResult { return { version, connections: [connection], selected: rows.find(item => item.id === entry.id) ?? null } }
 beforeEach(() => {
+  installListIntersectionObserver()
   version = 1; rows = [...entries]
+  HTMLElement.prototype.scrollIntoView = vi.fn()
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLElement.prototype.showPopover = function () { this.style.display = 'block' }
   HTMLElement.prototype.hidePopover = function () { this.style.display = 'none' }
@@ -25,7 +28,7 @@ beforeEach(() => {
     sources: { ...mockSourcesAPI(), page: vi.fn().mockImplementation(async query => page(query.offset, query.limit, query.source, query.query)), read: vi.fn().mockResolvedValue(content), check: vi.fn().mockImplementation(async () => checked()) } }
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
 })
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals() })
 async function open() {
   render(<SourceApp />)
   fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
@@ -46,7 +49,7 @@ describe('不打断阅读的来源刷新', () => {
     const pin = screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement
     const count = header.querySelector('.detail-message-count')!
     expect(pin.disabled).toBe(true)
-    expect(count.textContent).toBe('— 条消息')
+    expect(count.textContent).toBe('— 条来源消息 · 当前片段 — 条文本')
     fireEvent.click(pin)
     expect(screen.queryByRole('dialog')).toBeNull()
     await act(async () => { finish(content) })
@@ -75,6 +78,37 @@ describe('不打断阅读的来源刷新', () => {
     fireEvent.click(pin)
     expect((screen.getByRole('menuitem', { name: '复制会话文本' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByRole('menuitem', { name: '读取说明' })).toBeTruthy()
+  })
+  it('元信息在切换、加载和完整／分段结果之间复用三列节点，日期和描述各自更新且不保留旧计数', async () => {
+    rows = rows.map(item => item.id === entries[1].id ? { ...item, updatedAt: '2026-10-21T00:00:00Z' } : item)
+    await open()
+    const meta = document.querySelector('.source-detail-meta')!
+    expect(meta).not.toBeNull()
+    expect(meta.children).toHaveLength(3)
+    const [origin, summary, date] = [...meta.children]
+    const count = summary.querySelector('.detail-message-count')!
+    const text = summary.querySelector('.source-detail-summary-text')!
+    expect(summary.getAttribute('title')).toBe(`${content.session.messages.length} 条消息`)
+    expect(date.textContent).toBe('2026-10-18')
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    expect(document.querySelector('.source-detail-meta')).toBe(meta)
+    expect([...meta.children]).toEqual([origin, summary, date])
+    expect(summary.getAttribute('aria-busy')).toBe('true')
+    expect(summary.getAttribute('title')).toBe('— 条消息')
+    expect(count.textContent).toBe('— 条消息')
+    expect(date.textContent).toBe('2026-10-21')
+    const next: SourceContent = { ...content, session: { ...content.session, id: entries[1].id, title: '会话 1' },
+      window: { offset: 0, textOffset: 0, totalMessages: 9999, hasMore: true, snapshot: 'c'.repeat(64) } }
+    await act(async () => { finish(next) })
+    expect([...meta.children]).toEqual([origin, summary, date])
+    expect(summary.querySelector('.detail-message-count')).toBe(count)
+    expect(summary.querySelector('.source-detail-summary-text')).toBe(text)
+    expect(summary.getAttribute('aria-busy')).not.toBe('true')
+    expect(summary.getAttribute('title')).toBe(`9999 条来源消息 · 当前片段 ${content.session.messages.length} 条文本`)
+    expect(count.textContent).toBe(summary.getAttribute('title'))
+    expect(date.textContent).toBe('2026-10-21')
   })
   it('切换会话时正文和能力分别加载，右侧三个按钮保持同一顺序、节点及加载外观标记', async () => {
     const available = { original: { available: true, app: 'NewMax' }, targets: [] }
@@ -111,7 +145,7 @@ describe('不打断阅读的来源刷新', () => {
     fireEvent.click(await screen.findByRole('button', { name: '原会话 .' }))
     await screen.findByText('合成正文读取失败')
     expect((screen.getByRole('button', { name: '更多会话操作' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(document.querySelector('.detail-message-count')?.textContent).toBe('— 条消息')
+    expect(document.querySelector('.detail-message-count')?.textContent).toBe('— 条来源消息 · 当前片段 — 条文本')
   })
   it('来源详情标题不附加直读标签、只读文案或锁图标', async () => {
     await open()
@@ -162,7 +196,7 @@ describe('不打断阅读的来源刷新', () => {
   })
   it('手动刷新保留正文、选择、分页及两个滚动位置；向下翻找时仅提示列表更新', async () => {
     const messages = await open()
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await act(async () => intersectSessionList())
     await screen.findByText('100 / 120 条已加载')
     const list = document.querySelector('.session-list') as HTMLElement
     list.scrollTop = 350; messages.scrollTop = 160
@@ -207,7 +241,7 @@ describe('不打断阅读的来源刷新', () => {
     expect(list.style.paddingBottom).toBe('')
     expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
   })
-  it('后台正文变化只提示，点击查看更新保留正文容器及阅读位置，失败保留原文', async () => {
+  it('后台正文变化只提示，点击更新成功后直接定位首条新增消息，失败保留原文', async () => {
     const messages = await open(); messages.scrollTop = 120
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
     fireEvent.focus(window)
@@ -234,21 +268,16 @@ describe('不打断阅读的来源刷新', () => {
     vi.mocked(window.staithe.sources.read).mockResolvedValue({ ...content, revision: 'v2', session: { ...content.session, messages: [...content.session.messages, { role: 'assistant', content: '新追加正文' }] } })
     fireEvent.click(screen.getByRole('button', { name: '查看更新' }))
     await screen.findByText('新追加正文')
-    expect(messages.scrollTop).toBe(120)
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
     expect(screen.queryByText('此对话有更新')).toBeNull()
-    const jump = screen.getByRole('button', { name: '跳到新增消息' })
-    expect(jump).toBe(update)
-    expect(jump.closest('.source-content-update')).toBe(overlay)
-    expect(document.querySelectorAll('.source-content-update')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(overlay.getAttribute('data-update-state')).not.toBe('jump')
+    expect(overlay.getAttribute('data-state')).toBe('closing')
     expect(document.querySelector('.source-update-notice')).toBeNull()
     const added = messages.querySelectorAll('article')[content.session.messages.length]
-    const scroll = vi.fn()
-    Object.defineProperty(added, 'scrollIntoView', { configurable: true, value: scroll })
-    const reads = vi.mocked(window.staithe.sources.read).mock.calls.length
-    fireEvent.click(jump)
-    expect(scroll).toHaveBeenCalledExactlyOnceWith({ block: 'start' })
-    expect(window.staithe.sources.read).toHaveBeenCalledTimes(reads)
-    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'start' })
+    expect(vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts).toEqual([added])
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(3)
     await waitFor(() => expect(document.querySelector('.source-content-update')).toBeNull())
   })
   it.each([
@@ -259,7 +288,7 @@ describe('不打断阅读的来源刷新', () => {
     { label: '新增内容落在上沿渐隐区', bounds: [[120, 180], [260, 340]], visible: false },
     { label: '新增内容落在下沿渐隐区', bounds: [[180, 240], [420, 480]], visible: false },
     { label: '新增消息尚无可测量高度', bounds: [[180, 180], [260, 340]], visible: false },
-  ])('读取更新后按全部新增内容判断是否需要跳转：$label', async ({ bounds, visible }) => {
+  ].flatMap(testCase => [true, false].map(direct => ({ ...testCase, direct }))))('新增内容定位（点击提示=$direct）：$label', async ({ bounds, visible, direct }) => {
     const messages = await open(); messages.scrollTop = 120
     Object.defineProperties(messages, {
       clientHeight: { configurable: true, value: 400 },
@@ -277,14 +306,17 @@ describe('不打断阅读的来源刷新', () => {
     const pill = await screen.findByRole('button', { name: '查看更新' })
     vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
       messages: [...content.session.messages, { role: 'user', content: '新增问题' }, { role: 'assistant', content: '新增回答' }] } })
-    await act(async () => { fireEvent.click(pill) })
+    if (direct) await act(async () => { fireEvent.click(pill) })
+    else await refresh()
     expect(messages.scrollTop).toBe(120)
     expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
-    if (visible) {
+    if (direct) {
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: 'start' })
+      expect(vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts).toEqual([messages.querySelectorAll('article')[content.session.messages.length]])
+    } else expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
+    if (direct || visible) {
       expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
-      // 退场也不能闪现跳转文案，沿用读取态完成原胶囊的退出动画。
       expect(pill.closest('.source-content-update')?.getAttribute('data-update-state')).not.toBe('jump')
-      expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
       await waitFor(() => expect(document.querySelector('.source-content-update')).toBeNull())
     } else expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
   })
@@ -301,12 +333,11 @@ describe('不打断阅读的来源刷新', () => {
       return { top: start, bottom: start + height, height, left: 0, right: 600, width: 600, x: 0, y: start, toJSON() {} }
     })
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
-    fireEvent.focus(window)
-    const pill = await screen.findByRole('button', { name: '查看更新' })
     vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
       messages: [...content.session.messages, { role: 'assistant', content: '滚动查看的新增回答' }] } })
-    await act(async () => { fireEvent.click(pill) })
-    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
+    await refresh()
+    expect(screen.getByRole('button', { name: '跳到新增消息' })).toBeTruthy()
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
     top = 200; messages.scrollTop = 400
     fireEvent.scroll(messages)
     expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
@@ -345,8 +376,9 @@ describe('不打断阅读的来源刷新', () => {
       messages: append ? [...content.session.messages, { role: 'assistant', content: '比目录更新的正文' }] : content.session.messages } })
     await act(async () => { fireEvent.click(pill) })
     expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
-    if (append) expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
-    else expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(append ? 1 : 0)
+    expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
     expect(messages.scrollTop).toBe(120)
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000)
     fireEvent.focus(window)
@@ -387,7 +419,7 @@ describe('不打断阅读的来源刷新', () => {
     expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
     expect(window.staithe.sources.read).toHaveBeenCalledOnce()
   })
-  it.each([true, false])('末条回复流式补全后出现新增消息，只有前文稳定时保留跳转胶囊（stable=%s）', async stable => {
+  it.each([true, false])('末条回复流式补全后出现新增消息，只有前文稳定时直接跳转（stable=%s）', async stable => {
     await open()
     rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
     fireEvent.focus(window)
@@ -398,16 +430,27 @@ describe('不打断阅读的来源刷新', () => {
     vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, revision: 'v2', session: { ...content.session,
       messages: [...messages, { role: 'user', content: '真正新增的一条消息' }] } })
     await act(async () => { fireEvent.click(pill) })
-    if (stable) {
-      expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
-      const overlay = pill.closest('.source-content-update')!
-      expect(overlay.getAttribute('data-state')).toBe('open')
-      fireEvent(overlay, Object.assign(new Event('animationend', { bubbles: true }), { animationName: 'source-update-exit' }))
-      expect(screen.getByRole('button', { name: '跳到新增消息' })).toBe(pill)
-    } else {
-      expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
-      expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
-    }
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(stable ? 1 : 0)
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(pill.closest('.source-content-update')?.getAttribute('data-state')).toBe('closing')
+  })
+  it('点击更新读取期间切换会话，迟到的新增正文不回写也不触发旧跳转', async () => {
+    await open()
+    rows = rows.map(item => item.id === entry.id ? { ...item, revision: 'v2' } : item); version++
+    fireEvent.focus(window)
+    const update = await screen.findByRole('button', { name: '查看更新' })
+    let finish!: (result: SourceContent) => void
+    vi.mocked(window.staithe.sources.read).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    fireEvent.click(update)
+    vi.mocked(window.staithe.sources.read).mockResolvedValueOnce({ ...content, session: { ...content.session, id: entries[1].id, title: entries[1].title } })
+    fireEvent.click(screen.getByRole('button', { name: '会话 1 .' }))
+    await screen.findByRole('heading', { level: 2, name: '会话 1' })
+    await act(async () => { finish({ ...content, revision: 'v2', session: { ...content.session,
+      messages: [...content.session.messages, { role: 'assistant', content: '迟到的旧会话新增正文' }] } }) })
+    expect(screen.queryByText('迟到的旧会话新增正文')).toBeNull()
+    expect(screen.queryByRole('button', { name: '跳到新增消息' })).toBeNull()
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
+    expect(window.staithe.sources.read).toHaveBeenCalledTimes(3)
   })
   it('手动刷新即使目录版本不变也重读正文，正文等待期间保持忙碌且不重复请求', async () => {
     const messages = await open(); messages.scrollTop = 120
@@ -641,7 +684,7 @@ describe('不打断阅读的来源刷新', () => {
     await refresh()
     expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
     expect(list.scrollTop).toBe(250)
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await act(async () => intersectSessionList())
     await screen.findByText('100 / 120 条已加载')
     rows = rows.map((item, index) => index === 119 ? { ...item, title: '末页更新' } : item); version++
     await refresh()
@@ -649,13 +692,13 @@ describe('不打断阅读的来源刷新', () => {
   })
   it('分页只遇到全局变化且筛选结果相同时继续合并', async () => {
     await open(); version++
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await act(async () => intersectSessionList())
     await screen.findByText('100 / 120 条已加载')
     expect(screen.queryByRole('button', { name: '列表有更新，点击查看' })).toBeNull()
   })
   it('分页发现目录版本变化时不混合新旧顺序，明确提示查看更新', async () => {
     await open(); rows = [{ ...entry, id: 'f'.repeat(64), title: '分页期间新增' }, ...rows]; version++
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await act(async () => intersectSessionList())
     await screen.findByRole('button', { name: '列表有更新，点击查看' })
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
   })

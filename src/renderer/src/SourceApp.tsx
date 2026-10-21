@@ -1,22 +1,24 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceReadCursor } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
-import { SourceActions } from './components/SourceActions'
+import { SourceActions, type SourceActionFeedback } from './components/SourceActions'
 import { SourceReadNotice } from './components/SourceReadNotes'
 import { SourceUpdatePill } from './components/SourceUpdatePill'
+import { SourceDetailMeta } from './components/SourceDetailMeta'
 import { useDetailTransition } from './components/useDetailTransition'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
 import { SourceIcon } from './components/SourceIcon'
-import { SessionTime, useCurrentTime } from './components/SessionTime'
+import { useCurrentTime } from './components/SessionTime'
+import { SourceSessionCard } from './components/SourceSessionCard'
+import { SourceListLoadMore } from './components/SourceListLoadMore'
 import { FadeText } from './components/FadeText'
 import { DsButton, DsDialogPresence, DesignIcon } from './components/ui'
 import { DsRefreshButton } from './components/DsRefreshButton'
 import { LoadingMark } from './components/LoadingMark'
 import { SourceMessage, SourceActivity } from './components/SourceMessage'
-import { sourceKindNames } from '../../core/sources'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
 
@@ -62,6 +64,8 @@ export function SourceApp() {
   const [reload, setReload] = useState(0)
   const [readAttempt, setReadAttempt] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [moreError, setMoreError] = useState('')
+  const moreRequest = useRef<number | undefined>(undefined)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -71,6 +75,7 @@ export function SourceApp() {
   // 会话切换的首次渲染就隔离旧结果，不等待 effect 清理后再隐藏上一条正文。
   const content = readContent?.entryId === selected?.id ? readContent?.value : undefined
   const [readError, setReadError] = useState('')
+  const [actionFeedback, setActionFeedback] = useState<SourceActionFeedback>()
   const [reading, setReading] = useState(false)
   const [windowHistory, setWindowHistory] = useState<SourceReadCursor[]>([])
   const [windowError, setWindowError] = useState('')
@@ -80,7 +85,7 @@ export function SourceApp() {
   const [latestEntry, setLatestEntry] = useState<SourceEntry | null>()
   const [dismissedUpdate, setDismissedUpdate] = useState<{ entryId: string; revision?: string }>()
   const [newMessageIndex, setNewMessageIndex] = useState<number>()
-  const pendingNewMessageIndex = useRef<number | undefined>(undefined)
+  const pendingNewMessages = useRef<{ index: number; jump: boolean } | undefined>(undefined)
   const listViewport = useRef<HTMLDivElement>(null)
   const messagesViewport = useRef<HTMLDivElement>(null)
   const restoreScroll = useRef<number | undefined>(undefined)
@@ -115,7 +120,8 @@ export function SourceApp() {
   useEffect(() => {
     let active = true, timer: ReturnType<typeof setTimeout> | undefined
     const request = ++listRequest.current
-    setLoaded(false); setListError(''); setError(''); setLoadingMore(false); setPendingList(false)
+    moreRequest.current = undefined
+    setLoaded(false); setListError(''); setError(''); setLoadingMore(false); setMoreError(''); setPendingList(false)
     setPage(previous => ({ ...emptyPage, connections: previous.connections }))
     async function load() {
       try {
@@ -140,9 +146,9 @@ export function SourceApp() {
     void readSelected(selected, request, previous, latestEntry?.id === selected.id ? latestEntry.revision : selected.revision)
     return () => { readRequest.current += 1 }
   }, [selected?.id, readAttempt])
-  async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent, observedRevision = entry.revision) {
+  async function readSelected(entry: SourceEntry, request: number, previous?: SourceContent, observedRevision = entry.revision, jumpToNewMessages = false) {
     setReading(true); setReadError(''); setNewMessageIndex(undefined)
-    pendingNewMessageIndex.current = undefined
+    pendingNewMessages.current = undefined
     return window.staithe.sources.read(entry.id).then(result => {
       if (request === readRequest.current) {
         if (previous) {
@@ -156,7 +162,7 @@ export function SourceApp() {
           })
           const completeWindows = !previous.window?.hasMore && !previous.window?.offset && !previous.window?.textOffset
             && !result.window?.hasMore && !result.window?.offset && !result.window?.textOffset
-          if (completeWindows && after.length > before.length && stablePrefix) pendingNewMessageIndex.current = before.length
+          if (completeWindows && after.length > before.length && stablePrefix) pendingNewMessages.current = { index: before.length, jump: jumpToNewMessages }
         }
         setWindowHistory([]); setWindowError('')
         // 仅确认请求开始时已观察到的目录版本，不吞掉读取期间新到的更新。
@@ -198,9 +204,16 @@ export function SourceApp() {
       viewport.scrollTop = restoreScroll.current
       restoreScroll.current = undefined
     }
-    const index = pendingNewMessageIndex.current ?? newMessageIndex
-    pendingNewMessageIndex.current = undefined
+    const pending = pendingNewMessages.current
+    const index = pending?.index ?? newMessageIndex
+    pendingNewMessages.current = undefined
     if (!content || !viewport || index === undefined) return
+    // 点击更新已表达跳转意图：等待新正文挂载后直接定位，不再要求第二次点击。
+    if (pending?.jump) {
+      viewport.querySelectorAll('article.message')[index]?.scrollIntoView({ block: 'start' })
+      setNewMessageIndex(undefined)
+      return
+    }
     const dismissIfVisible = () => {
       const visible = newMessagesAreVisible(viewport, index)
       if (visible) setNewMessageIndex(undefined)
@@ -260,15 +273,15 @@ export function SourceApp() {
     return () => window.removeEventListener('keydown', shortcut)
   }, [loaded, busy, connecting, searchOpen])
 
-  function navigate(update: Partial<BrowserView>) {
-    const next = { source, selected, ...update }
+  const navigate = useCallback((update: Partial<BrowserView>) => {
+    const view = current.current, next = { source: view.source, selected: view.selected, ...update }
     transitionDetail(() => setNavigation(previous => {
       const current = previous.entries[previous.index], next = { ...current, ...update }
       if (current.source === next.source && current.selected?.id === next.selected?.id) return previous
       const entries = [...previous.entries.slice(0, previous.index + 1), next].slice(-100)
       return { entries, index: entries.length - 1 }
-    }), selected?.id !== next.selected?.id)
-  }
+    }), view.selected?.id !== next.selected?.id)
+  }, [transitionDetail])
   function travel(direction: -1 | 1) {
     const next = navigation.entries[navigation.index + direction]
     transitionDetail(() => setNavigation(previous => {
@@ -334,7 +347,7 @@ export function SourceApp() {
         if (!next.hasMore || !next.items.length) break
       }
       if (result) {
-        setPage({ ...result, items, offset: 0 }); setPendingList(false); setListError('')
+        setPage({ ...result, items, offset: 0 }); setPendingList(false); setListError(''); setMoreError('')
         if (resetPosition && listViewport.current) listViewport.current.scrollTop = 0
         return
       }
@@ -343,7 +356,7 @@ export function SourceApp() {
   }
   async function checkSources(mode: 'automatic' | 'manual', ids?: string[], refreshContent = false) {
     const view = current.current
-    if (checkingRef.current || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
+    if (checkingRef.current || moreRequest.current !== undefined || view.busy || !view.loaded || view.loadingMore || !view.page.connections.length) return
     // 管理连接期间暂停自动目录检查，不因定时器或窗口聚焦反复刷新弹窗。
     if (mode === 'automatic' && (view.connecting || document.visibilityState !== 'visible' || Date.now() - lastAutomaticCheck.current < 15_000)) return
     if (mode === 'automatic') lastAutomaticCheck.current = Date.now()
@@ -398,15 +411,28 @@ export function SourceApp() {
     finally { checkingRef.current = false; if (mounted.current) setChecking(false) }
   }
   async function more() {
+    const view = current.current
+    if (!mounted.current || moreRequest.current !== undefined || checkingRef.current || !view.loaded || !view.page.hasMore
+      || view.loadingMore || view.pendingList || view.busy || view.connecting || searchOpen
+      || view.page.connections.some(item => item.status === 'scanning' && (view.source === 'all' || item.source === view.source))) return
     const request = listRequest.current
-    setLoadingMore(true)
+    // 同步锁先于 React 提交，挡住同一批观察器回调；旧请求不能释放新来源的锁。
+    moreRequest.current = request
+    setLoadingMore(true); setMoreError('')
     try {
-      const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query: '', offset: page.items.length, limit: 50 })
-      if (request !== listRequest.current) return
-      if (!sameSourceSnapshot(page, result)) { setPendingList(true); return }
+      const result = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset: view.page.items.length, limit: 50 })
+      if (!mounted.current || request !== listRequest.current) return
+      if (!sameSourceSnapshot(view.page, result)) { setPendingList(true); return }
+      const entries = new Map(view.page.items.map(item => [item.id, item]))
+      for (const entry of result.items) entries.set(entry.id, entry)
+      if (result.hasMore && entries.size === view.page.items.length) throw new Error('分页未取得新会话，请刷新列表或重试')
+      // 正文读取可能刚补出了标题；在合并时使用最新列表，不覆盖在途的本地更新。
       setPage(previous => ({ ...result, items: [...new Map([...previous.items, ...result.items].map(item => [item.id, item])).values()] }))
-    } catch (reason) { if (request === listRequest.current) setError(errorText(reason)) }
-    finally { if (request === listRequest.current) setLoadingMore(false) }
+    } catch (reason) { if (mounted.current && request === listRequest.current) setMoreError(errorText(reason)) }
+    finally {
+      if (moreRequest.current === request) moreRequest.current = undefined
+      if (mounted.current && request === listRequest.current) setLoadingMore(false)
+    }
   }
   function emptyAction(kind: EmptyStateKind): EmptyStateAction | undefined {
     if (kind === 'disconnected' || kind === 'connections-empty') return { label: '连接来源 App', disabled: busy, onClick: () => { setSearchOpen(false); openConnections() } }
@@ -450,12 +476,11 @@ export function SourceApp() {
             <DsRefreshButton className="source-refresh-button" aria-label="刷新当前来源" loading={checking || scanning} disabled={!loaded || busy || !relevant.length} onClick={() => refresh()} />
           </div>
           <ScrollArea ref={listViewport} className="session-list" revealSelector=".session-card[aria-pressed='true']" bottomOverlayHeight={pendingList ? 96 : 0} style={pendingList ? { paddingBottom: 108 } : undefined} aria-busy={!loaded || scanning}>
-            {page.items.map(entry => <button key={entry.id} className={`session-card ${selected?.id === entry.id ? 'selected' : ''}`} aria-label={`${entry.title} ${entry.project}`} aria-pressed={selected?.id === entry.id} onClick={() => navigate({ selected: entry })}>
-              <div className="card-meta"><span><SourceIcon source={entry.source} size={14} />{sourceNames[entry.source]}</span><SessionTime dateTime={entry.updatedAt} now={now} /></div><FadeText as="h3" text={entry.title} lines={2} />{entry.kind && entry.kind !== 'conversation' && <span className="source-kind">{sourceKindNames[entry.kind]}</span>}
-            </button>)}
+            {page.items.map(entry => <SourceSessionCard key={entry.id} entry={entry} selected={selected?.id === entry.id} now={now} onSelect={navigate} />)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
             {emptyKind && <EmptyState kind={emptyKind} layout="quiet" action={selected ? emptyAction(emptyKind) : undefined} />}
-            {page.hasMore && <DsButton disabled={scanning || loadingMore || checking || pendingList || !loaded} onClick={() => void more()}>{loadingMore ? <LoadingMark label="正在加载更多会话" /> : '加载更多'}</DsButton>}
+            {page.hasMore && <SourceListLoadMore viewport={listViewport} progress={page.items.length} loading={loadingMore} error={moreError}
+              disabled={scanning || checking || pendingList || !loaded || busy || connecting || searchOpen} onLoadMore={() => void more()} />}
           </ScrollArea>
           {pendingList && <DsButton className="source-list-update" size="small" aria-label="列表有更新，点击查看" disabled={checking || loadingMore} onClick={() => void showListUpdates()}>列表有更新，点击查看</DsButton>}
         </SessionPane>
@@ -463,19 +488,21 @@ export function SourceApp() {
           {selected ? <>
             <div className="detail-header source-detail-header">
               <div className="detail-title-row">
-                <div className="detail-title-group"><h2>{content?.session.title ?? selected.title}</h2></div>
-                <SourceActions entryId={selected.id} content={content} disabled={busy || reading}
+                <div className="detail-title-group"><FadeText as="h2" text={content?.session.title ?? selected.title} scrollOnHover /></div>
+                <SourceActions entryId={selected.id} content={content} disabled={busy || reading} onFeedbackChange={setActionFeedback}
                   snapshotNotice={latestEntry === null ? '来源会话已删除，当前为上次读取的快照。'
                     : contentChanged ? '来源已有更新，当前为旧快照。'
                       : readError || windowError ? '最近一次读取未完成，当前为保留的快照。' : undefined} />
               </div>
-              <div className="detail-meta"><span><SourceIcon source={selected.source} size={14} />{sourceNames[selected.source]}</span>{(content?.presentation?.kind ?? selected.kind) && (content?.presentation?.kind ?? selected.kind) !== 'conversation' && <span>{sourceKindNames[content?.presentation?.kind ?? selected.kind!]}</span>}<span className="detail-message-count" aria-label={content ? undefined : reading ? '消息数正在读取' : '消息数暂不可用'}>{content ? content.window ? `${content.window.totalMessages} 条来源消息 · 当前片段 ${content.session.messages.length} 条文本` : `${content.session.messages.length} 条消息` : '— 条消息'}</span>{content?.presentation && (content.presentation.toolCalls + content.presentation.toolResults > 0) && <span>{content.presentation.toolCalls + content.presentation.toolResults} 项工具活动</span>}<time dateTime={selected.updatedAt}>{selected.updatedAt.slice(0, 10)}</time></div>
+              <div className="source-detail-context">
+                <SourceDetailMeta entry={selected} content={content} reading={reading} />
+                {content && <SourceReadNotice key={selected.id} warnings={content.warnings} disabled={busy || reading} />}
+              </div>
             </div>
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
             {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
             {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
-              <SourceReadNotice warnings={content.warnings} />
               {windowError && <div className="source-update-notice" role="alert"><span>{windowError}</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>从头重新读取</DsButton></div>}
               {content.window && (content.window.hasMore || content.window.offset > 0 || content.window.textOffset > 0) && <nav className="source-update-notice" aria-label="正文分段导航">
                 {windowHistory.length > 0 && <DsButton size="small" disabled={reading} onClick={() => void readWindow('previous')}>上一段</DsButton>}
@@ -483,14 +510,17 @@ export function SourceApp() {
                 {content.window.next && <DsButton size="small" disabled={reading} onClick={() => void readWindow('next')}>下一段</DsButton>}
               </nav>}
               <div className="source-messages-region">
-              <SourceUpdatePill state={contentChanged ? dismissedUpdate?.entryId === selected.id && dismissedUpdate.revision === latestEntry?.revision ? undefined
+              <SourceUpdatePill notice={actionFeedback?.id === selected.id ? actionFeedback.message : undefined}
+                state={contentChanged ? dismissedUpdate?.entryId === selected.id && dismissedUpdate.revision === latestEntry?.revision ? undefined
                   : reading ? 'reading' : 'updated' : newMessageIndex !== undefined ? 'jump' : undefined}
                 onDismiss={() => {
                   if (reading) return
                   if (contentChanged && latestEntry) setDismissedUpdate({ entryId: selected.id, revision: latestEntry.revision })
                   setNewMessageIndex(undefined)
                 }}
-                onRead={() => setReadAttempt(value => value + 1)} onJump={() => {
+                onRead={() => {
+                  if (selected && !reading) void readSelected(selected, ++readRequest.current, content, latestEntry?.revision ?? selected.revision, true)
+                }} onJump={() => {
                   if (newMessageIndex === undefined) return
                   messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' })
                   setNewMessageIndex(undefined)

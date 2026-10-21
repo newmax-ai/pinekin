@@ -6,13 +6,16 @@ import { DsButton, DesignIcon, DsDialogPresence } from './ui'
 import { SourceTargetDialog } from './SourceTargetDialog'
 import { SourceReadNotesDialog } from './SourceReadNotes'
 import { DsMenu } from './DsMenu'
+import { Toast, type ToastMessage } from './Toast'
 import { restoreFocusWithoutTooltip } from './Tooltip'
 import './SourceActions.css'
 
 const handoffUnavailable = '文件交接接口尚未加载，请在方便时更新或重启当前 Pinekin 主实例。'
+export type SourceActionFeedback = { id: string; message: ToastMessage }
 
-export function SourceActions({ entryId, content, disabled = false, snapshotNotice }: {
+export function SourceActions({ entryId, content, disabled = false, snapshotNotice, onFeedbackChange }: {
   entryId: string; content?: SourceContent; disabled?: boolean; snapshotNotice?: string
+  onFeedbackChange?(feedback?: SourceActionFeedback): void
 }) {
   const [capabilities, setCapabilities] = useState<{ id: string; value?: SourceActionCapabilities; error?: string }>()
   const [attempt, setAttempt] = useState(0)
@@ -24,6 +27,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const epoch = targetEpoch.current
   const [busyId, setBusyId] = useState('')
   const [feedback, setFeedback] = useState<{ id: string; text: string; error?: boolean }>()
+  const [copied, setCopied] = useState<{ id: string }>()
   const pending = useRef(new Set<string>())
   const currentId = useRef(entryId)
   currentId.current = entryId
@@ -65,6 +69,18 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     const timer = setTimeout(() => setFeedback(current => current === status ? undefined : current), 3000)
     return () => clearTimeout(timer)
   }, [status])
+  useEffect(() => { setCopied(undefined) }, [entryId, content, disabled])
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(current => current === copied ? undefined : current), 3000)
+    return () => clearTimeout(timer)
+  }, [copied])
+  const toast = useMemo<ToastMessage | undefined>(() => status || capability?.error ? {
+    text: status?.text ?? capability!.error!, error: status?.error || !status,
+    ...(status ? { onDismiss: () => setFeedback(undefined) } : { retry: { label: '重试检查', onClick: () => setAttempt(value => value + 1) } }),
+  } : undefined, [status, capability?.error])
+  useEffect(() => { onFeedbackChange?.(toast ? { id: entryId, message: toast } : undefined) }, [entryId, toast, onFeedbackChange])
+  useEffect(() => () => onFeedbackChange?.(undefined), [onFeedbackChange])
   useLayoutEffect(() => {
     if (!menuOpen) return
     const anchor = trigger.current, root = container.current, popup = menu.current
@@ -118,6 +134,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     const id = entryId, requestEpoch = fileEpoch.current
     const active = () => alive.current && currentId.current === id && !currentDisabled.current && requestEpoch === fileEpoch.current
     pending.current.add(id); setBusyId(id); setFeedback(undefined); closeMenu()
+    if (kind === 'handoff-copy') setCopied(undefined)
     let token: string | undefined
     try {
       let text: string | undefined
@@ -128,16 +145,18 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
         if (!active()) return
         fileToken.current = token
         const result = await api.deliverHandoffFile(token, kind === 'handoff-copy' ? 'copy-file' : 'export')
-        if (result.status === 'file-copied') text = '文件已复制，可在支持文件粘贴的 App 中添加。'
-        else if (result.status === 'exported') text = '接续文件已保存，可在其他 App 中添加。'
+        if (result.status === 'file-copied') {
+          text = '文件已复制'
+          if (active() && kind === 'handoff-copy') setCopied({ id })
+        } else if (result.status === 'exported') text = '文件已保存'
       } else if (kind === 'open') {
         if (!api || !capability?.value?.original.available) return
         const result = await api.openOriginal(id)
-        text = `已请求 ${result.app} 打开原会话，请在原 App 查看。`
+        text = `已请求 ${result.app} 打开原会话`
       } else {
         if (!transcript?.text || transcript.error) throw new Error(transcript?.error ?? '当前没有可复制的文本。')
-        if (kind === 'copy') { await window.staithe.copy(transcript.text); text = transcript.partial ? '已复制当前片段。' : '已复制会话文本。' }
-        else if (api && await api.exportText(transcript.text)) text = transcript.partial ? '已导出当前片段。' : '已导出 Markdown。'
+        if (kind === 'copy') { await window.staithe.copy(transcript.text); text = transcript.partial ? '已复制当前片段' : '已复制会话文本' }
+        else if (api && await api.exportText(transcript.text)) text = transcript.partial ? '已导出当前片段' : '已导出 Markdown'
       }
       if (text && active()) setFeedback({ id, text })
     } catch (error) {
@@ -156,8 +175,11 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
         variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" /></DsButton>
       {api && <DsButton title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
         disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
-      {api && <DsButton variant="primary" title="复制包含完整可读历史的通用 Markdown 文件；原附件需另行添加"
-        disabled={disabled || busy} onClick={() => void run('handoff-copy')}>复制接续文件</DsButton>}
+      {api && <DsButton variant="primary" aria-label={copied?.id === entryId ? '已复制' : '复制接续文件'} title="复制包含完整可读历史的通用 Markdown 文件；原附件需另行添加"
+        disabled={disabled || busy} onClick={() => void run('handoff-copy')}>
+        <span className="source-copy-label"><span className="source-copy-size" aria-hidden="true">复制接续文件</span>
+          <span className="source-copy-text">{copied?.id === entryId ? '已复制' : '复制接续文件'}</span></span>
+      </DsButton>}
     </div>
     <DsMenu open={menuOpen} ref={menu} className="source-actions-menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
@@ -184,10 +206,6 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
               : `已创建 ${result.messageCount} 条文本历史，但未能打开 ${result.app}：${result.error}。再次接续可重试，不会重复创建。` })
         }
       }} />}</DsDialogPresence>
-    {(status || capability?.error) && <div className="source-actions-feedback" role={status?.error || !status ? 'alert' : 'status'}>
-      <span>{status?.text ?? capability?.error}</span>
-      {!status && <DsButton size="small" onClick={() => setAttempt(value => value + 1)}>重试检查</DsButton>}
-      {status && <DsButton variant="ghost" size="small" iconOnly aria-label="关闭操作提示" onClick={() => setFeedback(undefined)}><DesignIcon name="close" size={14} /></DsButton>}
-    </div>}
+    {!onFeedbackChange && <Toast message={toast} className="source-actions-feedback" />}
   </div>
 }

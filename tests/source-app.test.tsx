@@ -5,13 +5,15 @@ import { App } from '../src/renderer/src/App'
 import type { SourceConnection, SourceContent, SourceEntry, SourcePage } from '../src/core/sources'
 import { fixtureSessions } from './fixtures/sessions'
 import { browsableSources, sourceNames, type BrowsableSource } from '../src/core/sources'
+import { installListIntersectionObserver, intersectSessionList } from './fixtures/list-intersection'
 
 const connection: SourceConnection = { id: '11111111-1111-4111-8111-111111111111', source: 'claude-code', label: 'projects', status: 'ready', discovered: 135, total: 135, issues: 0, ignoredLinks: 0 }
 const entry: SourceEntry = { id: 'a'.repeat(64), connectionId: connection.id, source: 'claude-code', title: '来源会话', project: 'my-project', updatedAt: '2026-10-18T00:00:00Z', availability: 'unread' }
 const content: SourceContent = { session: { ...fixtureSessions[0], id: entry.id, title: entry.title, source: entry.source }, warnings: ['仅文本，不支持原生恢复'] }
 const page: SourcePage = { items: [entry], total: 135, offset: 0, hasMore: true, connections: [connection] }
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 beforeEach(() => {
+  installListIntersectionObserver()
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   // JSDOM 只有 popover 的隐藏样式，没有 show/hide 实现；真实 top layer 由 Electron E2E 验证。
   HTMLElement.prototype.showPopover = function () { this.style.display = 'block' }
@@ -208,16 +210,20 @@ describe('来源逻辑沿用原有设计', () => {
     const metadata = header.querySelector('.detail-meta') as HTMLElement
     expect(within(metadata).queryByText('未导入 Pinekin')).toBeNull()
     expect(within(metadata).getByText('Claude Code')).toBeTruthy()
-    expect(within(metadata).getByText(`${content.session.messages.length} 条消息`)).toBeTruthy()
+    expect(within(metadata).getByLabelText(`${content.session.messages.length} 条消息`).textContent).toBe(`${content.session.messages.length} 条消息`)
     expect(metadata.querySelector('time')?.getAttribute('datetime')).toBe(entry.updatedAt)
     expect(metadata.lastElementChild?.tagName).toBe('TIME')
     const title = within(header).getByRole('heading', { level: 2, name: entry.title })
+    expect(title.classList.contains('ds-fade-text')).toBe(true)
+    expect(title.getAttribute('title')).toBe(entry.title)
+    expect(title.getAttribute('data-scroll-on-hover')).toBe('true')
+    expect(title.getAttribute('data-lines')).toBeNull()
     expect(title.closest('.detail-title-group')?.querySelector('.archive-badge')).toBeNull()
     const pin = within(header).getByRole('button', { name: '更多会话操作' })
     expect(pin.closest('.detail-title-row')).not.toBeNull()
     expect(screen.getByRole('region', { name: '来源会话详情' }).querySelector('.detail-footer')).toBeNull()
     expect(screen.queryByRole('button', { name: '重新读取正文' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    await act(async () => intersectSessionList())
     await waitFor(() => expect(window.staithe.sources.page).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 1 })))
   })
   it('大正文按片段切换，明确显示范围，不累计挂载所有消息，切换失败保留当前片段', async () => {
@@ -232,7 +238,7 @@ describe('来源逻辑沿用原有设计', () => {
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: /来源会话 my-project/ }))
     await screen.findByText('第一片段')
-    expect(screen.getByText(/101 条来源消息/)).toBeTruthy()
+    expect(screen.getByLabelText(/101 条来源消息/).textContent).toContain('101 条来源消息')
     expect(screen.queryByText('对话到这里，思考可以继续')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '下一段' }))
     await screen.findByText('稍后重试')

@@ -1,0 +1,5 @@
+/* 屏外卡片保留原生查找、键盘焦点与选择节点；浏览器跳过其布局／绘制，记住实测高度。
+   这是渲染跳过，不是 DOM 虚拟化：元数据和已加载卡片节点仍按已浏览页数增长。 */
+.source-session-card:not([aria-pressed='true']) { content-visibility: auto; contain-intrinsic-block-size: auto 60px; }
+.session-list-load { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 28px; padding: 4px 12px; color: var(--ds-text-tertiary); font-size: var(--ds-text-xs); }
+.session-list-load p { margin: 0; overflow-wrap: anywhere; }

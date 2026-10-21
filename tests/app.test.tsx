@@ -474,6 +474,10 @@ describe('档案界面', () => {
     const header = reader.querySelector('.detail-header') as HTMLElement
     expect(within(header).getByRole('heading', { level: 2, name: demoSessions[0].title })).toBeTruthy()
     const title = within(header).getByRole('heading', { level: 2, name: demoSessions[0].title })
+    expect(title.classList.contains('ds-fade-text')).toBe(true)
+    expect(title.getAttribute('title')).toBe(demoSessions[0].title)
+    expect(title.getAttribute('data-scroll-on-hover')).toBe('true')
+    expect(title.getAttribute('data-lines')).toBeNull()
     expect(title.closest('.detail-title-group')?.querySelector('.archive-badge')?.textContent).toBe('本地档案')
     const pin = within(header).getByRole('button', { name: 'Pin 走这段对话' })
     expect(pin.closest('.detail-title-row')).not.toBeNull()

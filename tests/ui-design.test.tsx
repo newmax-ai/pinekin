@@ -34,6 +34,76 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('详情长标题仅在悬停或键盘聚焦时慢滚一次，延迟启动并尊重减少动态效果', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const track = /\.ds-fade-text\[data-scroll-on-hover='true'\] > \.ds-fade-text-content\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(track).toContain('display: inline-block;')
+    expect(track).toContain('width: max-content;')
+    expect(track).not.toContain('animation:')
+    const motion = /\.ds-fade-text\[data-scroll-on-hover='true'\]\[data-overflow='true'\]:is\(:hover, :focus-visible\) > \.ds-fade-text-content\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(motion).toContain('animation: ds-fade-text-scroll var(--fade-scroll-duration) linear 200ms 1 both;')
+    expect(motion).not.toContain('infinite')
+    expect(styles).toMatch(/@keyframes ds-fade-text-scroll\s*\{[^]*?transform: translateX\(calc\(-1 \* var\(--fade-scroll-distance\)\)\)/)
+    expect(styles).toMatch(/@media\s*\(prefers-reduced-motion: reduce\)\s*\{[^]*?animation: none !important;/)
+  })
+  it('详情标题仅显示一行并复用溢出渐隐 mask，不绘制省略号或强制遮住短标题', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const title = /\.detail-header h2\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(title).toContain('display: block;')
+    expect(title).toContain('white-space: nowrap;')
+    expect(title).toContain('overflow: hidden;')
+    expect(title).toContain('text-overflow: clip;')
+    expect(title).toContain('--fade-overflow-width: 32px;')
+    expect(title).not.toMatch(/line-clamp|text-overflow:\s*ellipsis|mask-image:/)
+    expect(styles).toMatch(/\.ds-fade-text\[data-overflow='true'\]\s*\{[^}]*mask-image: linear-gradient/)
+  })
+  it('详情全部消息角色共用中文断行和尾行优化，而非只作用于助手', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const body = /\.message-body\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(body).toContain('line-break: strict;')
+    expect(body).toContain('word-break: auto-phrase;')
+    expect(body).toContain('text-wrap: pretty;')
+    expect(styles).toMatch(/\.message-body p\s*\{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: break-word;/)
+    expect(styles).toMatch(/@supports not \(word-break: auto-phrase\)\s*\{\s*\.detail-header h2, \.message-body\s*\{\s*word-break: keep-all;/)
+    expect(readFileSync(resolve('src/renderer/index.html'), 'utf8')).toContain('<html lang="zh-CN">')
+  })
+  it('Markdown 标题及正文沿用中文排版，但代码明确退出短语断行和尾行重排', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/MessageContent.css'), 'utf8')
+    const prose = /\.message-markdown\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(prose).toContain('overflow-wrap: break-word;')
+    expect(styles).toMatch(/\.message-markdown :is\(h1, h2, h3, h4, h5, h6\)\s*\{[^}]*text-wrap: balance;/)
+    const inline = /\.message-markdown \.markdown-inline-code\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(inline).toContain('line-break: auto;')
+    expect(inline).toContain('word-break: normal;')
+    expect(inline).toContain('text-wrap: wrap;')
+    expect(inline).toContain('overflow-wrap: anywhere;')
+    const code = /\.message-markdown \.code-block :is\(pre, code\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    for (const rule of ['white-space: pre;', 'overflow-wrap: normal;', 'word-break: normal;', 'line-break: auto;', 'text-wrap: nowrap;']) expect(code).toContain(rule)
+  })
+  it('读取说明段落使用严格中文断行和尾行优化，长路径仍可应急换行', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceReadNotes.css'), 'utf8')
+    const paragraph = /\.source-read-notes p\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(paragraph).toContain('line-break: strict;')
+    expect(paragraph).toContain('word-break: normal;')
+    expect(paragraph).toContain('text-wrap: pretty;')
+    expect(styles).toMatch(/\.source-read-notes\s*\{[^}]*overflow-wrap: anywhere;/)
+    expect(styles).toMatch(/\.source-read-notes-raw\s*\{[^}]*white-space: pre-wrap;/)
+    expect(paragraph).not.toMatch(/word-break:\s*(break-all|keep-all)|white-space:\s*nowrap/)
+  })
+  it('读取说明折叠入口使用普通圆角列表行，向外扩展背景并以等量内边距保持文字对齐', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceReadNotes.css'), 'utf8')
+    const row = /\.source-read-notes-details > \.source-read-notes-toggle\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(row).toContain('border-radius: var(--ds-radius-md);')
+    expect(row).toContain('corner-shape: var(--ds-corner-shape);')
+    expect(row).toContain('padding: 8px 12px;')
+    expect(row).toContain('margin-inline: -12px;')
+    expect(row).toContain('width: calc(100% + 24px);')
+    expect(row).toContain('height: auto;')
+    expect(row).toContain('min-height: 36px;')
+    expect(row).toContain('justify-content: space-between;')
+    expect(row).not.toMatch(/radius-pill|padding-inline:\s*0|position:\s*absolute/)
+    expect(styles).not.toMatch(/\.source-read-notes-raw\s*\{[^}]*margin-inline:/)
+  })
   it('接续设置路径复用中性表面与等宽字体，可选择复制且长路径自然换行', () => {
     const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
     const path = /\.source-target-setting-path\s*\{([^}]*)\}/.exec(styles)?.[1]
@@ -102,17 +172,32 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(icon).toContain('color: var(--ds-icon);')
     expect(icon).toContain('flex-shrink: 0;')
   })
-  it('操作通知去掉边框，使用带 0.5px 轮廓的轻量分层投影并适配浅深主题', () => {
-    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
-    const feedback = /\.source-actions-feedback\s*\{([^}]*)\}/.exec(styles)?.[1]
+  it('复制按钮使用原文案占位锁定宽高，操作通知与更新提示共用居中白底胶囊', () => {
+    const actions = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    expect(actions).toMatch(/\.source-copy-label\s*\{[^}]*display: grid;[^}]*place-items: center;/)
+    expect(actions).toMatch(/\.source-copy-label > span\s*\{[^}]*grid-area: 1 \/ 1;/)
+    expect(actions).toMatch(/\.source-copy-size\s*\{[^}]*visibility: hidden;/)
+    expect(actions).not.toMatch(/\.source-actions-feedback\s*\{/)
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const feedback = /\.source-content-update > \.ds-toast-surface\s*\{([^}]*)\}/.exec(styles)?.[1]
     expect(feedback).toContain('border: 0;')
-    expect(feedback).toContain('box-shadow: var(--ds-elevation-200);')
-    expect(feedback).not.toContain('0 8px 24px')
+    expect(feedback).toContain('background: var(--ds-surface-100);')
+    expect(feedback).toContain('box-shadow: var(--ds-floating-card-shadow);')
+    expect(styles).toMatch(/\.ds-toast-surface \.source-update-label\s*\{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;/)
     for (const theme of themes) {
-      const shadow = declaration(theme, 'elevation-200')
+      const shadow = declaration(theme, 'floating-card-shadow')
       expect(shadow).toContain('0.5px')
       expect(shadow.split(/,(?![^()]*\))/).length).toBeGreaterThan(1)
     }
+  })
+  it('带关闭图标的 Toast 单独收紧右侧留白，不改变文字间距或关闭按钮点击区域', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const compact = /\.source-content-update > \.ds-toast-surface:has\(> \.ds-button-icon\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(compact).toBeDefined()
+    expect(compact).toContain('padding-right: 6px;')
+    expect(compact).not.toMatch(/(?:width|height|gap|padding-left|padding-top|padding-bottom|transform|animation):/)
+    const surface = /(?:^|\n)\.ds-toast-surface\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(surface).toContain('gap: 8px;')
   })
   it('正文更新胶囊相对消息区域绝对定位，顶部居中并保留边距，不随正文滚动或撑开布局', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
@@ -191,6 +276,32 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toMatch(/\.detail-title-row\s*\{[^}]*flex-wrap: wrap;/)
     expect(styles).toMatch(/\.detail-title-row > \.ds-button\s*\{[^}]*flex-shrink: 0;[^}]*margin-left: auto;[^}]*padding: 0 16px;/)
     expect(styles).not.toContain('.detail-footer .ds-button-primary')
+  })
+  it('来源描述和日期保持紧凑相邻，数字使用自然宽度且不靠拉伸描述把日期推到右端', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const row = /\.source-detail-meta\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(row).toContain('display: grid;')
+    expect(row).toContain('grid-template-columns: max-content minmax(0, max-content) max-content;')
+    expect(row).not.toContain('1fr')
+    expect(row).toContain('min-height: 18px;')
+    const number = /\.source-detail-number\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(styles).not.toContain('--source-meta-number-width')
+    expect(number ?? '').not.toMatch(/(?:width|min-width|max-width|inline-size|display|text-align):/)
+    const summary = /\.source-detail-summary\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(summary).toContain('min-width: 0;')
+    const text = /\.source-detail-summary-text\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(text).toContain('overflow: hidden;')
+    expect(text).toContain('text-overflow: ellipsis;')
+    expect(text).toContain('white-space: nowrap;')
+    expect(styles).toMatch(/\.source-detail-meta > time\s*\{[^}]*font-variant-numeric: tabular-nums;[^}]*white-space: nowrap;/)
+  })
+  it('来源标题按单行预留紧凑操作高度，不再保留两行标题空白', () => {
+    const styles = readFileSync(resolve('src/renderer/src/components/SourceActions.css'), 'utf8')
+    const group = /\.source-detail-header \.detail-title-group\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(group).toContain('min-height: 32px;')
+    expect(group).toContain('align-items: center;')
+    expect(group).toContain('padding-top: 0;')
+    expect(group).not.toContain('50px')
   })
   it('详情元信息以居中的小圆点分隔，首项无分隔符且不再使用竖线', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')

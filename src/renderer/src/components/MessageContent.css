@@ -3,7 +3,7 @@
   max-width: 100%;
   font-size: var(--ds-text-dense);
   line-height: 1.9;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -12,6 +12,7 @@
   margin: 1em 0 0.5em;
   font-weight: 600;
   line-height: 1.5;
+  text-wrap: balance;
 }
 .message-markdown h1 { font-size: 1.5em; }
 .message-markdown h2 { font-size: 1.3em; }
@@ -35,9 +36,13 @@
   font-family: var(--ds-font-mono);
   font-size: 0.9em;
   white-space: pre-wrap;
+  line-break: auto;
+  word-break: normal;
+  text-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 .message-markdown .code-label { -webkit-user-select: none; user-select: none; }
-.message-markdown .code-block pre { white-space: pre; overflow-wrap: normal; }
+.message-markdown .code-block :is(pre, code) { white-space: pre; overflow-wrap: normal; word-break: normal; line-break: auto; text-wrap: nowrap; }
 .message-markdown .markdown-task-state { font-family: var(--ds-font-mono); color: var(--ds-text-secondary); }
 .message-markdown .markdown-image-alt { color: var(--ds-text-secondary); }
 .message-markdown .markdown-raw-html { white-space: pre-wrap; }

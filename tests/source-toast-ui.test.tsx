@@ -29,7 +29,7 @@ async function open() {
 }
 
 describe('消息区共用居中 Toast', () => {
-  it('关闭更新不读取或滚动，同版本检查后不复现，新版本仍提示', async () => {
+  it('关闭更新不读取或滚动，同版本检查和操作反馈结束后不复现，新版本仍提示', async () => {
     const messages = await open()
     messages.scrollTop = 120
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now())
@@ -46,6 +46,11 @@ describe('消息区共用居中 Toast', () => {
     fireEvent.focus(window)
     await waitFor(() => expect(window.staithe.sources.check).toHaveBeenCalledTimes(2))
     expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '复制接续文件' }))
+    await screen.findByText('文件已复制')
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+
     vi.mocked(window.staithe.sources.check).mockResolvedValueOnce({ version: 1, connections: [connection], selected: { ...entry, revision: 'v3' } })
     clock.mockReturnValue(Date.now() + 16_000)
     fireEvent.focus(window)
@@ -66,5 +71,45 @@ describe('消息区共用居中 Toast', () => {
     expect(window.staithe.sources.read).toHaveBeenCalledTimes(2)
     expect(messages.scrollTop).toBe(120)
     expect(scroll).not.toHaveBeenCalled()
+  })
+  it('复制提示位于消息区而非页头，按钮原位显示已复制，不重读正文', async () => {
+    const messages = await open()
+    messages.scrollTop = 120
+    const button = screen.getByRole('button', { name: '复制接续文件' })
+    fireEvent.click(button)
+    const label = await screen.findByText('文件已复制')
+    const toast = label.closest('[data-toast]')!
+    expect(toast.parentElement).toBe(messages.parentElement)
+    expect(toast.parentElement?.classList.contains('source-messages-region')).toBe(true)
+    expect(document.querySelector('.detail-header')?.contains(toast)).toBe(false)
+    expect(document.querySelectorAll('[data-toast]')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '已复制' })).toBe(button)
+    expect(messages.scrollTop).toBe(120)
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+  })
+  it('复制反馈临时复用更新浮层，关闭后恢复待查看更新，不丢失点击跳转入口', async () => {
+    const messages = await open()
+    fireEvent.focus(window)
+    const update = await screen.findByRole('button', { name: '查看更新' })
+    const toast = update.closest('[data-toast]')!
+    fireEvent.click(screen.getByRole('button', { name: '复制接续文件' }))
+    const label = await screen.findByText('文件已复制')
+    expect(label.closest('[data-toast]')).toBe(toast)
+    expect(document.querySelectorAll('[data-toast]')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '查看更新' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '关闭操作提示' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '查看更新' }).closest('[data-toast]')).toBe(toast))
+    expect(screen.getByRole('region', { name: '会话消息' })).toBe(messages)
+    expect(window.staithe.sources.read).toHaveBeenCalledOnce()
+  })
+  it('复制错误也使用居中 Toast，保留具体原因且不伪造已复制状态', async () => {
+    const messages = await open()
+    vi.mocked(window.staithe.sourceActions!.deliverHandoffFile!).mockRejectedValueOnce(new Error('合成文件复制失败'))
+    fireEvent.click(screen.getByRole('button', { name: '复制接续文件' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('合成文件复制失败')
+    expect(alert.parentElement).toBe(messages.parentElement)
+    expect(alert.getAttribute('data-toast')).toBe('true')
+    expect(screen.queryByRole('button', { name: '已复制' })).toBeNull()
   })
 })
