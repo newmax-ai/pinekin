@@ -925,6 +925,39 @@ test('页头搜索、浏览历史与侧栏展开收起保持布局和键盘可�
   await page.screenshot({ scale: 'css', path: 'test-results/staithe-header-navigation-light.png' })
 })
 
+test('侧栏 spring 保持固定画布、工作区联动与开关位置，系统减少动画可中途生效', async () => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  const sidebar = page.locator('.sidebar')
+  const canvas = page.locator('.sidebar-content')
+  const toggle = page.locator('.sidebar-toggle')
+  const toggleBox = await toggle.boundingBox()
+  await expect(sidebar).toHaveCSS('width', '240px')
+  await expect(toggle.locator('svg')).not.toHaveClass(/lucide/)
+  await toggle.click()
+  await page.waitForFunction(() => {
+    const width = document.querySelector('.sidebar')!.getBoundingClientRect().width
+    return width > 0 && width < 240
+  })
+  await expect(canvas).toHaveCSS('width', '240px')
+  await expect(canvas).toHaveCSS('transform', 'none')
+  await expect(sidebar).toHaveAttribute('inert', '')
+  await expect(sidebar).toHaveCSS('width', '0px')
+  await expect(sidebar).toBeHidden()
+  expect((await page.locator('.workspace-card').boundingBox())!.x).toBe(8)
+  expect(await toggle.boundingBox()).toEqual(toggleBox)
+  await toggle.click()
+  await page.waitForFunction(() => {
+    const width = document.querySelector('.sidebar')!.getBoundingClientRect().width
+    return width > 0 && width < 240
+  })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(sidebar).toHaveCSS('width', '240px')
+  await expect(sidebar).toBeVisible()
+  await expect(canvas).toHaveCSS('opacity', '1')
+  await expect(page.getByRole('button', { name: '搜索', exact: true })).toBeInViewport()
+  expect(await toggle.boundingBox()).toEqual(toggleBox)
+})
+
 test('本地收纳插画有独立展示宽度，放大后在深浅主题及最窄侧栏仍不挤压文案', async () => {
   const note = page.getByRole('region', { name: '本地存储与隐私' })
   const illustration = note.locator('img.storage-illustration')
@@ -1206,7 +1239,8 @@ test('桌面启动、全文搜索、来源筛选与视觉检查', async () => {
   page.on('pageerror', error => errors.push(error.message))
   await expect(page.locator('.brand-logo svg, .brand-logo img, .brand-mark, .source-dot, .sidebar-version')).toHaveCount(0)
   await expect(page.locator('.sidebar .brand .lucide-search')).toHaveCount(1)
-  await expect(page.locator('.design-icon:not(.lucide)')).toHaveCount(0)
+  await expect(page.locator('.sidebar-toggle .design-icon:not(.lucide)')).toHaveCount(1)
+  await expect(page.locator('.design-icon:not(.lucide):not(.sidebar-toggle .design-icon)')).toHaveCount(0)
   await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
   await expect(page.locator('.detail')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
   await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')

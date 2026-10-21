@@ -46,8 +46,10 @@ h1, h2, h3, strong { font-weight: 500; }
 /* 全高桌面工作台：各栏独立滚动，不挤压阅读与主操作。 */
 .shell { --sidebar-width: 240px; --list-width: 310px; display: flex; flex-direction: column; height: 100dvh; overflow: hidden; background: var(--ds-surface-300); }
 .app-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
-.sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: var(--ds-surface-300); container-type: inline-size; }
-.sidebar[hidden] { display: none; }
+.sidebar { position: relative; width: var(--sidebar-width); flex-shrink: 0; display: flex; flex-direction: column; background: var(--ds-surface-300); }
+/* 只裁切固定宽度画布；拖拽手柄留在裁切框外，侧栏文字不随开合挤压。 */
+.sidebar-content-clip { position: absolute; inset: 0; overflow: clip; }
+.sidebar-content { display: flex; flex-direction: column; height: 100%; container-type: inline-size; }
 .sidebar-resize-handle { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; z-index: 5; cursor: col-resize; touch-action: none; -webkit-app-region: no-drag; }
 /* 高亮避开卡片圆角和底部 8px 外边距，两端各以 16px 渐隐；拖拽命中区域仍保持全高。 */
 .sidebar-resize-handle::after { content: ''; position: absolute; top: var(--ds-radius-lg); bottom: calc(8px + var(--ds-radius-lg)); left: 2px; width: 2px; border-radius: var(--ds-radius-pill); background: linear-gradient(to bottom, transparent, var(--ds-text-tertiary) 16px, var(--ds-text-tertiary) calc(100% - 16px), transparent); opacity: 0; }
@@ -85,7 +87,6 @@ h1, h2, h3, strong { font-weight: 500; }
 /* 工具栏、列表和阅读区共享一个圆角面，侧栏与窗框保持同底色。
    卡片高于定位侧栏的背景绘制，避免左侧外阴影被覆盖；拖拽手柄仍位于上层。 */
 .workspace-card { position: relative; z-index: 1; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; margin: 0 8px 8px 0; border-radius: var(--ds-radius-lg); background: var(--ds-surface-200); box-shadow: var(--ds-workspace-shadow); overflow: hidden; }
-.sidebar[hidden] + .workspace-card { margin-left: 8px; }
 .topbar { height: 64px; padding-left: 20px; gap: 16px; display: flex; align-items: center; flex-shrink: 0; background: var(--ds-surface-200); }
 /* 38px 顶行让 28px 按钮上下各留 5px，中心仍与原生红绿灯 y=19 同轴。 */
 .window-toolbar { height: 38px; display: flex; flex-shrink: 0; align-items: center; background: var(--ds-surface-300); }

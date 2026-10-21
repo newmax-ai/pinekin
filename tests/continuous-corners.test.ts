@@ -51,7 +51,9 @@ describe('NewMax 连续圆角规则的独立适配', () => {
     expect(card).toContain('overflow: hidden;')
     expect(card).toContain('min-height: 0;')
     expect(card).toContain('margin: 0 8px 8px 0;')
-    expect(rule('.sidebar[hidden] + .workspace-card')).toContain('margin-left: 8px;')
+    // 收起后的 8px 留白改由侧栏与宽度同步动画，不能在 hidden 切换时跳变。
+    expect(read('src/renderer/src/components/Sidebar.tsx')).toContain('marginRight: open ? 0 : 8')
+    expect(styles).not.toContain('.sidebar[hidden] + .workspace-card')
     expect(rule('.topbar')).toContain('background: var(--ds-surface-200);')
   })
   it('卡片叠加无偏移无模糊的 0.5px 半透明扩展阴影，并保留原有柔影', () => {

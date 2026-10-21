@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from 'react'
-import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, Inbox, Info, Link, LockKeyhole, MessageSquareText, PanelLeft, PanelLeftClose, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
+import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeXml, Copy, Download, Ellipsis, Inbox, Info, Link, LockKeyhole, MessageSquareText, Plus, Search, Settings, ShieldCheck, X } from 'lucide-react'
 
 import { restoreFocusWithoutTooltip, Tooltip } from './Tooltip'
 
@@ -139,8 +139,6 @@ const icons = {
   link: Link,
   arrow: ArrowRight,
   back: ArrowLeft,
-  'panel-open': PanelLeftClose,
-  'panel-closed': PanelLeft,
   copy: Copy,
   download: Download,
   settings: Settings,
@@ -150,7 +148,15 @@ const icons = {
   check: Check,
   close: X,
 }
-export function DesignIcon({ name, size = 18 }: { name: keyof typeof icons | 'check-bold' | 'minus' | 'refresh'; size?: number }) {
+// NewMax DesignIcon 的 aside-close-left / aside-open-left 原始填充路径。
+const sidebarIconPaths = {
+  'panel-open': 'M17.5 3.5C19.7091 3.5 21.5 5.29086 21.5 7.5V16.5C21.5 18.64 19.8194 20.3879 17.7061 20.4951L17.5 20.5H6.5C4.29086 20.5 2.5 18.7091 2.5 16.5V7.5C2.5 5.29086 4.29086 3.5 6.5 3.5H17.5ZM6.5 5C5.11929 5 4 6.11929 4 7.5V16.5C4 17.8807 5.11929 19 6.5 19H17.5C18.8807 19 20 17.8807 20 16.5V7.5C20 6.11929 18.8807 5 17.5 5H6.5ZM7.75 8C8.16421 8 8.5 8.33579 8.5 8.75V15.25C8.5 15.6642 8.16421 16 7.75 16C7.33579 16 7 15.6642 7 15.25V8.75C7 8.33579 7.33579 8 7.75 8Z',
+  'panel-closed': 'M17.5 3.5C19.7091 3.5 21.5 5.29086 21.5 7.5V16.5C21.5 18.64 19.8194 20.3879 17.7061 20.4951L17.5 20.5H6.5C4.29086 20.5 2.5 18.7091 2.5 16.5V7.5C2.5 5.29086 4.29086 3.5 6.5 3.5H17.5ZM6.5 5C5.11929 5 4 6.11929 4 7.5V16.5C4 17.8807 5.11929 19 6.5 19H9V5H6.5ZM10.5 5V19H17.5C18.8807 19 20 17.8807 20 16.5V7.5C20 6.11929 18.8807 5 17.5 5H10.5Z',
+}
+export function DesignIcon({ name, size = 18 }: { name: keyof typeof icons | keyof typeof sidebarIconPaths | 'check-bold' | 'minus' | 'refresh'; size?: number }) {
+  if (name === 'panel-open' || name === 'panel-closed') return <svg className="design-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+    <path d={sidebarIconPaths[name]} fill="currentColor" />
+  </svg>
   // 刷新按钮沿用 NewMax DS 的单箭头图标，不引入宿主运行时依赖。
   if (name === 'refresh') return <svg className="design-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
     <path d="M19.7504 3.00018C20.1644 3.00042 20.5004 3.33611 20.5004 3.75018V8.75018C20.5003 9.16417 20.1644 9.49995 19.7504 9.50018H14.7504C14.3363 9.50018 14.0005 9.16431 14.0004 8.75018C14.0004 8.33597 14.3362 8.00018 14.7504 8.00018H18.0453C17.2933 6.86345 16.2332 5.95587 14.9799 5.39081C13.4602 4.7058 11.7502 4.56553 10.1391 4.99335C8.52806 5.42131 7.11372 6.39165 6.13422 7.74042C5.15476 9.08924 4.66956 10.7342 4.76117 12.3986C4.85285 14.0629 5.51563 15.645 6.63715 16.8781C7.75874 18.111 9.27126 18.9206 10.9194 19.1691C12.5676 19.4175 14.2517 19.09 15.687 18.2424C17.1222 17.3946 18.222 16.0783 18.8002 14.5148C18.9439 14.1263 19.3756 13.9278 19.7641 14.0715C20.1522 14.2153 20.3511 14.647 20.2075 15.0353C19.5097 16.9221 18.1827 18.5112 16.4506 19.5344C14.7185 20.5574 12.6859 20.9521 10.6967 20.6525C8.70741 20.3527 6.88154 19.376 5.52777 17.8879C4.17411 16.3997 3.37484 14.4903 3.2641 12.4816C3.15349 10.4727 3.73812 8.48655 4.92035 6.85858C6.10258 5.23068 7.80985 4.05961 9.75433 3.54315C11.6987 3.02683 13.7621 3.19689 15.5961 4.02362C16.9507 4.6343 18.119 5.57599 19.0004 6.75116V3.75018C19.0004 3.33597 19.3362 3.00018 19.7504 3.00018Z" fill="currentColor" />

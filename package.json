@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "entities": "8.1.0",
+    "framer-motion": "12.34.0",
     "lucide-react": "1.58.0",
     "marked": "18.1.1",
     "react": "19.3.1",
