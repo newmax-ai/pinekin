@@ -5,6 +5,7 @@ import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { SourceActions } from './components/SourceActions'
 import { SourceReadNotice } from './components/SourceReadNotes'
 import { SourceUpdatePill } from './components/SourceUpdatePill'
+import { useDetailTransition } from './components/useDetailTransition'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
@@ -48,6 +49,7 @@ function countLabel(connections: SourceConnection[]) {
 
 export function SourceApp() {
   const now = useCurrentTime()
+  const transitionDetail = useDetailTransition()
   const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number }>({
     entries: [{ source: 'all' }], index: 0,
   })
@@ -258,18 +260,20 @@ export function SourceApp() {
   }, [loaded, busy, connecting, searchOpen])
 
   function navigate(update: Partial<BrowserView>) {
-    setNavigation(previous => {
+    const next = { source, selected, ...update }
+    transitionDetail(() => setNavigation(previous => {
       const current = previous.entries[previous.index], next = { ...current, ...update }
       if (current.source === next.source && current.selected?.id === next.selected?.id) return previous
       const entries = [...previous.entries.slice(0, previous.index + 1), next].slice(-100)
       return { entries, index: entries.length - 1 }
-    })
+    }), selected?.id !== next.selected?.id)
   }
   function travel(direction: -1 | 1) {
-    setNavigation(previous => {
+    const next = navigation.entries[navigation.index + direction]
+    transitionDetail(() => setNavigation(previous => {
       const index = previous.index + direction
       return index < 0 || index >= previous.entries.length ? previous : { ...previous, index }
-    })
+    }), !!next && selected?.id !== next.selected?.id)
   }
   function clearSelection(unsupportedId?: string) {
     readRequest.current += 1; setContent(undefined); setReadError(''); setReading(false); setLatestEntry(undefined)

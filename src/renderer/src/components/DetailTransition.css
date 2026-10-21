@@ -1,0 +1,27 @@
+/* 仅快照阅读区，侧栏、列表选中态和窗口控件保持实时，不做整窗交叉淡化。 */
+:root[data-detail-transition] { view-transition-name: none; }
+:root[data-detail-transition] .detail { view-transition-name: session-detail; }
+:root[data-detail-transition]::view-transition { pointer-events: none; }
+:root[data-detail-transition]::view-transition-group(session-detail) { animation: none; }
+:root[data-detail-transition]::view-transition-image-pair(session-detail) { isolation: isolate; }
+:root[data-detail-transition]::view-transition-old(session-detail) {
+  animation: detail-fade-out 90ms ease-in both;
+  mix-blend-mode: normal;
+}
+:root[data-detail-transition]::view-transition-new(session-detail) {
+  animation: detail-fade-in 160ms ease-out 40ms both;
+  mix-blend-mode: normal;
+}
+/* 正文可能晚于导航返回；只在新片段挂载时淡入，刷新同一会话不重复播放。 */
+.source-messages-region .message-column { animation: detail-fade-in 160ms ease-out both; }
+/* 快速读取不闪现一整屏加载占位，较慢的读取仍给出明确反馈。 */
+.detail > .empty-state[data-empty-state='loading'] { animation: detail-fade-in 120ms ease-out 120ms both; }
+@keyframes detail-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes detail-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-detail-transition]::view-transition-group(session-detail),
+  :root[data-detail-transition]::view-transition-old(session-detail),
+  :root[data-detail-transition]::view-transition-new(session-detail),
+  .source-messages-region .message-column,
+  .detail > .empty-state[data-empty-state='loading'] { animation: none !important; }
+}
