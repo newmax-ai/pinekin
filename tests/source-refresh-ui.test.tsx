@@ -71,7 +71,10 @@ describe('不打断阅读的来源刷新', () => {
     await act(async () => { finish({ ...content, session: { ...content.session, id: entries[1].id, title: '会话 1', messages: [] } }) })
     expect(document.querySelector('.detail-header')).toBe(header)
     expect(header.querySelector('.detail-message-count')?.textContent).toBe('0 条消息')
-    expect(pin.disabled).toBe(true)
+    expect(pin.disabled).toBe(false)
+    fireEvent.click(pin)
+    expect((screen.getByRole('menuitem', { name: '复制会话文本' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('menuitem', { name: '读取说明' })).toBeTruthy()
   })
   it('切换会话时正文和能力分别加载，右侧三个按钮保持同一顺序、节点及加载外观标记', async () => {
     const available = { original: { available: true, app: 'NewMax' }, targets: [] }

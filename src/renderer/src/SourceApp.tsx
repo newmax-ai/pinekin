@@ -3,6 +3,7 @@ import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { SourceActions } from './components/SourceActions'
+import { SourceReadNotice } from './components/SourceReadNotes'
 import { SourceUpdatePill } from './components/SourceUpdatePill'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
@@ -469,7 +470,7 @@ export function SourceApp() {
             {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
             {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}
             {content && <>
-              <details className="archive-report"><summary><DesignIcon name="info" size={16} /><span>读取报告 · 仅文本投影</span><span className="report-count">{content.warnings.length} 项说明</span><DesignIcon name="chevron" size={14} /></summary><ScrollArea className="report-body"><ul>{content.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea></details>
+              <SourceReadNotice warnings={content.warnings} />
               {windowError && <div className="source-update-notice" role="alert"><span>{windowError}</span><DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>从头重新读取</DsButton></div>}
               {content.window && (content.window.hasMore || content.window.offset > 0 || content.window.textOffset > 0) && <nav className="source-update-notice" aria-label="正文分段导航">
                 {windowHistory.length > 0 && <DsButton size="small" disabled={reading} onClick={() => void readWindow('previous')}>上一段</DsButton>}

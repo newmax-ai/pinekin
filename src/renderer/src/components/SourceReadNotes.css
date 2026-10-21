@@ -1,0 +1,5 @@
+.source-read-notes { color: var(--ds-text-secondary); font-size: var(--ds-text-sm); line-height: 1.8; overflow-wrap: anywhere; }
+.source-read-notes > p { margin: 0 0 12px; }
+.source-read-notes > ul { margin: 0; padding-left: 18px; }
+.source-read-notes li + li { margin-top: 8px; }
+.source-read-notice > ul { margin: 0; padding: 0; list-style: none; line-height: 1.7; overflow-wrap: anywhere; }

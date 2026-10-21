@@ -71,6 +71,35 @@ test.afterEach(async () => {
   } finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
+test('读取说明收进更多菜单，正常阅读不显示报告，关闭后恢复焦点和阅读位置', async () => {
+  await connect()
+  const detail = page.getByRole('region', { name: '来源会话详情' })
+  const messages = page.getByRole('region', { name: '会话消息' })
+  const trigger = page.getByRole('button', { name: '更多会话操作' })
+  await expect(detail.locator('.archive-report')).toHaveCount(0)
+  await expect(detail.getByRole('status', { name: '内容完整性提示' })).toHaveCount(0)
+  const scrollTop = await messages.evaluate(element => element.scrollTop)
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await more()
+    const item = page.getByRole('menuitem', { name: '读取说明', exact: true })
+    await item.focus(); await item.press('Enter')
+    const dialog = page.getByRole('dialog', { name: '读取说明', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText('不等于完整原生会话恢复')
+    await expect(dialog.getByRole('listitem').first()).toContainText('正文直接读取来源')
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    if (colorScheme === 'light') await dialog.press('Escape')
+    else await dialog.getByRole('button', { name: '关闭读取说明' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(trigger).toBeFocused()
+    expect(await messages.evaluate(element => element.scrollTop)).toBe(scrollTop)
+  }
+  const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
+  expect(state.opened).toEqual([]); expect(state.copied).toEqual([]); expect(state.files).toEqual([])
+  expect(state.openCalls).toBe(0); expect(state.saveCalls).toBe(0)
+})
+
 test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
   const before = await readFile(dbPath)
   await connect()

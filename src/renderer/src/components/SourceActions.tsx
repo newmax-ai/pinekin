@@ -4,6 +4,7 @@ import type { SourceActionCapabilities } from '../../../core/source-actions'
 import { buildSourceTranscript } from '../../../core/source-transcript'
 import { DsButton, DesignIcon, DsDialogPresence } from './ui'
 import { SourceTargetDialog } from './SourceTargetDialog'
+import { SourceReadNotesDialog } from './SourceReadNotes'
 import { DsMenu } from './DsMenu'
 import { restoreFocusWithoutTooltip } from './Tooltip'
 import './SourceActions.css'
@@ -16,6 +17,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const [capabilities, setCapabilities] = useState<{ id: string; value?: SourceActionCapabilities; error?: string }>()
   const [attempt, setAttempt] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [readingNotesId, setReadingNotesId] = useState<string>()
   const [targetMode, setTargetMode] = useState<'continue' | 'configure'>()
   const targetEpoch = useRef(0), currentDisabled = useRef(disabled)
   currentDisabled.current = disabled
@@ -33,6 +35,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const capability = capabilities?.id === entryId ? capabilities : undefined
   const transcript = useMemo(() => content ? buildSourceTranscript(content, snapshotNotice) : undefined, [content, snapshotNotice])
   const busy = busyId === entryId
+  const hasMessages = !!content?.session.messages.length
   const status = feedback?.id === entryId ? feedback : undefined
   const originalReason = capability?.value?.original.reason ?? (capability?.error ? '打开方式检查失败，请重试。' : '正在检查打开方式…')
 
@@ -96,6 +99,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     return () => document.removeEventListener('pointerdown', outside)
   }, [menuOpen])
   useEffect(() => { closeTarget() }, [entryId])
+  useEffect(() => { setReadingNotesId(undefined) }, [entryId, disabled, !!content])
   useEffect(() => { if (disabled) { setMenuOpen(false); closeTarget() } }, [disabled])
   function closeTarget() { targetEpoch.current += 1; setTargetMode(undefined) }
   function chooseTarget(mode: 'continue' | 'configure') { targetEpoch.current += 1; setMenuOpen(false); setFeedback(undefined); setTargetMode(mode) }
@@ -148,7 +152,7 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   }
   return <div className="source-actions" ref={container}>
     <div className="source-actions-buttons" aria-busy={disabled || busy || (!!api && !capability)}>
-      <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content?.session.messages.length}
+      <DsButton ref={trigger} aria-label="更多会话操作" aria-haspopup="menu" aria-expanded={menuOpen} disabled={disabled || busy || !content}
         variant="tertiary" iconOnly iconRelaxed onClick={() => setMenuOpen(value => !value)}><DesignIcon name="more" /></DsButton>
       {api && <DsButton title={capability?.value?.original.available ? '定位原 App 中的这条会话，不创建副本' : originalReason}
         disabled={disabled || busy || !capability?.value?.original.available} onClick={() => void run('open')}>在原 App 打开</DsButton>}
@@ -157,13 +161,16 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
     </div>
     <DsMenu open={menuOpen} ref={menu} className="source-actions-menu" aria-label="更多会话操作" onKeyDown={menuKeys}
       onBlur={event => { if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget) && event.relatedTarget !== trigger.current) setMenuOpen(false) }}>
-      <button role="menuitem" onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
-      <button role="menuitem" disabled={!api} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
-      <button role="menuitem" disabled={!api} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
-      {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" onClick={() => chooseTarget('continue')}>原生历史迁移（高级）</button>}
-      {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
+      <button role="menuitem" disabled={!hasMessages} onClick={() => void run('copy')}><DesignIcon name="copy" size={16} />{transcript?.partial ? '复制当前片段' : '复制会话文本'}</button>
+      <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('export')}><DesignIcon name="download" size={16} />{transcript?.partial ? '导出当前片段' : '导出 Markdown'}</button>
+      <button role="menuitem" disabled={!api || !hasMessages} onClick={() => void run('handoff-save')}><DesignIcon name="download" size={16} />保存接续文件</button>
+      {(api?.continueInTarget || api?.continueInCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('continue')}>原生历史迁移（高级）</button>}
+      {(api?.configureTarget || api?.configureCodex) && <button role="menuitem" disabled={!hasMessages} onClick={() => chooseTarget('configure')}><DesignIcon name="settings" size={16} />接续目标设置</button>}
+      <button role="menuitem" aria-haspopup="dialog" onClick={() => { setMenuOpen(false); setReadingNotesId(entryId) }}><DesignIcon name="info" size={16} />读取说明</button>
       {!capability?.value?.original.available && <div className="source-actions-note" role="note"><span>原会话打开方式</span><p>{originalReason}</p></div>}
     </DsMenu>
+    <DsDialogPresence>{readingNotesId === entryId && content && !disabled && <SourceReadNotesDialog warnings={content.warnings}
+      returnFocus={trigger.current} onDismiss={() => setReadingNotesId(undefined)} />}</DsDialogPresence>
     <DsDialogPresence>{targetMode && api && <SourceTargetDialog key={`${entryId}-${targetMode}-${epoch}`} entryId={entryId} api={api}
       targets={capability?.value?.targets ?? []} loadingTargets={!capability?.value && !capability?.error} mode={targetMode}
       isActive={() => currentId.current === entryId && !currentDisabled.current && targetEpoch.current === epoch}
