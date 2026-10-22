@@ -95,7 +95,7 @@ README 页头改用横幅，替代旧扁平版 `pinekin-app-icon.svg`。
 | --- | --- |
 | `design/brand/banner/pinekin-banner-bg.jpg` | 1280×720 氛围背景：右侧雾中松林、左侧留白；AI 生成（grok-imagine-image-2.0），提示词明确不含动物、文字和标志 |
 | `design/brand/banner/pinekin-readme-banner.jpg` | 1600×600（8:3）成品，README 以 `width="100%"` 引用 |
-| `design/brand/banner/pinekin-social-preview.jpg` | 1280×640（2:1）仓库 Social preview，同一排版放大图标与字号；需在 GitHub 仓库 Settings → General → Social preview 手动上传，API 不支持设置 |
+| `design/brand/banner/pinekin-social-preview.jpg` | 1200×630（1.91:1，社交平台 og:image 通用比例）仓库 Social preview，内容略上移以避开 X 卡片底部标题条；需在 GitHub 仓库 Settings → General → Social preview 手动上传，API 不支持设置 |
 | `scripts/generate-readme-banner.mjs` | 用 HTML 排版定稿图标与文字，再由本机 Google Chrome（Playwright `channel: 'chrome'`）以 2× 截图同时输出以上两张图 |
 
 - 松貂直接使用 `pinekin-icon-approved.png` 原图，只等比缩放并加外投影，AI 不参与重绘图标。

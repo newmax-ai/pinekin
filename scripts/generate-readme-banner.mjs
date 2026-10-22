@@ -8,10 +8,11 @@ import { chromium } from '@playwright/test'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const brand = join(root, 'design/brand')
 
-// 两种输出共用排版，以 CSS 像素定义、2× 截图：README 横幅 1600×600，Social preview 1280×640（GitHub 推荐 2:1）。
+// 两种输出共用排版，以 CSS 像素定义、2× 截图：README 横幅 1600×600；Social preview 1200×630（1.91:1，社交平台 og:image 通用比例），
+// 内容上移 lift，避开 X 等平台叠在卡片底部的标题条。
 const variants = [
-  { file: 'pinekin-readme-banner.jpg', width: 800, height: 300, pad: 76, gap: 30, icon: 148, title: 62, tagline: 25, meta: 13 },
-  { file: 'pinekin-social-preview.jpg', width: 640, height: 320, pad: 56, gap: 28, icon: 156, title: 64, tagline: 26, meta: 14 },
+  { file: 'pinekin-readme-banner.jpg', width: 800, height: 300, pad: 76, gap: 30, icon: 148, title: 62, tagline: 25, meta: 13, lift: 0 },
+  { file: 'pinekin-social-preview.jpg', width: 600, height: 315, pad: 56, gap: 28, icon: 150, title: 62, tagline: 25, meta: 14, lift: 24 },
 ]
 
 const dataUri = (file, type) => `data:${type};base64,${readFileSync(file).toString('base64')}`
@@ -32,7 +33,7 @@ const html = (v) => `<!doctype html>
     content: ''; position: absolute; inset: 0;
     background: linear-gradient(90deg, rgba(244,243,241,.92) 0%, rgba(244,243,241,.7) 48%, rgba(244,243,241,0) 78%);
   }
-  .row { position: absolute; inset: 0; display: flex; align-items: center; gap: ${v.gap}px; padding-left: ${v.pad}px; }
+  .row { position: absolute; inset: 0; display: flex; align-items: center; gap: ${v.gap}px; padding: 0 0 ${v.lift}px ${v.pad}px; }
   img { width: ${v.icon}px; height: ${v.icon}px; filter: drop-shadow(0 10px 16px rgba(0,0,0,.14)); }
   h1 { font-size: ${v.title}px; font-weight: 700; letter-spacing: -0.025em; color: #1d1d1f; line-height: 1; }
   .tagline { margin-top: 14px; font-size: ${v.tagline}px; font-weight: 500; color: #2c2c2e; letter-spacing: 0.04em; }
