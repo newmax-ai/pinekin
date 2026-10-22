@@ -87,6 +87,22 @@ node scripts/generate-app-icons.mjs
 - 已查看 `pinekin-macos-comparison.png`，左为之前满幅版本，右为 Mac 适配版本，同为 96px 画布。该图是资源预览，不冒充用户桌面的实机截图。
 - 原始定稿及通用 PNG 的校验值保持不变；没有重新设计松貂、修改来源客户端标识、读取真实会话或修改 IPC。
 
+## README 页头 Banner（2026-10-22）
+
+README 页头改用横幅，替代旧扁平版 `pinekin-app-icon.svg`。
+
+| 文件 | 用途 |
+| --- | --- |
+| `design/brand/banner/pinekin-banner-bg.jpg` | 1280×720 氛围背景：右侧雾中松林、左侧留白；AI 生成（grok-imagine-image-2.0），提示词明确不含动物、文字和标志 |
+| `design/brand/banner/pinekin-readme-banner.jpg` | 1600×600（8:3）成品，README 以 `width="100%"` 引用 |
+| `design/brand/banner/pinekin-social-preview.jpg` | 1280×640（2:1）仓库 Social preview，同一排版放大图标与字号；需在 GitHub 仓库 Settings → General → Social preview 手动上传，API 不支持设置 |
+| `scripts/generate-readme-banner.mjs` | 用 HTML 排版定稿图标与文字，再由本机 Google Chrome（Playwright `channel: 'chrome'`）以 2× 截图同时输出以上两张图 |
+
+- 松貂直接使用 `pinekin-icon-approved.png` 原图，只等比缩放并加外投影，AI 不参与重绘图标。
+- 标题与标语使用系统 SF / PingFang 字体排版，没有放进生成图里，避免 AI 生成文字出现错字或字形问题。
+- 横幅自带浅色底，在 GitHub 深色模式下也是一张完整的浅色卡片，不依赖页面背景。
+- 重新生成：`node scripts/generate-readme-banner.mjs`。需在 macOS 上安装 Google Chrome，不会下载 Playwright 浏览器。
+
 ## 未验收边界
 
 - 未签名、公证，未生成 DMG 安装器，未做系统安装或升级。
