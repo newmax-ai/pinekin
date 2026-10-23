@@ -102,7 +102,7 @@ flowchart LR
 - **原生迁移只搬文本**：只承接普通主会话的 user / assistant 文本，不迁移附件、推理、工具调用、权限和分支树；目标桌面展示与下一轮对话尚未实机验收，NewMax 的会话定位仍不稳定。
 - **部分会话不可读**：Cindy 的分叉／协作会话、DeepSeek 网页版聊天暂不支持。
 - **不会自动脱敏**：接续文件原样保留历史内容，发送前请自行检查敏感信息。
-- **未签名**：安装包尚未签名、公证，也没有自动更新。
+- **仅 Apple 芯片**：目前只提供 Apple 芯片 DMG。`npm run dist:mac:signed` 产出 Developer ID 签名并公证的分发包（需本机证书与 `.env.signing`）；`npm run dist:mac` 产出的自用包仅 ad-hoc 签名，首次打开需在「隐私与安全性」中放行；没有自动更新。见 [macOS 打包](docs/macos-packaging.md)。
 
 开发计划见 [接入路线](docs/roadmap.md)。
 
@@ -116,6 +116,7 @@ npm run dev            # 启动桌面开发版
 npm run test:coverage  # 单元测试与覆盖率
 npm run build          # typecheck + 构建
 npm run test:e2e       # Playwright 桌面 E2E
+npm run dist:mac       # 打包 Apple 芯片 DMG（ad-hoc 签名）
 ```
 
 | 改动范围 | 需要执行 |
@@ -137,6 +138,7 @@ E2E 只使用合成数据和隔离的 userData，替换文件选择框与系统�
 | 接续 | [通用接续文件](docs/context-handoff.md) · [原生目标](docs/native-targets.md) · [NewMax 接续](docs/newmax-target.md) · [Codex 项目列表](docs/codex-project-catalog.md) |
 | 界面 | [界面设计](docs/ui-design.md) · [空占位规范](docs/empty-states.md) · [连续圆角](docs/continuous-corners.md) · [图标](docs/app-icon.md) |
 | 档案 | [档案格式与资源限制](docs/import-formats.md) · [Codex 格式](docs/codex-import.md) |
+| 发布 | [macOS 打包](docs/macos-packaging.md) |
 | 核验 | [NewMax／Claude 核验](docs/newmax-claude-local-validation-2026-10-17.md) · [Cindy／DeepSeek 核验](docs/cindy-deepseek-local-validation-2026-10-17.md) · [品牌兼容](docs/pinekin-rename-verification.md) |
 
 <details>

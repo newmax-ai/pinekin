@@ -20,7 +20,9 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:codex-contract": "vitest run --config verification/vitest.codex.config.ts",
-    "pack": "npm run build && electron-builder --dir"
+    "pack": "npm run build && electron-builder --dir",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:mac:signed": "node scripts/dist-mac-signed.mjs"
   },
   "dependencies": {
     "entities": "8.1.0",
@@ -74,7 +76,17 @@
     "mac": {
       "icon": "resources/pinekin.icns",
       "category": "public.app-category.productivity",
-      "target": "dmg"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false
     },
     "win": {
       "icon": "resources/pinekin.ico",
