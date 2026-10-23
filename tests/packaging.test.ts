@@ -5,6 +5,16 @@ import { parseSigningEnv, resolveSignedBuild } from '../scripts/dist-mac-signed.
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
 describe('Windows 构建入口', () => {
+  it('锁文件包含打包器声明的跨平台 peer 依赖，支持干净 npm ci', () => {
+    const lock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'))
+    const builder = lock.packages['node_modules/app-builder-lib']
+    for (const [name, version] of Object.entries(builder.peerDependencies)) {
+      const dependency = lock.packages[`node_modules/app-builder-lib/node_modules/${name}`]
+        ?? lock.packages[`node_modules/${name}`]
+      expect(dependency, `缺少打包器 peer 依赖：${name}`).toBeDefined()
+      expect(dependency.version).toBe(version)
+    }
+  })
   it('提供经过生产构建的 NSIS x64 安装包命令', () => {
     expect(pkg.scripts['dist:win']).toBe('npm run build && electron-builder --win nsis --x64')
     expect(pkg.build.win).toMatchObject({ icon: 'resources/pinekin.ico', target: 'nsis' })

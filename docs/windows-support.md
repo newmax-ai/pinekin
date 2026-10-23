@@ -35,6 +35,8 @@ npm run dist:win
 
 GitHub Actions 配置 `macos-latest` / `windows-latest` 矩阵，在各平台执行覆盖率、生产构建、Engine 构建和桌面 E2E；Windows job 随后打包并上传 NSIS 测试安装包。两个系统的失败附件分开命名。没有触发／查看成功的 Windows 运行前，不能把配置存在当作 CI 已通过。
 
+锁文件必须包含打包器的跨平台 peer 依赖，包括 NSIS 未直接使用、但 `app-builder-lib` 声明的 `electron-builder-squirrel-windows`。开发机若设置了 `legacy-peer-deps=true`，不能据本地安装成功判断干净 CI 可安装；修复锁文件可用 `npm install --package-lock-only --ignore-scripts --legacy-peer-deps=false`，不修改全局设置或现有 `node_modules`。用 `npm ci --dry-run --ignore-scripts --legacy-peer-deps=false` 检查依赖解析；这只是安装计划验证，不代替云端实际安装、生命周期脚本和测试。
+
 通用日志测试在 Windows 继续运行；实际依赖 macOS 沙箱 SQLite、应用包识别或 Unix 权限的成功测试按能力限定平台，不将整个 Windows 套件跳过。未实现能力应验证明确拒绝且无副作用。桌面自动测试仅使用合成数据、隔离 userData、剪贴板替身和文件框替身。
 
 **本地桌面验证约束：** E2E 会启动额外 Electron。用户要求只复用主 dev、不重启、不抢焦点时，不自动运行这些测试；记录未运行原因。CI 配置不意味着获准在用户电脑启动副本。
