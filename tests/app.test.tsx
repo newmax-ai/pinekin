@@ -175,6 +175,25 @@ describe('档案界面', () => {
     expect(screen.getByRole('heading', { level: 2, name: demoSessions[2].title })).toBeTruthy()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
+  it.each(['导入会话文件', '选择会话文件'])('取消系统文件框后恢复 %s 的焦点，不显示提示气泡', async name => {
+    vi.mocked(window.staithe.list).mockResolvedValue([])
+    let finish!: (value: null) => void
+    vi.mocked(window.staithe.previewImport).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    render(<App />)
+    const trigger = await screen.findByRole('button', { name }) as HTMLButtonElement
+    await waitFor(() => expect(trigger.disabled).toBe(false))
+    trigger.focus(); fireEvent.click(trigger)
+    expect(trigger.disabled).toBe(true)
+    // jsdom 不会像 Chromium 一样自动清除 disabled 按钮的焦点；模拟文件框接管后返回到 body。
+    const focusSink = document.createElement('button')
+    document.body.append(focusSink); focusSink.focus(); focusSink.remove()
+    expect(document.activeElement).toBe(document.body)
+    finish(null)
+    await waitFor(() => expect(trigger.disabled).toBe(false))
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
   it('导航和搜索入口保留 small relaxed，弹窗关闭复用默认尺寸组件', async () => {
     await open()
     function expectSmallRelaxedIcons() {

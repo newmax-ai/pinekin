@@ -26,6 +26,11 @@ async function openArchives() {
   await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0]!.webContents.send('staithe:open-session', id), demoSessions[0].id)
   await expect(page.getByRole('button', { name: '导入会话文件' })).toBeEnabled()
 }
+async function selectArchive(title: string) {
+  // 重启辅助函数通过种子深链进入档案页；持久化校验须重新选择实际导入的档案。
+  await page.locator('.session-card').filter({ has: page.getByRole('heading', { level: 3, name: title, exact: true }) }).click()
+  await expect(page.getByRole('region', { name: '会话详情', exact: true }).getByRole('heading', { level: 2, name: title, exact: true })).toBeVisible()
+}
 function isolatedEnv(): Record<string, string> {
   return { ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
     entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR', 'STAITHE_TEST_BACKGROUND'].includes(entry[0]))),
@@ -1308,7 +1313,8 @@ for (const format of ['staithe.session', 'ember.session']) {
     expect(await readdir(join(directory, 'imports'))).toEqual(folders)
     await app.close()
     await launch(format === 'ember.session')
-    await expect(page.getByRole('heading', { level: 2, name: imported.title })).toBeVisible()
+    await selectArchive(imported.title)
+    await expect(page.locator('.message-body p')).toHaveText(imported.messages[0].content)
   })
 }
 
@@ -1352,7 +1358,8 @@ test('Cindy 文件预览、取消、快照确认、去重与文本交接', async
   })
   expect(badToken).toBe(true)
   await app.close(); await launch()
-  await expect(page.getByRole('heading', { level: 2, name: 'Cindy 合成档案' })).toBeVisible()
+  await selectArchive('Cindy 合成档案')
+  await expect(page.locator('.message-body p').first()).toHaveText('<script>不执行</script> 合成的 Cindy 会话')
 })
 
 test('Codex JSONL 只读导入不重复事件副本，可导出带损失报告的 v2 包', async () => {
@@ -1387,7 +1394,9 @@ test('Codex JSONL 只读导入不重复事件副本，可导出带损失报告�
   expect(exported.session.messages).toHaveLength(2)
   await page.keyboard.press('Escape')
   await app.close(); await launch()
-  await expect(page.getByRole('heading', { level: 2, name: `Codex · ${codexThreadId.slice(0, 8)}` })).toBeVisible()
+  await selectArchive(`Codex · ${codexThreadId.slice(0, 8)}`)
+  await expect(page.locator('.message-body p')).toHaveCount(2)
+  await expect(page.locator('.message-body p').first()).toHaveText('<script>不执行</script> 合成 Codex 问题')
 })
 
 test('Codex 压缩分页根日志经 Electron 有界解码与确认，原件不被展开替换', async () => {
@@ -1441,7 +1450,8 @@ for (const fixture of [
   await expect(page.getByRole('dialog')).toContainText('这个文件已导入')
   await page.getByRole('button', { name: '打开已有档案' }).click()
   await app.close(); await launch()
-  await expect(page.getByRole('heading', { level: 2, name: fixture.title })).toBeVisible()
+  await selectArchive(fixture.title)
+  await expect(page.locator('.message')).toHaveCount(2)
 })
 
 test('本地批次新增档案后，后台模拟窗口 focus 回读计数且保留当前会话', async () => {

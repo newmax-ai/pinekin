@@ -4,6 +4,7 @@ import { adapters, filterSessions, makeDeepLink, makeHandoff } from '../../core/
 import { DsButton, DsDialog, DsDialogClose, DsDialogHeader, DsDialogPresence, DesignIcon } from './components/ui'
 import { MessageContent } from './components/MessageContent'
 import { SourceIcon } from './components/SourceIcon'
+import { restoreFocusWithoutTooltip } from './components/Tooltip'
 import { SessionTime, useCurrentTime } from './components/SessionTime'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
@@ -49,6 +50,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
   const search = useRef<HTMLInputElement>(null)
   const importTrigger = useRef<HTMLElement | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  const [restoreImportFocus, setRestoreImportFocus] = useState(false)
   const visible = filterSessions(sessions, query, source)
   const selected = visible.find(s => s.id === selectedId) ?? visible[0]
   const emptyKind = resolveArchiveEmptyState({ loaded, error: loadError, total: sessions.length, count: visible.length, query, filtered: source !== 'all' })
@@ -96,6 +98,16 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [loaded, busy, handoff, importPreview, searchOpen])
 
+  useEffect(() => {
+    if (busy || importPreview || !restoreImportFocus) return
+    setRestoreImportFocus(false)
+    const trigger = importTrigger.current
+    // 文件框取消时没有预览弹窗负责归还焦点；等按钮解禁后再恢复，不激活原生窗口。
+    if (trigger?.isConnected && (document.activeElement === document.body || document.activeElement === trigger)) {
+      restoreFocusWithoutTooltip(trigger)
+    }
+  }, [busy, importPreview, restoreImportFocus])
+
   async function perform(action: () => Promise<void>) {
     setBusy(true); setStatus('')
     try { await action() } catch (error) { setStatus(error instanceof Error ? error.message : String(error)) }
@@ -130,7 +142,13 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
   function previewImport() {
     // 在禁用触发按钮和打开系统文件框前记录焦点，不能等 modal 挂载后再读取。
     importTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    void perform(async () => { setImportPreview(await window.staithe.previewImport()) })
+    void perform(async () => {
+      try {
+        const preview = await window.staithe.previewImport()
+        setImportPreview(preview)
+        setRestoreImportFocus(!preview)
+      } catch (error) { setRestoreImportFocus(true); throw error }
+    })
   }
   function cancelImport() {
     if (busy || !importPreview) return

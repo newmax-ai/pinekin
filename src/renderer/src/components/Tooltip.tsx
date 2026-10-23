@@ -29,7 +29,8 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
   const [position, setPosition] = useState<{ left: number; top: number; side: 'top' | 'bottom' } | null>(null)
   const pointerInteraction = useRef(false)
   const expanded = children.props['aria-expanded'] === true || children.props['aria-expanded'] === 'true'
-  const suppressed = disabled || expanded
+  const popup = children.props['aria-haspopup']
+  const suppressed = disabled || expanded && popup !== undefined && popup !== false && popup !== 'false'
   const visible = open && !suppressed
   const dismiss = useCallback(() => {
     clearTimeout(timer.current)

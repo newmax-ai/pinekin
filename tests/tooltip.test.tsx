@@ -101,8 +101,13 @@ describe('NewMax 图标按钮提示适配', () => {
     fireEvent.blur(button()); fireEvent.focus(button())
     expect(screen.getByRole('tooltip')).toBeTruthy()
   })
+  it.each([undefined, false, 'false'] as const)('展开的非弹层控件仍显示提示（aria-haspopup=%s）', hasPopup => {
+    render(<DsButton iconOnly aria-label="收起侧栏" aria-expanded={true} aria-haspopup={hasPopup}>侧栏</DsButton>)
+    fireEvent.focus(screen.getByRole('button', { name: '收起侧栏' }))
+    expect(screen.getByRole('tooltip').textContent).toBe('收起侧栏')
+  })
   it('展开的菜单触发器不显示提示，并取消已有提示和延迟任务', () => {
-    const control = (expanded: boolean) => <DsButton iconOnly aria-label="导入会话文件" aria-expanded={expanded}>+</DsButton>
+    const control = (expanded: boolean) => <DsButton iconOnly aria-label="导入会话文件" aria-haspopup="menu" aria-expanded={expanded}>+</DsButton>
     const view = render(control(false))
     fireEvent.mouseEnter(button())
     view.rerender(control(true)); advance()
