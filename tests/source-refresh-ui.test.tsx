@@ -699,7 +699,12 @@ describe('不打断阅读的来源刷新', () => {
     await waitFor(() => expect(document.querySelectorAll('.search-result')).toHaveLength(100))
     const results = document.querySelector('.search-results') as HTMLElement; results.scrollTop = 250
     rows = [{ ...entry, id: 'f'.repeat(64), title: '搜索新增' }, ...rows]; version++
+    // 显式推进聚焦防抖，不让真实 600ms 定时器消耗 findBy 的等待预算。
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     fireEvent.focus(window)
+    await act(async () => { await vi.advanceTimersByTimeAsync(600) })
+    vi.useRealTimers()
+    expect(window.staithe.sources.check).toHaveBeenCalledTimes(1)
     await screen.findByRole('button', { name: '搜索结果有更新，点击查看' })
     expect(document.querySelectorAll('.search-result')).toHaveLength(100)
     expect(results.scrollTop).toBe(250)

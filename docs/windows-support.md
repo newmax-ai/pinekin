@@ -41,6 +41,12 @@ GitHub Actions 配置 `macos-latest` / `windows-latest` 矩阵，在各平台执
 
 **本地桌面验证约束：** E2E 会启动额外 Electron。用户要求只复用主 dev、不重启、不抢焦点时，不自动运行这些测试；记录未运行原因。CI 配置不意味着获准在用户电脑启动副本。
 
+## 云端验证进展
+
+2026-10-23，[第二轮 CI（7782abe）](https://github.com/newmax-ai/pinekin/actions/runs/39978666422) 中 Windows 与 macOS 的实际 `npm ci` 均已通过，锁文件安装阻塞已解除。Windows 单测结果为 1756 通过、14 失败、130 跳过，尚未进入构建、E2E 或 NSIS 打包；macOS 覆盖率、生产构建与 Engine 构建通过，E2E 为 84 通过、21 失败、1 跳过。
+
+Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buffer 深度比较超时，以及搜索刷新测试等待真实防抖的时序。本地修正测试平台边界、使用原生逐字节比较和显式推进防抖后，仍须再次运行 Windows CI 才能确认；Windows 拒绝原生写入且不启动子进程的测试继续执行。macOS E2E 失败是独立待处理项，不能把单测通过视为桌面验收通过。
+
 ## 没有本地 Windows 电脑时
 
 1. 在当前开发机修复可复现缺陷并完成最小回归、类型检查、覆盖率和构建；模拟 Windows 的测试不算原生验收。

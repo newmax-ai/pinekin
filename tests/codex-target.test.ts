@@ -20,7 +20,8 @@ async function setup() {
   await service.configure(binary, home)
   return { root, home, binary, data, version, verify, handler, openExternal, service }
 }
-describe('Codex 目标写入事务', () => {
+// 原生写入协议仍限定 macOS/POSIX；Windows 的拒绝且无副作用由 codex-target-rpc.test.ts 覆盖。
+describe.runIf(process.platform === 'darwin')('Codex 目标写入事务', () => {
   it('验证程序必须对应系统深链实际关联的 App，不能拿另一版 CLI 自证兼容', async () => {
     const s = await setup()
     const bound = new CodexTarget(s.data, { version: s.version, verify: s.verify, handler: s.handler, openExternal: s.openExternal,

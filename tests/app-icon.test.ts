@@ -39,7 +39,8 @@ describe('Pinekin 应用图标', () => {
     expect(createHash('sha256').update(png).digest('hex')).toBe('e166d2402a1afaff62470d26c9e63c89d580d40cdc0970e8fc4128ca3253daed')
   })
   it('生成资源与仓库内保存的用户定稿逐字节一致，不依赖会话附件路径', () => {
-    expect(bytes('../resources/pinekin.png')).toEqual(bytes('../design/brand/pinekin-icon-approved.png'))
+    // 用原生逐字节比较，避免断言库把数 MB Buffer 展开为对象导致 CI 超时。
+    expect(bytes('../resources/pinekin.png').equals(bytes('../design/brand/pinekin-icon-approved.png'))).toBe(true)
   })
   it('macOS 容器包含从小尺寸到 1024px 的图标表示', () => {
     const icns = bytes('../resources/pinekin.icns')
