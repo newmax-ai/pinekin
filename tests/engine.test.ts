@@ -6,6 +6,7 @@ import { zstdCompressSync } from 'node:zlib'
 import { defaultLocations, engineSources, listSessions, PinekinUnsupportedError, readTranscript, workingDirectoryWithin, type SessionRef } from '../src/engine'
 import { codexFixture, codexMessage, codexMeta, codexRecord } from './fixtures/codex'
 import { qwenFixture, qwenRecord } from './fixtures/qwen'
+import { workbuddyAssistantBlocksFixture, workbuddyFixture, workbuddyRecord } from './fixtures/workbuddy'
 import { ENGINE_LIMITS, TranscriptBuilder } from '../src/engine/blocks'
 
 const roots: string[] = []
@@ -40,8 +41,12 @@ const structuredCodex = () => codexFixture([
 describe('Pinekin Engine 能力清单与位置', () => {
   it('只声明已结构化验证的来源，返回副本不可被调用方篡改', () => {
     const list = engineSources()
-    expect(list.map(item => item.source)).toEqual(['codex', 'qwen-code'])
-    expect(list.every(item => item.structured && item.workingDirectory)).toBe(true)
+    expect(list.map(item => item.source)).toEqual(['codex', 'qwen-code', 'workbuddy'])
+    expect(list.every(item => item.structured)).toBe(true)
+    // WorkBuddy 会话没有可信工作目录，只能作为全局来源；其余来源按工作目录归属工作区。
+    expect(list.map(item => [item.source, item.scope, item.workingDirectory])).toEqual([
+      ['codex', 'workspace', true], ['qwen-code', 'workspace', true], ['workbuddy', 'global', false],
+    ])
     list[0].verifiedPlatforms.push('win32')
     expect(engineSources()[0].verifiedPlatforms).not.toContain('win32')
   })
@@ -49,6 +54,8 @@ describe('Pinekin Engine 能力清单与位置', () => {
     const context = { home: '/synthetic/home', env: {} }
     expect(defaultLocations('codex', context)).toEqual(['/synthetic/home/.codex/sessions', '/synthetic/home/.codex/archived_sessions'])
     expect(defaultLocations('qwen-code', { ...context, env: { QWEN_HOME: '/synthetic/qwen' } })).toEqual(['/synthetic/qwen/projects'])
+    expect(defaultLocations('workbuddy', context)).toEqual(['/synthetic/home/.workbuddy/projects'])
+    expect(defaultLocations('workbuddy', { ...context, env: { WORKBUDDY_CONFIG_DIR: '/synthetic/wb', CODEBUDDY_CONFIG_DIR: '/synthetic/cb' } })).toEqual(['/synthetic/wb/projects'])
     expect(defaultLocations('codex', { ...context, env: { CODEX_HOME: 'relative' } })).toEqual([])
     expect(() => defaultLocations('cindy' as never)).toThrow('不支持的来源')
   })
@@ -197,6 +204,144 @@ describe('Pinekin Engine：Qwen Code', () => {
     ]))
     const [other] = await collect(listSessions('qwen-code', { roots: compressed }))
     await expect(readTranscript(other)).rejects.toBeInstanceOf(PinekinUnsupportedError)
+  })
+})
+
+describe('Pinekin Engine：WorkBuddy', () => {
+  async function setup(files: Record<string, string>, sidecars: Record<string, string> = {}) {
+    const home = await temp()
+    const projects = join(home, '.workbuddy', 'projects')
+    for (const [name, text] of Object.entries(files)) {
+      await mkdir(join(projects, ...name.split('/').slice(0, -1)), { recursive: true })
+      await writeFile(join(projects, name), text)
+    }
+    for (const [name, text] of Object.entries(sidecars)) await writeFile(join(projects, name), text)
+    return { projects, roots: defaultLocations('workbuddy', { home, env: {} }) }
+  }
+  const session = (id = 'synthetic-workbuddy') => workbuddyFixture([
+    { ...workbuddyRecord('u', undefined, 'user', '请整理合成周报'), sessionId: id },
+    { id: 't0', parentId: 'u', timestamp: 1792368001000, type: 'reasoning', content: [], sessionId: id },
+    { ...workbuddyRecord('a', 't0', 'assistant', '我先读取合成文件', { providerData: { messageId: 'p1' } }), timestamp: 1792368002000, sessionId: id },
+    { id: 'a', parentId: 't0', timestamp: 1792368003000, type: 'function_call', providerData: { messageId: 'p1' }, callId: 'c1', name: 'read_file', arguments: '{"path":"a.md"}', sessionId: id },
+    { id: 'r1', parentId: 'a', timestamp: 1792368004000, type: 'function_call_result', callId: 'c1', result: '合成文件内容', sessionId: id },
+    { ...workbuddyRecord('b', 'r1', 'assistant', '周报已整理'), timestamp: 1792368005000, sessionId: id },
+    { type: 'custom-title', timestamp: 1792368006000, customTitle: '合成周报会话', sessionId: id },
+  ])
+
+  it('只列出项目目录下的主会话：无工作目录、跳过云缓存/子目录/根级文件，侧车分叉标记提前拒绝', async () => {
+    const { projects, roots } = await setup({
+      'Users-synthetic-WorkBuddy-task-1/synthetic-workbuddy.jsonl': session(),
+      'Users-synthetic-WorkBuddy-task-1/subagents/child.jsonl': session('child'),
+      'Users-synthetic-WorkBuddy-task-1/notes.txt': '不是日志',
+      'Users-synthetic-WorkBuddy-task-2/forked.jsonl': session('forked'),
+      'cloud/user-1/cloud.jsonl': session('cloud'),
+      'stray.jsonl': session('stray'),
+    }, { 'Users-synthetic-WorkBuddy-task-2/forked.meta.json': JSON.stringify({ forkedFrom: 'other', ignored: '不读取的字段' }) })
+    const items = await collect(listSessions('workbuddy', { roots }))
+    expect(items.map(item => item.path.slice(projects.length + 1))).toEqual([
+      'Users-synthetic-WorkBuddy-task-1/synthetic-workbuddy.jsonl', 'Users-synthetic-WorkBuddy-task-2/forked.jsonl',
+    ])
+    expect(items[0]).toMatchObject({ source: 'workbuddy', sessionId: 'synthetic-workbuddy', kind: 'conversation', compressed: false })
+    expect(items[0].workingDirectory).toBeUndefined()
+    expect(items[0].unsupportedReason).toBeUndefined()
+    expect(items[1].unsupportedReason).toContain('分叉')
+    await expect(readTranscript(items[1])).rejects.toBeInstanceOf(PinekinUnsupportedError)
+  })
+
+  it('侧车变化会改变修订号，日志未变也会重新同步', async () => {
+    const { projects, roots } = await setup({ 'task/s.jsonl': session('s') })
+    const [before] = await collect(listSessions('workbuddy', { roots }))
+    await writeFile(join(projects, 'task', 's.meta.json'), '{}')
+    const [after] = await collect(listSessions('workbuddy', { roots }))
+    expect(after.revision).not.toBe(before.revision)
+  })
+
+  it('输出文本、工具调用和结果；推理与辅助记录不进入，标题优先自定义标题', async () => {
+    const { roots } = await setup({ 'task/synthetic-workbuddy.jsonl': session() })
+    const [ref] = await collect(listSessions('workbuddy', { roots }))
+    const transcript = await readTranscript(ref)
+    expect(transcript).toMatchObject({ format: 'pinekin.transcript', source: 'workbuddy', sessionId: 'synthetic-workbuddy', title: '合成周报会话' })
+    expect(transcript.workingDirectory).toBeUndefined()
+    expect(transcript.messages.map(message => [message.id, message.role])).toEqual([['u0', 'user'], ['a0', 'assistant']])
+    expect(transcript.messages[0].blocks).toEqual([{ type: 'text', text: '请整理合成周报' }])
+    expect(transcript.messages[1].blocks).toEqual([
+      { type: 'text', text: '我先读取合成文件' },
+      { type: 'tool_call', id: 'c1', name: 'read_file', input: '{"path":"a.md"}' },
+      { type: 'tool_result', callId: 'c1', output: '合成文件内容' },
+      { type: 'text', text: '周报已整理' },
+    ])
+    expect(transcript.createdAt).toBe(new Date(1792368000000).toISOString())
+    // 更新时间取最后一个正文节点，标题等辅助记录不算。
+    expect(transcript.updatedAt).toBe(new Date(1792368005000).toISOString())
+  })
+
+  it('同一助手节点拆成文本与多个工具块的完整日志可读，工具结果成对', async () => {
+    const { roots } = await setup({ 'task/synthetic-workbuddy.jsonl': workbuddyAssistantBlocksFixture() })
+    const [ref] = await collect(listSessions('workbuddy', { roots }))
+    const transcript = await readTranscript(ref)
+    expect(transcript.title).toBe('合成 WorkBuddy 会话')
+    const blocks = transcript.messages.flatMap(message => message.blocks)
+    expect(blocks.filter(block => block.type === 'tool_call')).toHaveLength(11)
+    expect(blocks.filter(block => block.type === 'tool_result')).toHaveLength(11)
+    expect(blocks.filter(block => block.type === 'text').map(block => block.text)).toEqual([
+      '合成 WorkBuddy 问题', ...Array.from({ length: 5 }, (_, index) => `合成助手说明 ${index + 1}`), '合成 WorkBuddy 答复',
+    ])
+  })
+
+  it('运行时注入不冒充用户，用户前置上下文只保留真实请求', async () => {
+    const context = '<system-reminder data-role="user-context">\n运行时身份\n</system-reminder>\n<user_query>\n真实合成请求\n</user_query>'
+    const { roots } = await setup({ 'task/synthetic-workbuddy.jsonl': workbuddyFixture([
+      workbuddyRecord('u0', undefined, 'user', context),
+      workbuddyRecord('u1', 'u0', 'user', '内部注入', { providerData: { isMeta: true } }),
+      workbuddyRecord('a', 'u1', 'assistant', '合成答复'),
+    ]) })
+    const [ref] = await collect(listSessions('workbuddy', { roots }))
+    const transcript = await readTranscript(ref)
+    expect(transcript.messages[0].blocks).toEqual([{ type: 'text', text: '真实合成请求' }])
+    expect(JSON.stringify(transcript)).not.toContain('内部注入')
+    expect(JSON.stringify(transcript)).not.toContain('运行时身份')
+  })
+
+  it('压缩、逻辑父链和多分支明确拒绝为不支持，结构损坏保留普通错误供重试', async () => {
+    const own = (id: string) => ({ sessionId: id })
+    const compact = workbuddyFixture([workbuddyRecord('u', undefined, 'user', '问题', own('compact')), workbuddyRecord('a', 'u', 'assistant', '答复', { logicalParentId: 'x', ...own('compact') })])
+    const branch = workbuddyFixture([workbuddyRecord('u', undefined, 'user', '问题', own('branch')), workbuddyRecord('a', 'u', 'assistant', '答复一', own('branch')), workbuddyRecord('b', 'u', 'assistant', '答复二', own('branch'))])
+    const broken = '{"id":"u","type":"message"\n'
+    const { roots } = await setup({ 'task/compact.jsonl': compact, 'task/branch.jsonl': branch, 'task/broken.jsonl': broken })
+    const byName = Object.fromEntries((await collect(listSessions('workbuddy', { roots }))).map(item => [item.sessionId, item]))
+    await expect(readTranscript(byName.compact)).rejects.toThrow(PinekinUnsupportedError)
+    await expect(readTranscript(byName.compact)).rejects.toThrow('逻辑父链')
+    await expect(readTranscript(byName.branch)).rejects.toThrow('父链')
+    const error = await readTranscript(byName.broken).catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(PinekinUnsupportedError)
+  })
+
+  it('文件名与运行时会话 ID 不同视为子会话，不支持', async () => {
+    const { roots } = await setup({ 'task/other-name.jsonl': session('synthetic-workbuddy') })
+    const [ref] = await collect(listSessions('workbuddy', { roots }))
+    await expect(readTranscript(ref)).rejects.toBeInstanceOf(PinekinUnsupportedError)
+  })
+
+  it('只有辅助记录或没有真实用户消息的日志不伪造会话；取消信号立即生效', async () => {
+    const { roots } = await setup({ 'task/only-title.jsonl': workbuddyFixture([{ type: 'custom-title', timestamp: 1792368000000, customTitle: '空会话' }]) })
+    const [ref] = await collect(listSessions('workbuddy', { roots }))
+    await expect(readTranscript(ref)).rejects.toBeInstanceOf(PinekinUnsupportedError)
+    const live = await setup({ 'task/synthetic-workbuddy.jsonl': session() })
+    const [good] = await collect(listSessions('workbuddy', { roots: live.roots }))
+    const controller = new AbortController(); controller.abort()
+    await expect(readTranscript(good, { signal: controller.signal })).rejects.toThrow('取消')
+  })
+
+  it('目录不存在返回空列表；符号链接的项目目录不进入', async () => {
+    const home = await temp()
+    expect(await collect(listSessions('workbuddy', { roots: defaultLocations('workbuddy', { home, env: {} }) }))).toEqual([])
+    const outside = await temp()
+    await writeFile(join(outside, 'leak.jsonl'), session('leak'))
+    const projects = join(home, '.workbuddy', 'projects')
+    await mkdir(projects, { recursive: true })
+    await symlink(outside, join(projects, 'linked'))
+    expect(await collect(listSessions('workbuddy', { roots: [projects] }))).toEqual([])
   })
 })
 

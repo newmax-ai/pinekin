@@ -1,7 +1,7 @@
 // Pinekin Engine 公共契约。本文件不得引用其他模块，构建时作为独立类型声明随引擎分发。
 
 /** 引擎当前能输出结构化记录的来源；其余来源仍只在 Pinekin App 内以文本投影阅读。 */
-export type EngineSource = 'codex' | 'qwen-code'
+export type EngineSource = 'codex' | 'qwen-code' | 'workbuddy'
 
 export interface LocationContext {
   home: string
@@ -19,6 +19,11 @@ export interface SourceCapability {
   structured: boolean
   /** 每条会话带可信的绝对工作目录，可按工作区归属。 */
   workingDirectory: boolean
+  /**
+   * 归属范围：workspace 来源按 workingDirectory 归入工作区；global 来源没有可信工作目录，
+   * 宿主不得猜测归属，应按「不属于任何工作区」处理。
+   */
+  scope: 'workspace' | 'global'
   /** 已有合成样本契约测试的平台；未列出的平台不代表不可用，只是未验证。 */
   verifiedPlatforms: string[]
 }

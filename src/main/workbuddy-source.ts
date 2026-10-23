@@ -27,8 +27,18 @@ function parse(record: LogRecord, line: number) {
   if (!result.success) throw new Error(`WorkBuddy 第 ${line} 行字段无效或类型不支持`)
   return result.data
 }
+const forkReason = 'WorkBuddy 分叉或压缩会话尚未支持，不拼接其他历史'
+/** 侧车声明的分叉／压缩会话；引擎在列表阶段据此提前标记，不必读取正文。 */
+export function workbuddyForkReason(meta: WorkbuddyMetadata): string | undefined {
+  return meta.isForkedCompactionSession || meta.forkedFrom != null || meta.forkedAt != null ? forkReason : undefined
+}
 function assertOrdinary(meta: WorkbuddyMetadata) {
-  if (meta.isForkedCompactionSession || meta.forkedFrom != null || meta.forkedAt != null) throw new UnsupportedSourceError('WorkBuddy 分叉或压缩会话尚未支持，不拼接其他历史')
+  if (workbuddyForkReason(meta)) throw new UnsupportedSourceError(forkReason)
+}
+/** 运行时注入（元消息、跳过运行、队友消息）不是用户或助手的真实发言。 */
+export function workbuddyInjectedMessage(role: string | undefined, data: Record<string, unknown>): boolean {
+  const teammate = data.teammateMessage
+  return !!data.isMeta || role === 'user' && (!!data.skipRun || !!teammate && typeof teammate === 'object' && typeof (teammate as LogRecord).from === 'string')
 }
 export function workbuddyRecordText(record: LogRecord, line: number): string {
   const row = parse(record, line)
@@ -88,8 +98,7 @@ export function createWorkbuddyIndexer(context: WorkbuddyContext = {}): LogIndex
       if (row.type === 'message') {
         if (!row.role) throw new Error('WorkBuddy 消息缺少角色')
         const text = workbuddyRecordText(record, line)
-        const teammate = data.teammateMessage
-        const injected = !!data.isMeta || row.role === 'user' && (!!data.skipRun || !!teammate && typeof teammate === 'object' && typeof (teammate as LogRecord).from === 'string')
+        const injected = workbuddyInjectedMessage(row.role, data)
         if ((row.role === 'user' || row.role === 'assistant') && !injected && text.trim()) {
           let length = 0; for (const _ of text) length += 1
           node.messages.push({ role: row.role, length, parts: [{ line, length }] })
