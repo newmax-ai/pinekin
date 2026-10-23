@@ -6,6 +6,7 @@ import { zstdCompressSync } from 'node:zlib'
 import { defaultLocations, engineSources, listSessions, PinekinUnsupportedError, readTranscript, workingDirectoryWithin, type SessionRef } from '../src/engine'
 import { codexFixture, codexMessage, codexMeta, codexRecord } from './fixtures/codex'
 import { qwenFixture, qwenRecord } from './fixtures/qwen'
+import { ENGINE_LIMITS, TranscriptBuilder } from '../src/engine/blocks'
 
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
@@ -196,5 +197,22 @@ describe('Pinekin Engine：Qwen Code', () => {
     ]))
     const [other] = await collect(listSessions('qwen-code', { roots: compressed }))
     await expect(readTranscript(other)).rejects.toBeInstanceOf(PinekinUnsupportedError)
+  })
+})
+
+describe('Pinekin Engine：体量上限', () => {
+  const at = '2026-10-16T00:00:00.000Z'
+  it('消息条数超限属于同一份日志的确定结果，抛出不支持而不是普通错误', () => {
+    const builder = new TranscriptBuilder()
+    const fill = () => { for (let index = 0; index <= ENGINE_LIMITS.messages; index++) builder.user(at, [{ type: 'text', text: 'x' }]) }
+    expect(fill).toThrow(PinekinUnsupportedError)
+  })
+
+  it('累计字符超出内存预算同样抛出不支持，且不返回局部结果', () => {
+    const builder = new TranscriptBuilder()
+    const text = 'x'.repeat(ENGINE_LIMITS.textChars)
+    const fill = () => { for (let index = 0; index <= ENGINE_LIMITS.totalChars / ENGINE_LIMITS.textChars; index++) builder.assistant(at, { type: 'text', text }) }
+    expect(fill).toThrow(PinekinUnsupportedError)
+    expect(fill).toThrow(/内存预算/)
   })
 })

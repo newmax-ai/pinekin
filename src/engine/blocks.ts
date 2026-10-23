@@ -39,11 +39,11 @@ export class TranscriptBuilder {
 
   private charge(chars: number) {
     this.used += chars
-    if (this.used > ENGINE_LIMITS.totalChars) throw new Error('会话内容超过 Pinekin 引擎的内存预算，未返回局部结果')
+    if (this.used > ENGINE_LIMITS.totalChars) throw new PinekinUnsupportedError('会话内容超过 Pinekin 引擎的内存预算，未返回局部结果')
   }
 
   private open(role: 'user' | 'assistant', timestamp: string): TranscriptMessage {
-    if (this.messages.length >= ENGINE_LIMITS.messages) throw new Error(`会话消息超过 ${ENGINE_LIMITS.messages} 条，未截断导入`)
+    if (this.messages.length >= ENGINE_LIMITS.messages) throw new PinekinUnsupportedError(`会话消息超过 ${ENGINE_LIMITS.messages} 条，未截断导入`)
     const id = role === 'user' ? `u${this.users++}` : `a${this.assistants++}`
     const message: TranscriptMessage = { id, role, timestamp, blocks: [] }
     this.messages.push(message)
