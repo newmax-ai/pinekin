@@ -47,20 +47,5 @@ export async function copyHandoffFile(text: string, root: string,
   } finally { if (!published) await unlink(path).catch(() => {}) }
 }
 
-/** 只接受主进程系统文件框的返回值，历史路径与 renderer 输入均不能决定落盘位置。 */
-export async function saveHandoffFile(text: string, choose: () => Promise<string | null>, assertAllowed: () => Promise<void>) {
-  await assertAllowed()
-  const path = await choose()
-  await assertAllowed()
-  if (!path) return false
-  if (extname(path).toLowerCase() !== '.md') throw new Error('请选择 Markdown 文件（.md），不会覆盖其他格式文件。')
-  const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_NONBLOCK | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW), 0o600)
-  try {
-    if (!(await file.stat()).isFile()) throw new Error('只允许导出到普通文件。')
-    await assertAllowed()
-    if (process.platform !== 'win32') await file.chmod(0o600)
-    await file.truncate(0)
-    await file.writeFile(text, 'utf8')
-    return true
-  } finally { await file.close() }
-}
+/** 完整接续文件与当前文本导出共用安全发布，不直接截断用户文件。 */
+export { saveMarkdownFile as saveHandoffFile } from './save-markdown'

@@ -1,6 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, clipboard, ClipboardItem, shell, type IpcMainInvokeEvent } from 'electron'
-import { join, dirname, extname } from 'node:path'
-import { constants } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { SourceActions } from './source-actions'
 import { CodexTarget } from './codex-target'
 import { registerCodexTargetIpc } from './codex-target-ipc'
@@ -16,7 +15,7 @@ import { readCodexProjectCatalog } from './codex-project-catalog'
 import { resolveCodexBinary, resolveCodexApplication } from './codex-target-runtime'
 import { resolveNewMaxApplication } from './newmax-application'
 import { CodexTargetSetup, checkCodexDirectory } from './codex-target-setup'
-import { sourceTextSchema } from '../core/source-transcript'
+import { registerTextExportIpc } from './text-export-ipc'
 import { fileURLToPath } from 'node:url'
 import { open } from 'node:fs/promises'
 import { z } from 'zod'
@@ -179,23 +178,14 @@ else {
       targets: () => nativeTargets.list(),
     })
     let choosingSource = false
-    let choosingTextExport = false
     ipcMain.handle('pinekin:source-actions-inspect', (event, id: unknown) => { assertSender(event); return sourceActions.inspect(entryIdSchema.parse(id)) })
     ipcMain.handle('pinekin:source-actions-open-original', (event, id: unknown) => { assertSender(event); return sourceActions.openOriginal(entryIdSchema.parse(id), () => assertSender(event)) })
-    ipcMain.handle('pinekin:source-actions-export-text', async (event, rawText: unknown) => {
-      assertSender(event)
-      const text = sourceTextSchema.parse(rawText)
-      if (choosingTextExport) throw new Error('已有文本导出正在处理，请稍候。')
-      choosingTextExport = true
-      try {
+    registerTextExportIpc<IpcMainInvokeEvent>({
+      handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender,
+      choose: async () => {
         const result = await dialog.showSaveDialog(window!, { title: '导出会话文本', defaultPath: 'pinekin-conversation.md', filters: [{ name: 'Markdown', extensions: ['md'] }] })
-        assertSender(event)
-        if (result.canceled || !result.filePath) return false
-        if (extname(result.filePath).toLowerCase() !== '.md') throw new Error('请选择 Markdown 文件（.md），不会覆盖其他格式文件。')
-        const file = await open(result.filePath, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (process.platform === 'win32' ? 0 : constants.O_NOFOLLOW), 0o600)
-        try { await file.writeFile(text, 'utf8') } finally { await file.close() }
-        return true
-      } finally { choosingTextExport = false }
+        return result.canceled ? null : result.filePath ?? null
+      },
     })
     ipcMain.handle('pinekin:sources-connections', event => { assertSender(event); return sourceBrowser.connections() })
     ipcMain.handle('pinekin:sources-page', (event, query: unknown) => { assertSender(event); return sourceBrowser.page(sourceQuerySchema.parse(query)) })

@@ -7,7 +7,7 @@ import { copyHandoffFile, fileClipboardData, HANDOFF_STORAGE_BYTES, saveHandoffF
 import { registerHandoffIpc } from '../src/main/handoff-ipc'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
+afterEach(async () => { vi.unstubAllGlobals(); await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
 async function directory() { const path = await mkdtemp(join(tmpdir(), 'pinekin-handoff-')); roots.push(path); return path }
 const fileType = 'electron application/osclipboard;format="public.file-url"'
 describe('复制真实 Markdown 文件，不复制正文或路径文本', () => {
@@ -64,6 +64,14 @@ describe('复制真实 Markdown 文件，不复制正文或路径文本', () => 
   })
 })
 describe('显式保存完整接续文件', () => {
+  it('Windows 分支也拒绝最终符号链接，不截断链接目标', async () => {
+    const root = await directory(), original = join(root, 'keep.txt'), link = join(root, 'linked.md')
+    await writeFile(original, '必须保留的原文'); await symlink(original, link, 'file')
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
+    const result = await saveHandoffFile('不得写入', async () => link, async () => {}).then(() => 'saved', () => 'rejected')
+    expect(await readFile(original, 'utf8')).toBe('必须保留的原文')
+    expect(result).toBe('rejected')
+  })
   it('只写系统选择的 Markdown 路径，取消不落盘', async () => {
     const root = await directory(), path = join(root, 'context.md')
     const choose = vi.fn().mockResolvedValueOnce(null).mockResolvedValue(path)

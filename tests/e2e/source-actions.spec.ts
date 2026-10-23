@@ -130,6 +130,23 @@ test('通用日志可保存完整接续文件与导出文本，不访问文件�
   expect(await readFile(path)).toEqual(before)
 })
 
+test('两条导出路径都拒绝保存框返回的符号链接，不改原件且允许重试', async () => {
+  const original = join(root, 'keep.txt')
+  await writeFile(original, '必须保留的合成原文'); await symlink(original, output, 'file')
+  await connect('Codex')
+  for (const label of ['保存完整接续文件', '导出聊天记录']) {
+    await more(); await page.getByRole('menuitem', { name: label, exact: true }).click()
+    await expect(page.locator('.source-actions-feedback')).toContainText('不允许符号链接')
+    expect(await readFile(original, 'utf8')).toBe('必须保留的合成原文')
+    await page.getByRole('button', { name: '关闭操作提示' }).click()
+  }
+  await rm(output)
+  await more(); await page.getByRole('menuitem', { name: '保存完整接续文件', exact: true }).click()
+  await expect(page.locator('.source-actions-feedback')).toContainText('文件已保存')
+  expect(await readFile(original, 'utf8')).toBe('必须保留的合成原文')
+  expect(await readFile(output, 'utf8')).toContain('不是原生会话恢复')
+})
+
 macTest('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
   const before = await readFile(dbPath)
   await connect()
