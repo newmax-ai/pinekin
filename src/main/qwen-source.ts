@@ -8,22 +8,22 @@ import type { IndexedMessage, LogIndex, LogIndexer } from './source-log-index'
 
 // 独立于 Claude JSONL：字段契约来自 QwenLM/qwen-code 62c86c5 的 ChatRecord。
 const key = z.string().min(1).max(512)
-const nodeSchema = z.object({ uuid: key, parentUuid: key.nullable(), sessionId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/),
+export const qwenNodeSchema = z.object({ uuid: key, parentUuid: key.nullable(), sessionId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/),
   timestamp: z.iso.datetime({ offset: true }), cwd: z.string().max(4096), version: z.string().min(1).max(100),
   type: z.enum(['user', 'assistant', 'tool_result', 'system']), subtype: z.string().max(100).optional(),
   provenance: z.string().max(100).optional(), isSidechain: z.boolean().optional(), forkedFrom: z.unknown().optional(),
   message: z.object({ role: z.enum(['user', 'model']), parts: z.array(z.record(z.string(), z.unknown())) }).optional(),
   systemPayload: z.record(z.string(), z.unknown()).optional(),
 })
-const metadata = new Set(['custom_title', 'session_source', 'session_model', 'session_approval_mode', 'session_execution_engine',
+export const qwenMetadataSubtypes = new Set(['custom_title', 'session_source', 'session_model', 'session_approval_mode', 'session_execution_engine',
   'ui_telemetry', 'at_command', 'attribution_snapshot', 'file_history_snapshot', 'user_text_elements', 'turn_result', 'turn_attempt',
   'session_artifact_event', 'session_artifact_snapshot', 'session_sources_snapshot', 'slash_command', 'omni_recall'])
-const unsupported = new Set(['rewind', 'chat_compression', 'parent_session', 'branch_checkpoint'])
+export const qwenUnsupportedSubtypes = new Set(['rewind', 'chat_compression', 'parent_session', 'branch_checkpoint'])
 type Node = { uuid: string; parent: string | null; type: string; time: number; text?: IndexedMessage; prompt?: string;
   calls: number; results: number; attachments: number; omitted: number }
 
 function parse(record: LogRecord, line: number) {
-  const result = nodeSchema.safeParse(record)
+  const result = qwenNodeSchema.safeParse(record)
   if (!result.success) throw new Error(`Qwen Code 第 ${line} 行字段无效或类型不支持`)
   return result.data
 }
@@ -48,10 +48,10 @@ export function createQwenIndexer(): LogIndexer {
       if (nodes.has(row.uuid)) throw new Error('Qwen Code UUID 重复，未猜测重放或修订')
       if (id && id !== row.sessionId) throw new Error('Qwen Code 混合多个会话')
       id = row.sessionId
-      if (row.isSidechain || row.forkedFrom != null || row.subtype && (unsupported.has(row.subtype) || row.subtype.startsWith('managed_session_'))) {
+      if (row.isSidechain || row.forkedFrom != null || row.subtype && (qwenUnsupportedSubtypes.has(row.subtype) || row.subtype.startsWith('managed_session_'))) {
         throw new UnsupportedSourceError('Qwen Code 分叉、子会话、回退、压缩或托管会话边界尚未支持')
       }
-      if (row.type === 'system' && (!row.subtype || !metadata.has(row.subtype))) throw new UnsupportedSourceError('Qwen Code 未知系统事件的历史语义尚未支持')
+      if (row.type === 'system' && (!row.subtype || !qwenMetadataSubtypes.has(row.subtype))) throw new UnsupportedSourceError('Qwen Code 未知系统事件的历史语义尚未支持')
       const node: Node = { uuid: row.uuid, parent: row.parentUuid, type: row.type, time: Date.parse(row.timestamp), calls: 0, results: 0, attachments: 0, omitted: 0 }
       if (row.type === 'system') {
         node.omitted += 1

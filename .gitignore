@@ -15,3 +15,6 @@ playwright-report/
 
 # NewMax 本地验证产物
 /.newmax/outputs/
+
+# Pinekin Engine 构建产物（宿主按清单内置，不提交）
+dist/

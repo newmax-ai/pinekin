@@ -81,6 +81,10 @@ NewMax 的数据库结构匹配不等于探测到真实安装版本；1.1.22 仅
 - Pinekin 安装身份 `ai.newmax.staithe`、默认 userData `appData/@newmax-ai/ember` 保留；开发隔离 `STAITHE_DATA_DIR` 优先，兼容 `EMBER_DATA_DIR`，打包忽略覆盖。
 - 所有配置、档案都是明文；没有加密、自动脱敏、云同步或自动备份。
 
+## Pinekin Engine
+
+来源发现与结构化读取的可复用部分已抽成 `src/engine/`，不依赖 Electron，由 Pinekin App 与 NewMax 共同使用。接口、构建与内置流程见 [Pinekin Engine](engine.md)。
+
 ## 验证
 
 单元／集成覆盖完整发现、分页、跨页搜索、损坏／超限条目、取消／刷新／断开、配置重启、链接和文件身份竞态、SQLite 无副文件、重复 ID 以及来源不修改。
