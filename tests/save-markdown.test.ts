@@ -132,6 +132,129 @@ const save = (guard = async () => {}) => saveMarkdownFile('新内容🙂', async
     })).rejects.toThrow('目录')
     expect(await fs.readdir(first)).toEqual([]); expect(await fs.readdir(second)).toEqual([])
   })
+  it('父目录被替换后拒绝发布，清理不删除替换目录中的无关文件', async () => {
+    const parent = join(root, 'selected'), moved = join(root, 'moved')
+    await fs.mkdir(parent)
+    destination = join(parent, 'context.md')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let checks = 0, stagingName = ''
+    await expect(save(async () => {
+      if (++checks !== 3) return
+      stagingName = (await fs.readdir(parent))[0]
+      await fs.rename(parent, moved)
+      await fs.mkdir(join(parent, stagingName), { recursive: true })
+      await fs.writeFile(join(parent, stagingName, 'unrelated.txt'), '不可删除')
+    })).rejects.toThrow('目录已变化')
+    expect(await fs.readFile(join(parent, stagingName, 'unrelated.txt'), 'utf8')).toBe('不可删除')
+    expect(await fs.readFile(join(moved, stagingName, 'content.md'), 'utf8')).toBe('新内容🙂')
+    expect(warn).toHaveBeenCalled()
+  })
+  it('临时目录被替换后不发布、不清理替代目录，即使原文件被移入其中', async () => {
+    const moved = join(root, 'moved-staging')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let checks = 0, staging = ''
+    await expect(save(async () => {
+      if (++checks !== 3) return
+      staging = join(root, (await fs.readdir(root))[0])
+      await fs.rename(staging, moved)
+      await fs.mkdir(staging)
+      await fs.rename(join(moved, 'content.md'), join(staging, 'content.md'))
+      await fs.writeFile(join(staging, 'unrelated.txt'), '不可删除')
+    })).rejects.toThrow('临时目录已变化')
+    expect(await fs.readFile(join(staging, 'unrelated.txt'), 'utf8')).toBe('不可删除')
+    expect(await fs.readFile(join(staging, 'content.md'), 'utf8')).toBe('新内容🙂')
+    await expect(fs.lstat(destination)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(warn).toHaveBeenCalled()
+  })
+  it.each([false, true])('清理不递归删除临时目录中额外出现的文件（撤权=%s）', async revoked => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let checks = 0, unrelated = ''
+    const pending = save(async () => {
+      if (++checks !== 3) return
+      unrelated = join(root, (await fs.readdir(root))[0], 'unrelated.txt')
+      await fs.writeFile(unrelated, '不可删除')
+      if (revoked) throw new Error('已撤权')
+    })
+    if (revoked) await expect(pending).rejects.toThrow('已撤权')
+    else await expect(pending).resolves.toBe(true)
+    expect(await fs.readFile(unrelated, 'utf8')).toBe('不可删除')
+    expect(warn).toHaveBeenCalled()
+  })
+  it('Windows 写句柄关闭时合法更新时间戳仍能保存，完整回读内容', async () => {
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
+    vi.mocked(fs.open).mockImplementationOnce(async (...args: Parameters<typeof fs.open>) => {
+      const file = await real.open(...args)
+      const close = file.close.bind(file)
+      vi.spyOn(file, 'close').mockImplementationOnce(async () => {
+        await close()
+        await fs.utimes(args[0], new Date('2026-01-01'), new Date('2026-01-01'))
+      })
+      return file
+    })
+    await expect(save()).resolves.toBe(true)
+    expect(await fs.readFile(destination, 'utf8')).toBe('新内容🙂')
+    expect(await fs.readdir(root)).toEqual(['含 空格🙂.md'])
+  })
+  it('允许关闭时更新时间戳不等于允许同长度内容篡改', async () => {
+    await fs.writeFile(destination, '旧文件')
+    vi.mocked(fs.open).mockImplementationOnce(async (...args: Parameters<typeof fs.open>) => {
+      const file = await real.open(...args)
+      const close = file.close.bind(file)
+      vi.spyOn(file, 'close').mockImplementationOnce(async () => {
+        await close()
+        await fs.writeFile(args[0], '坏内容🙂')
+      })
+      return file
+    })
+    await expect(save()).rejects.toThrow('临时文件已变化')
+    expect(await fs.readFile(destination, 'utf8')).toBe('旧文件')
+    expect(await fs.readdir(root)).toEqual(['含 空格🙂.md'])
+  })
+  it('同名临时文件被替换时拒绝发布且不删除替换文件', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let checks = 0, temporary = ''
+    await expect(save(async () => {
+      if (++checks !== 3) return
+      temporary = join(root, (await fs.readdir(root))[0], 'content.md')
+      await fs.rename(temporary, join(root, 'original-staging.md'))
+      await fs.writeFile(temporary, '新内容🙂')
+    })).rejects.toThrow('临时文件已变化')
+    expect(await fs.readFile(temporary, 'utf8')).toBe('新内容🙂')
+    expect(warn).toHaveBeenCalled()
+  })
+  it.each(['', '长内容🙂'.repeat(20000)])('支持空内容和跨多个回读块的完整内容（%#）', async text => {
+    await expect(saveMarkdownFile(text, async () => destination, async () => {})).resolves.toBe(true)
+    expect(await fs.readFile(destination, 'utf8')).toBe(text)
+    expect(await fs.readdir(root)).toEqual(['含 空格🙂.md'])
+  })
+  it.each(['eof', 'error'] as const)('回读遇到 %s 时拒绝发布、保留原件并清理临时内容', async mode => {
+    await fs.writeFile(destination, '旧文件')
+    let opens = 0
+    vi.mocked(fs.open).mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      const file = await real.open(...args)
+      if (++opens === 2) {
+        const read = vi.spyOn(file, 'read')
+        if (mode === 'eof') read.mockResolvedValueOnce({ bytesRead: 0, buffer: Buffer.alloc(0) })
+        else read.mockRejectedValueOnce(new Error('回读失败'))
+      }
+      return file
+    })
+    await expect(save()).rejects.toThrow(mode === 'eof' ? '临时文件已变化' : '回读失败')
+    expect(await fs.readFile(destination, 'utf8')).toBe('旧文件')
+    expect(await fs.readdir(root)).toEqual(['含 空格🙂.md'])
+  })
+  it('回读完成后撤权仍不发布', async () => {
+    let checks = 0
+    await expect(save(async () => { if (++checks === 4) throw new Error('已撤权') })).rejects.toThrow('已撤权')
+    expect(await fs.readdir(root)).toEqual([])
+  })
+  it('回读完成后临时文件变化仍不发布', async () => {
+    let checks = 0
+    await expect(save(async () => {
+      if (++checks === 4) await fs.writeFile(join(root, (await fs.readdir(root))[0], 'content.md'), '回读后被更改')
+    })).rejects.toThrow('临时文件已变化')
+    expect(await fs.readdir(root)).toEqual([])
+  })
   it('拒绝本应用对同一路径并发发布，第一次完成后可重试', async () => {
     let release!: () => void
     let ready!: () => void
