@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { SourceBrowser } from '../src/main/source-browser'
 import { autoConnectSource, sourceCandidates, type SourceLocationContext } from '../src/main/source-discovery'
 import { claudeFixture } from './fixtures/claude-code'
@@ -69,7 +69,7 @@ describe('自动定位与只读连接', () => {
     await directory(join(context.home, '.codex', 'sessions')); await directory(join(context.home, '.codex', 'archived_sessions'))
     const original = browser.connect.bind(browser)
     vi.spyOn(browser, 'connect').mockImplementation((source, path) => {
-      if (path.endsWith('/sessions')) return Promise.reject(Object.assign(new Error('synthetic permission'), { code: 'EACCES' }))
+      if (basename(path) === 'sessions') return Promise.reject(Object.assign(new Error('synthetic permission'), { code: 'EACCES' }))
       return original(source, path)
     })
     const result = await autoConnectSource(browser, 'codex', context)

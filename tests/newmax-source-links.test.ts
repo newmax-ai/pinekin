@@ -34,7 +34,7 @@ async function snapshot(directory: string) {
 }
 
 describe('NewMax 共享数据库链接', () => {
-  it.each(['relative-file', 'absolute-file', 'directory'] as const)('%s 链接到默认数据库时可自动连接，保存真实路径且不改原件或副文件', async kind => {
+  it.runIf(process.platform === 'darwin').each(['relative-file', 'absolute-file', 'directory'] as const)('%s 链接到默认数据库时可自动连接，保存真实路径且不改原件或副文件', async kind => {
     const { canonical, replica, target, alias, context, data, browser } = await setup()
     const writer = seed(target, '共享合成会话', true)
     try {
@@ -55,7 +55,7 @@ describe('NewMax 共享数据库链接', () => {
       expect(await readlink(kind === 'directory' ? replica : alias)).toBe(link)
     } finally { writer.close() }
   })
-  it('连接后改变副本链接不会转移既有授权，刷新和重启仍读取原真实数据库', async () => {
+  it.runIf(process.platform === 'darwin')('连接后改变副本链接不会转移既有授权，刷新和重启仍读取原真实数据库', async () => {
     const { root, target, alias, context, data, browser } = await setup()
     seed(target).close(); await symlink(target, alias)
     const result = await autoConnectSource(browser, 'newmax', context)

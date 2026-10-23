@@ -16,7 +16,8 @@ async function fixture(info: Record<string, unknown>, name = 'Electron.app') {
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
-describe('NewMax 系统协议关联的应用包身份识别', () => {
+// .app 包身份验证是 macOS 能力，不代表 Windows 协议关联已验证。
+describe.runIf(process.platform === 'darwin')('NewMax 系统协议关联的应用包身份识别', () => {
   it.each(['cc.newmax.desktop.cn.dev', 'cc.newmax.desktop.intl.dev'])('开发包 %s 不依赖 Electron 显示名或静态协议字段', async bundleId => {
     const { app } = await fixture({ CFBundleIdentifier: bundleId, CFBundleName: 'Electron', CFBundleShortVersionString: '44.7.2' })
     expect(await resolveNewMaxApplication(app)).toEqual({ path: app, bundleId, mode: 'development' })

@@ -41,7 +41,7 @@ async function connect(browser: SourceBrowser, source: Source, path: string) {
   return browser.page({})
 }
 
-describe.each(['newmax', 'cindy'] as const)('%s 大会话按窗口读取而不是过滤', source => {
+describe.runIf(process.platform === 'darwin').each(['newmax', 'cindy'] as const)('%s 大会话按窗口读取而不是过滤', source => {
   it('超过 5 MiB 或 10000 条仍出现在列表、搜索与计数中，点击不消失', async () => {
     const { path, db, browser } = await setup(source)
     seed(db, source, 'normal')
@@ -122,7 +122,7 @@ describe.each(['newmax', 'cindy'] as const)('%s 大会话按窗口读取而不�
   })
 })
 
-it('Cindy 仍只投影当前普通问答，不读取清空前、回退、工具及其他会话', async () => {
+it.runIf(process.platform === 'darwin')('Cindy 仍只投影当前普通问答，不读取清空前、回退、工具及其他会话', async () => {
   const { path, db, browser } = await setup('cindy')
   seed(db, 'cindy', 'current')
   seed(db, 'cindy', 'unsupported', 1, 'X'.repeat(MAX_BYTES + 1))
@@ -138,7 +138,7 @@ it('Cindy 仍只投影当前普通问答，不读取清空前、回退、工具�
   expect((await browser.read(page.items[0].id)).session.messages).toEqual([{ role: 'user', content: '合成预算文本' }])
 })
 
-it('分页参数经过验证，不允许 SQL 字符串、负数、超范围和无快照续读', async () => {
+it.runIf(process.platform === 'darwin')('分页参数经过验证，不允许 SQL 字符串、负数、超范围和无快照续读', async () => {
   const { path, db, browser } = await setup('newmax')
   seed(db, 'newmax', 'one'); db.close()
   const item = (await connect(browser, 'newmax', path)).items[0]

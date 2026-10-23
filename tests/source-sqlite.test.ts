@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as filesystem from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -6,6 +7,21 @@ import { tmpdir } from 'node:os'
 import { readSourceDatabase } from '../src/main/source-sqlite'
 import { createCindySchema } from './fixtures/cindy-database'
 
+vi.mock('node:fs/promises', async importOriginal => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, open: vi.fn(original.open), lstat: vi.fn(original.lstat) }
+})
+const trace = vi.hoisted(() => ({ executions: 0 }))
+vi.mock('node:child_process', async importOriginal => {
+  const original = await importOriginal<typeof import('node:child_process')>()
+  const { promisify } = await import('node:util')
+  const execute = promisify(original.execFile), execFile = vi.fn(original.execFile)
+  Object.defineProperty(execFile, promisify.custom, { value: (...args: Parameters<typeof execute>) => {
+    trace.executions++
+    return execute(...args)
+  } })
+  return { ...original, execFile }
+})
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 async function setup() {
@@ -29,7 +45,22 @@ function seedMessage(db: DatabaseSync, id: string) {
   db.prepare('INSERT INTO messages VALUES(?,?,?,?,?,?,?)').run(0, message.id, id, message.role, message.content, 2000, JSON.stringify(message))
 }
 
-describe('SQLite 受限只读投影', () => {
+it.each(['newmax', 'cindy'] as const)('Windows 拒绝 %s 直读，不打开数据库或启动外部进程', async source => {
+  const { root, path } = await setup()
+  await writeFile(path, 'synthetic source; must remain untouched')
+  const before = await snapshot(root)
+  const open = vi.spyOn(filesystem, 'open').mockClear(), lstat = vi.spyOn(filesystem, 'lstat').mockClear()
+  trace.executions = 0
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
+  try {
+    await expect(readSourceDatabase(path, source)).rejects.toThrow('此平台的无副作用数据库读取尚未验证')
+    expect(open).not.toHaveBeenCalled(); expect(lstat).not.toHaveBeenCalled(); expect(trace.executions).toBe(0)
+    expect(await snapshot(root)).toEqual(before)
+  } finally { vi.unstubAllGlobals(); vi.restoreAllMocks() }
+})
+
+// 成功投影依赖 macOS sandbox-exec 与系统 sqlite3，不能回退到无沙箱读取。
+describe.runIf(process.platform === 'darwin')('SQLite 受限只读投影', () => {
   it.each(['newmax', 'cindy'] as const)('%s 读取活跃 WAL 的已提交目录，不写 DB/WAL/SHM、不复制整库', async source => {
     const { root, path } = await setup(), writer = new DatabaseSync(path)
     try {

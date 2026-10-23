@@ -26,7 +26,7 @@ async function setup(source: 'newmax' | 'cindy', wal = true) {
   return { path, db, table: source === 'cindy' ? 'sessions' : 'conversations' }
 }
 
-describe.each(['newmax', 'cindy'] as const)('%s 会话级正文快照', source => {
+describe.runIf(process.platform === 'darwin').each(['newmax', 'cindy'] as const)('%s 会话级正文快照', source => {
   it.each([true, false])('其他会话提交后所选会话仍能续读（WAL=%s）', async wal => {
     const { path, db, table } = await setup(source, wal)
     try {

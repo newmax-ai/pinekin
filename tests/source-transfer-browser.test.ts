@@ -44,7 +44,7 @@ it('从来源重新读取全部 101 条与完整长消息，阅读过哪个片�
   await expect(service.deliver(prepared.token, 'copy-file')).rejects.toThrow()
   expect(copyFile).toHaveBeenCalledOnce()
 })
-it('NewMax 数据库长消息中间的全空白片段不丢失，内部续轮不混入，来源不写入', async () => {
+it.runIf(process.platform === 'darwin')('NewMax 数据库长消息中间的全空白片段不丢失，内部续轮不混入，来源不写入', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-transfer-db-'))); roots.push(root)
   const path = join(root, 'newmax.db'), db = new DatabaseSync(path)
   db.exec(`CREATE TABLE conversations(id TEXT PRIMARY KEY,title TEXT,source TEXT,created_at INTEGER,updated_at INTEGER,forked_from_id TEXT,is_private INTEGER,message_count INTEGER);
@@ -63,7 +63,7 @@ it('NewMax 数据库长消息中间的全空白片段不丢失，内部续轮不
   expect((await browser.transfer(entry.id)).messages).toEqual([{ role: 'user', content: text }, { role: 'assistant', content: '正常回答' }])
   expect(await readFile(path)).toEqual(before)
 })
-it.each([false, true])('真实来源读取链路：分页及提交复核期间其他会话持续写入；所选正文变化=%s', async chosenChanges => {
+it.runIf(process.platform === 'darwin').each([false, true])('真实来源读取链路：分页及提交复核期间其他会话持续写入；所选正文变化=%s', async chosenChanges => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-transfer-live-db-'))); roots.push(root)
   const path = join(root, 'synthetic.db'), db = new DatabaseSync(path)
   const browser = new SourceBrowser(join(root, 'pinekin'))

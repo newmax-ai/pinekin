@@ -19,6 +19,33 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 
+describe('按平台交付完整接续文件', () => {
+  it.each(['win32', 'linux'])('%s 主按钮保存完整文件，不调用文件剪贴板', async platform => {
+    window.staithe = { ...window.staithe, platform }
+    vi.mocked(api().deliverHandoffFile!).mockResolvedValue({ status: 'exported' })
+    render(<SourceActions entryId={id} />)
+    expect(screen.queryByRole('button', { name: '复制接续文件' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '保存接续文件' }))
+    await waitFor(() => expect(api().discardHandoffFile).toHaveBeenCalledWith(token))
+    expect(api().prepareHandoffFile).toHaveBeenCalledExactlyOnceWith(id)
+    expect(api().deliverHandoffFile).toHaveBeenCalledExactlyOnceWith(token, 'export')
+    expect(screen.getByRole('status').textContent).toBe('文件已保存')
+    expect(window.staithe.copy).not.toHaveBeenCalled()
+  })
+  it.each(['cancelled', 'error'] as const)('Windows 保存 %s 后允许重试，不虚报成功', async outcome => {
+    window.staithe = { ...window.staithe, platform: 'win32' }
+    if (outcome === 'error') vi.mocked(api().deliverHandoffFile!).mockRejectedValueOnce(new Error('无法保存文件'))
+    else vi.mocked(api().deliverHandoffFile!).mockResolvedValueOnce({ status: 'cancelled' })
+    render(<SourceActions entryId={id} />)
+    const button = screen.getByRole('button', { name: '保存接续文件' }) as HTMLButtonElement
+    fireEvent.click(button)
+    await waitFor(() => expect(api().discardHandoffFile).toHaveBeenCalledWith(token))
+    expect(button.disabled).toBe(false)
+    expect(screen.queryByRole('status')).toBeNull()
+    if (outcome === 'error') expect(screen.getByRole('alert').textContent).toContain('无法保存文件')
+  })
+})
+
 describe('默认直接复制通用文件，不再选择目标 App', () => {
   it('一次点击准备并复制文件，没有弹窗、预览、目标选择或原生创建', async () => {
     render(<SourceActions entryId={id} />)

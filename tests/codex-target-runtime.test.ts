@@ -14,7 +14,7 @@ async function bundle(name = 'ChatGPT.app', relative = nested, metadata = manife
   await writeFile(binary, 'synthetic metadata-only executable', { mode: 0o755 })
   return { root, app, binary }
 }
-it.each([
+it.runIf(process.platform === 'darwin').each([
   ['Codex.app', 'Contents/Resources/codex'], ['Codex.app', 'Contents/Resources/bin/codex'],
   ['ChatGPT.app', nested], ['已重命名.app', nested],
 ])('按包身份和协议识别 %s 的内置程序，不按显示名推断', async (name, relative) => {
@@ -28,7 +28,7 @@ it.each([
     await expect(resolveCodexApplication(s.root)).rejects.toThrow('应用包')
   } finally { await rm(s.root, { recursive: true, force: true }) }
 })
-it.each([
+it.runIf(process.platform === 'darwin').each([
   { ...manifest, CFBundleIdentifier: 'com.other.app' },
   { ...manifest, CFBundleURLTypes: [{ CFBundleURLSchemes: ['other'] }] },
 ])('即使叫 Codex.app，也拒绝错误包身份或缺失协议 %j', async metadata => {
@@ -44,7 +44,7 @@ it('显式 CLI 文件仍可解析，但系统应用识别不接受任意裸程�
     await expect(resolveCodexApplication(file)).rejects.toThrow('应用包')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
-it('缺失内置程序和外跳符号链接保留具体原因，不静默转用 PATH 中另一版 CLI', async () => {
+it.runIf(process.platform === 'darwin')('缺失内置程序和外跳符号链接保留具体原因，不静默转用 PATH 中另一版 CLI', async () => {
   const s = await bundle()
   try {
     await rm(s.binary)
@@ -64,8 +64,8 @@ it('Codex 验证进程无网络、无真实 HOME、无任意子进程权限', ()
   expect(profile).not.toContain('(subpath "/Users")')
   expect(profile).toContain('(allow process-exec (literal "/synthetic/Codex/codex"))')
   const env = codexEnvironment('/private/tmp/synthetic')
-  expect(env.HOME).toBe('/private/tmp/synthetic/home')
-  expect(env.CODEX_HOME).toBe('/private/tmp/synthetic/codex')
+  expect(env.HOME).toBe(join('/private/tmp/synthetic', 'home'))
+  expect(env.CODEX_HOME).toBe(join('/private/tmp/synthetic', 'codex'))
   expect(Object.keys(env).some(key => /TOKEN|KEY|SECRET|PROXY/.test(key))).toBe(false)
   expect(() => codexSandboxProfile('/bad\npath', '/private/tmp/synthetic')).toThrow()
 })

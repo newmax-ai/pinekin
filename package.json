@@ -22,6 +22,7 @@
     "test:codex-contract": "vitest run --config verification/vitest.codex.config.ts",
     "pack": "npm run build && electron-builder --dir",
     "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
     "dist:mac:signed": "node scripts/dist-mac-signed.mjs"
   },
   "dependencies": {

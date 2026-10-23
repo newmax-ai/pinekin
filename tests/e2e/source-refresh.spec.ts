@@ -365,7 +365,8 @@ test('扫描在侧栏右侧数量位置显示微型流动点，不影响其他�
   expect((await source.boundingBox())!.height).toBe(rowHeight)
 })
 
-test('Cindy 旧会话不受其他 App 更新影响，手动刷新直接展示真正变化且保留正文', async () => {
+const sqliteTest = process.platform === 'darwin' ? test : test.skip
+sqliteTest('Cindy 旧会话不受其他 App 更新影响，手动刷新直接展示真正变化且保留正文', async () => {
   const directory = join(root, 'appData', 'Cindy'); await mkdir(directory, { recursive: true })
   const db = new DatabaseSync(join(directory, 'cindy-synthetic.db'))
   try {

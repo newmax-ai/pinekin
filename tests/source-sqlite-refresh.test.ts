@@ -38,7 +38,7 @@ async function setup(source: 'newmax' | 'cindy', wal = true) {
   return { root, path, db, table }
 }
 
-describe.each(['newmax', 'cindy'] as const)('%s 目录并发读取自动恢复', source => {
+describe.runIf(process.platform === 'darwin').each(['newmax', 'cindy'] as const)('%s 目录并发读取自动恢复', source => {
   it('正常 WAL 提交不否定已经完成的事务，也不反复重读', async () => {
     const { path, db, table } = await setup(source)
     try {

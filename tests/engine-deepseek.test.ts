@@ -26,9 +26,9 @@ describe('Pinekin Engine：DeepSeek Harness', () => {
   it('声明独立的 Harness 来源，默认与 DSH_HOME 位置复用 App 规则', () => {
     expect(engineSources()).toContainEqual({ source: 'deepseek', name: 'DeepSeek Harness', discover: true, structured: true,
       workingDirectory: true, scope: 'workspace', verifiedPlatforms: ['darwin'] })
-    const context = { home: '/synthetic/home', env: {} }
-    expect(defaultLocations('deepseek', context)).toEqual(['/synthetic/home/.dsh/sessions'])
-    expect(defaultLocations('deepseek', { ...context, env: { DSH_HOME: '~/custom-dsh' } })).toEqual(['/synthetic/home/custom-dsh/sessions'])
+    const context = { home: join(tmpdir(), 'synthetic', 'home'), env: {} }
+    expect(defaultLocations('deepseek', context)).toEqual([join(context.home, '.dsh', 'sessions')])
+    expect(defaultLocations('deepseek', { ...context, env: { DSH_HOME: '~/custom-dsh' } })).toEqual([join(context.home, 'custom-dsh', 'sessions')])
     expect(defaultLocations('deepseek', { ...context, env: { DSH_HOME: 'relative' } })).toEqual([])
   })
 

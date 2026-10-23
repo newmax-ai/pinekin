@@ -10,6 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createCindyDatabase } from '../fixtures/cindy-database'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
+const macTest = process.platform === 'darwin' ? test : test.skip
 let app: ElectronApplication, page: Page, root: string, data: string, source: string
 async function launch(newmaxDataDirectory?: string, claudeConfigDirectory?: string) {
   const bootstrap = join(root, 'start.cjs')
@@ -515,10 +516,10 @@ test('卡片按最大内容统一高度，跨行等高，长错误由弹窗内�
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1200, 760))
     await manageConnections()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    const card = dialog.getByRole('region', { name: 'NewMax 来源', exact: true })
+    const card = dialog.getByRole('region', { name: 'Codex 来源', exact: true })
     const initialHeight = (await card.boundingBox())!.height
     const frame = (await dialog.boundingBox())!
-    await selectSource('newmax')
+    await selectSource('codex')
     await expect(card.getByRole('alert')).toContainText('合成错误')
     expect((await card.boundingBox())!.height).toBeGreaterThan(initialHeight)
     await expect(dialog).toHaveCSS('height', `${await page.evaluate(() => innerHeight - 64)}px`)
@@ -546,14 +547,14 @@ test('开关即时生效且失败可直接重试，不需要批量提交，完�
     const done = dialog.getByRole('button', { name: '完成', exact: true })
     const width = (await done.boundingBox())!.width
     await expect(dialog.getByRole('button', { name: /连接所选|重试所选|断开连接/ })).toHaveCount(0)
-    await selectSource('newmax')
-    await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).not.toBeChecked()
-    await expect(dialog.getByRole('region', { name: 'NewMax 来源', exact: true }).getByRole('status')).toContainText('未找到')
+    await selectSource('codex')
+    await expect(dialog.getByRole('switch', { name: '连接 Codex', exact: true })).not.toBeChecked()
+    await expect(dialog.getByRole('region', { name: 'Codex 来源', exact: true }).getByRole('status')).toContainText('未找到')
     await expect(dialog.getByRole('alert')).toHaveCount(0)
     await selectSource('claude-code')
     await expect(dialog.getByRole('switch', { name: '连接 Claude Code', exact: true })).toBeChecked()
-    await selectSource('newmax')
-    await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).not.toBeChecked()
+    await selectSource('codex')
+    await expect(dialog.getByRole('switch', { name: '连接 Codex', exact: true })).not.toBeChecked()
     expect(await page.evaluate(async () => (await window.staithe.sources.connections()).map(item => item.source))).toEqual(['claude-code'])
     await expect(done).toHaveText('完成')
     expect((await done.boundingBox())!.width).toBe(width)
@@ -646,7 +647,7 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
   }
 })
 
-test('NewMax 开发副本共享数据库链接可直接连接，固定真实路径并在重启后保持授权目标', async () => {
+macTest('NewMax 开发副本共享数据库链接可直接连接，固定真实路径并在重启后保持授权目标', async () => {
   await background(); await app.close()
   const canonical = join(root, '.newmax'), replica = join(root, '.newmax-clean')
   await mkdir(canonical); await mkdir(replica)
@@ -680,7 +681,7 @@ test('NewMax 开发副本共享数据库链接可直接连接，固定真实路�
   } finally { writer.close() }
 })
 
-test('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框，来源及副文件无写入', async () => {
+macTest('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框，来源及副文件无写入', async () => {
   const newmaxRoot = join(root, '.newmax'), cindyRoot = join(root, 'appData', 'Cindy')
   await mkdir(newmaxRoot); await mkdir(cindyRoot)
   const newmax = new DatabaseSync(join(newmaxRoot, 'newmax.db')), cindy = new DatabaseSync(join(cindyRoot, 'cindy-synthetic.db'))
@@ -711,7 +712,26 @@ test('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框�
   } finally { newmax.close(); cindy.close() }
 })
 
-test('批量添加一项数据库失败不影响另一项，错误逐项显示且不冒充连接成功', async () => {
+const windowsTest = process.platform === 'win32' ? test : test.skip
+windowsTest('Windows 明确禁用未验证数据库连接，通用日志连接仍可用且不打开选择框', async () => {
+  await page.getByRole('button', { name: '连接 App', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+  for (const name of ['NewMax', 'Cindy']) {
+    const card = dialog.getByRole('region', { name: `${name} 来源`, exact: true })
+    await expect(card.getByRole('switch')).toBeDisabled()
+    await expect(card).toContainText('Windows 暂不支持安全数据库直读')
+    await expect(card.getByRole('button', { name: '使用自定义位置…' })).toHaveCount(0)
+  }
+  await selectSource('claude-code')
+  await expect(dialog.getByRole('switch', { name: '连接 Claude Code', exact: true })).toBeChecked()
+  expect(await page.evaluate(async () => (await window.staithe.sources.connections()).map(item => item.source))).toEqual(['claude-code'])
+  expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
+  await submit()
+  await page.locator('.session-card').first().click()
+  await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
+})
+
+macTest('批量添加一项数据库失败不影响另一项，错误逐项显示且不冒充连接成功', async () => {
   const cindyRoot = join(root, 'appData', 'Cindy'); await mkdir(cindyRoot)
   await writeFile(join(cindyRoot, 'cindy-broken.db'), 'not sqlite')
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
@@ -1106,7 +1126,7 @@ test('损坏日志保留且失败有原因，刷新发现增删，断开撤销�
   expect(JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections).toEqual([])
 })
 
-test('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍可读且不创建副文件', async () => {
+macTest('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍可读且不创建副文件', async () => {
   await app.close()
   source = join(root, 'custom-newmax.db')
   const db = new DatabaseSync(source); seedNewMax(db); db.close()
@@ -1268,15 +1288,19 @@ test('来源卡片直接整合位置统计与 small 开关，适配三列两列�
 })
 
 test('多项失败直接显示原因，浅深主题下卡片内信息与底部操作不溢出', async () => {
+  await app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('pinekin:sources-auto-connect')
+    ipcMain.handle('pinekin:sources-auto-connect', () => ({ connections: [], warnings: ['合成权限错误'] }))
+  })
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 680))
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await selectSource('newmax'); await selectSource('codex')
+    await selectSource('deepseek'); await selectSource('codex')
     await expect(dialog.getByRole('button', { name: '完成', exact: true })).toBeEnabled()
     await expect(dialog.getByRole('alert')).toHaveCount(2)
-    for (const sourceId of ['newmax', 'codex'] as const) {
+    for (const sourceId of ['deepseek', 'codex'] as const) {
       const card = dialog.getByRole('region', { name: `${sourceNames[sourceId]} 来源`, exact: true })
       await expect(card.locator('details, summary')).toHaveCount(0)
       const manual = card.getByRole('button', { name: '使用自定义位置…' })

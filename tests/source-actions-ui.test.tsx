@@ -82,16 +82,33 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     expect(screen.queryByText('未支持原生接续')).toBeNull()
     expect(screen.getAllByText('暂不可用')).toHaveLength(3)
   })
-  it('过滤后无目标时显示准确空状态，不提示连接来源即可获得迁移能力', async () => {
+  it('Windows 无迁移目标时不显示无效入口，检查期间也不闪现', async () => {
+    const api = enableTarget()
+    window.staithe = { ...window.staithe, platform: 'win32' }
+    let finish!: (value: SourceActionCapabilities) => void
+    vi.mocked(api.inspect).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    render(<SourceActions {...props} />)
+    more()
+    expect(screen.queryByRole('menuitem', { name: '原生历史迁移（高级）' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '接续目标设置' })).toBeNull()
+    await act(async () => finish(available))
+    expect(screen.queryByRole('menuitem', { name: '原生历史迁移（高级）' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '接续目标设置' })).toBeNull()
+    expect(screen.getByRole('button', { name: '保存接续文件' })).toBeTruthy()
+    expect(api.continueInCodex).not.toHaveBeenCalled()
+  })
+  it('过滤后无目标时隐藏迁移及设置入口，不提示连接来源即可获得迁移能力', async () => {
     const api = enableTarget()
     vi.mocked(api.inspect).mockResolvedValue({ ...available, targets: [
       { id: 'claude-code', name: 'Claude Code', available: false },
       { id: 'newmax', name: 'NewMax', implemented: false, available: false },
     ] })
     render(<SourceActions {...props} />)
-    more(); fireEvent.click(screen.getByRole('menuitem', { name: '原生历史迁移（高级）' }))
-    expect(await screen.findByText('当前平台没有已接入的原生迁移目标，可使用复制或保存完整接续文件。')).toBeTruthy()
-    expect(screen.getByRole('dialog').querySelectorAll('.source-target-card')).toHaveLength(0)
+    await act(async () => {})
+    more()
+    expect(screen.queryByRole('menuitem', { name: '原生历史迁移（高级）' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '接续目标设置' })).toBeNull()
+    expect(api.continueInCodex).not.toHaveBeenCalled()
   })
   it.each(['continue', 'configure'] as const)('%s：选中 App 后隐藏其他目标与说明，更换后恢复列表并清除目标详情', async mode => {
     const api = enableTarget()

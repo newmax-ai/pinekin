@@ -18,7 +18,7 @@ async function setup() {
 }
 
 describe('只列出未被判定为不支持的来源会话', () => {
-  it('Cindy 在点击前排除分叉、bot、协作、远程和隐藏条目，搜索、分页和连接数量一致', async () => {
+  it.runIf(process.platform === 'darwin')('Cindy 在点击前排除分叉、bot、协作、远程和隐藏条目，搜索、分页和连接数量一致', async () => {
     const { root, browser } = await setup(), path = join(root, 'synthetic.db'), db = new DatabaseSync(path)
     createCindyDatabase(db)
     const insert = db.prepare(`INSERT INTO sessions(id,title,source,status,created_at,updated_at,parent_session_id,remote_host_id,orca_role,hidden_at)
@@ -131,7 +131,7 @@ describe('只列出未被判定为不支持的来源会话', () => {
     expect((await browser.page({})).items).toEqual([])
     expect((await browser.connections()).map(connection => connection.total)).toEqual([0, 0])
   })
-  it('读取时才发生的边界变化也标为不支持，立即更新目录计数，不把普通错误一起隐藏', async () => {
+  it.runIf(process.platform === 'darwin')('读取时才发生的边界变化也标为不支持，立即更新目录计数，不把普通错误一起隐藏', async () => {
     const { root, browser } = await setup(), path = join(root, 'synthetic.db'), db = new DatabaseSync(path)
     try {
       db.exec('PRAGMA journal_mode=WAL'); createCindyDatabase(db)
@@ -143,7 +143,7 @@ describe('只列出未被判定为不支持的来源会话', () => {
       expect((await browser.connections())[0]).toMatchObject({ total: 0, discovered: 0 })
     } finally { db.close() }
   })
-  it('已打开 Cindy 会话变为不支持时，刷新后从目录和计数移除；恢复普通边界后可重新发现', async () => {
+  it.runIf(process.platform === 'darwin')('已打开 Cindy 会话变为不支持时，刷新后从目录和计数移除；恢复普通边界后可重新发现', async () => {
     const { root, browser } = await setup(), path = join(root, 'synthetic.db'), db = new DatabaseSync(path)
     try {
       db.exec('PRAGMA journal_mode=WAL'); createCindyDatabase(db)

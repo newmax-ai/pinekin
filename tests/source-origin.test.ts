@@ -51,7 +51,7 @@ describe('客户端归属不等于 Claude SDK 日志格式', () => {
     records[1].message = { role: 'user', content: '解释 NewMax 使用 Claude Agent SDK，entrypoint: sdk-ts，/synthetic/.newmax；Task: 测试' }
     expect((await scan(claudeFixture(records))).page.total).toBe(1)
   })
-  it('同时连接 NewMax 时只展示其数据库主会话，SDK 执行日志不会重复计作 Claude Code 或伪造 NewMax 条目', async () => {
+  it.runIf(process.platform === 'darwin')('同时连接 NewMax 时只展示其数据库主会话，SDK 执行日志不会重复计作 Claude Code 或伪造 NewMax 条目', async () => {
     const records = claudeRecords(); records[1].entrypoint = 'sdk-ts'
     const { root, browser } = await scan(claudeFixture(records)), path = join(root, 'newmax.db'), db = new DatabaseSync(path)
     db.exec(`CREATE TABLE conversations(id TEXT,title TEXT,source TEXT,created_at INTEGER,updated_at INTEGER,forked_from_id TEXT,is_private INTEGER,message_count INTEGER);

@@ -95,7 +95,7 @@ describe('来源直读：发现与正文读取分离', () => {
     await settle(browser, first.id); await settle(browser, second.id)
     expect(await browser.connections()).toHaveLength(2)
   })
-  it('NewMax 分页与计数排除已知不支持的隐私和分叉会话', async () => {
+  it.runIf(process.platform === 'darwin')('NewMax 分页与计数排除已知不支持的隐私和分叉会话', async () => {
     const { input, browser, data } = await setup(), path = join(input, 'newmax.db')
     seedDatabase(path)
     const before = await readFile(path)
@@ -118,7 +118,7 @@ describe('来源直读：发现与正文读取分离', () => {
     const connection = await browser.connect('newmax', path)
     const page = await settle(browser, connection.id)
     expect(page.connections[0]).toMatchObject({ status: 'error', total: null })
-    expect(page.connections[0].error).toMatch(/结构/)
+    expect(page.connections[0].error).toMatch(process.platform === 'darwin' ? /结构/ : /此平台的无副作用数据库读取尚未验证/)
     expect(await readFile(path)).toEqual(before)
   })
   it('搜索覆盖未加载页的标题和项目，不暗中建立全文副本', async () => {
@@ -185,7 +185,7 @@ describe('来源直读：发现与正文读取分离', () => {
       expect(read).not.toHaveBeenCalled()
     } finally { open.mockRestore(); read.mockRestore(); await externalHandle.close() }
   })
-  it('已 checkpoint 的 WAL 数据库可只读列出和读取正文，不创建副文件', async () => {
+  it.runIf(process.platform === 'darwin')('已 checkpoint 的 WAL 数据库可只读列出和读取正文，不创建副文件', async () => {
     const { input, browser } = await setup(), path = join(input, 'wal.db')
     seedDatabase(path)
     const database = new DatabaseSync(path); database.exec('PRAGMA journal_mode=WAL'); database.close()
@@ -197,7 +197,7 @@ describe('来源直读：发现与正文读取分离', () => {
     expect(await readdir(input)).toEqual(before)
     expect(await readFile(path)).toEqual(bytes)
   })
-  it('Cindy 活跃 WAL 连接后不再报错，已提交会话可列出，未验证的正文仍明确标记', async () => {
+  it.runIf(process.platform === 'darwin')('Cindy 活跃 WAL 连接后不再报错，已提交会话可列出，未验证的正文仍明确标记', async () => {
     const { input, browser } = await setup(), path = join(input, 'cindy.db'), writer = new DatabaseSync(path)
     try {
       writer.exec('PRAGMA journal_mode=WAL'); createCindySchema(writer)
@@ -208,7 +208,7 @@ describe('来源直读：发现与正文读取分离', () => {
       await expect(browser.read(page.items[0].id)).rejects.toThrow(/没有.*文本/)
     } finally { writer.close() }
   })
-  it('重复数据库 ID 不能静默覆盖后宣称完整总数，Cindy 正常目录仍可显示', async () => {
+  it.runIf(process.platform === 'darwin')('重复数据库 ID 不能静默覆盖后宣称完整总数，Cindy 正常目录仍可显示', async () => {
     const { input, browser } = await setup(), path = join(input, 'cindy.db')
     const database = new DatabaseSync(path)
     createCindySchema(database)

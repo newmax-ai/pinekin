@@ -35,6 +35,9 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
       { type: 'input_text', text: '</image 1>' }]),
     codexMessage('assistant', [{ type: 'output_text', text: '子会话的实际答复' }])])
   await writeFile(join(codex, 'subagent.jsonl'), codexBytes)
+  const withSqlite = process.platform === 'darwin'
+  let beforeDatabase: Buffer | undefined
+  if (withSqlite) {
   const writer = new DatabaseSync(database); createCindyDatabase(writer)
   writer.exec(`INSERT INTO sessions(id,title,parent_session_id,updated_at) VALUES('fork','不支持的分叉会话','parent',2100);
     INSERT INTO sessions(id,title,source,updated_at) VALUES('bot','不支持的 Bot 会话','bot',2200);
@@ -46,11 +49,12 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
   for (let index = 0; index < 101; index++) insert.run(`large-${index}`, 'large', 'assistant', `第 ${index + 1} 条合成消息\n` + 'x'.repeat(60_000), 2500 + index)
   writer.exec('COMMIT')
   writer.close()
-  const beforeDatabase = await readFile(database)
+  beforeDatabase = await readFile(database)
+  }
   await writeFile(join(data, 'connections.json'), JSON.stringify({ version: 1, connections: [
     { id: '11111111-2222-4333-8444-555555555551', source: 'deepseek', path: deepseek },
     { id: '11111111-2222-4333-8444-555555555552', source: 'codex', path: codex },
-    { id: '11111111-2222-4333-8444-555555555553', source: 'cindy', path: database },
+    ...(withSqlite ? [{ id: '11111111-2222-4333-8444-555555555553', source: 'cindy', path: database }] : []),
   ] }))
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const {app,dialog,clipboard}=require('electron');
@@ -62,8 +66,8 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
   const page = await app.firstWindow(); await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.session-card')).toHaveCount(4)
-  await expect(page.getByRole('button', { name: /^Cindy\s*2$/ })).toBeVisible()
+  await expect(page.locator('.session-card')).toHaveCount(withSqlite ? 4 : 2)
+  if (withSqlite) await expect(page.getByRole('button', { name: /^Cindy\s*2$/ })).toBeVisible()
   await expect(page.locator('.session-card').filter({ hasText: '不支持' })).toHaveCount(0)
   expect(await page.evaluate(() => window.staithe.sources.page({ query: '不支持' }).then(result => result.total))).toBe(0)
   // 尚未点击正文时，压缩文件已显示真实标题。
@@ -94,6 +98,8 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail).toContainText('未映射内容块')
     await expect(detail.locator('h1,h2,h3,a,img,script,iframe,[src],[href]')).toHaveCount(0)
     await expect(detail.getByText('子会话的实际答复', { exact: true })).toBeVisible()
+    // 仅数据库部分需要 macOS；DeepSeek/Codex 的实际日志和安全 Markdown 在 Windows 仍验证。
+    if (withSqlite) {
     await page.locator('.session-card').filter({ hasText: 'Cindy 合成正文' }).click()
     await expect(detail.locator('article')).toHaveCount(2)
     await expect(detail.getByText('合成用户问题', { exact: true })).toBeVisible()
@@ -110,9 +116,10 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail).not.toContainText('第 1 条合成消息')
     await page.getByRole('button', { name: '上一段', exact: true }).click()
     await expect(detail).toContainText('第 1 条合成消息')
-    await expect(page.locator('.session-card')).toHaveCount(4)
+    }
+    await expect(page.locator('.session-card')).toHaveCount(withSqlite ? 4 : 2)
   }
-  expect((await readFile(database)).equals(beforeDatabase)).toBe(true)
+  if (beforeDatabase) expect(await readFile(database)).toEqual(beforeDatabase)
   expect(await readFile(join(deepseek, 'session.v4.jsonl.zstd'))).toEqual(compressed)
   expect(await readFile(join(codex, 'subagent.jsonl'))).toEqual(codexBytes)
   expect(await readdir(data)).not.toContain('imports')

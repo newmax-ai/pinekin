@@ -42,18 +42,18 @@ flowchart LR
 
 1. 打开 Pinekin，点击侧栏 **连接 App**，打开对应卡片的开关即完成授权；关闭开关撤销该 App 的所有位置，不删除原会话。
 2. 在会话列表中浏览，或按 `Cmd+K` / `Ctrl+K` 搜索标题等元数据。
-3. 点开一条会话阅读正文，点击右上角 **复制接续文件**。
-4. 切到目标 App，把文件粘贴为附件，继续对话。
+3. 点开一条会话阅读正文；macOS 点击右上角 **复制接续文件**，Windows／Linux 点击 **保存接续文件**。
+4. 切到目标 App，把文件粘贴、拖入或上传为附件，继续对话。
 
 > [!NOTE]
-> 文件复制目前只在 macOS 实现；其它系统可以用 **更多 → 保存完整接续文件** 导出后手动上传。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
+> 文件复制目前只在 macOS 实现；Windows／Linux 主按钮直接保存完整文件，更多菜单也保留保存入口。NewMax／Cindy 数据库直读在非 macOS 连接面板提前标明不支持，不提供无效的位置选择。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
 
 ### 接续方式
 
 | 方式 | 入口 | 内容 | 适用场景 |
 | --- | --- | --- | --- |
-| 复制接续文件 | 页头主按钮 | 完整可读历史 + 接续说明 | 默认方式，粘贴到支持文件附件的 App |
-| 保存完整接续文件 | 更多菜单 | 与上面相同的文件 | 非 macOS，或需要拖入／上传 |
+| 复制接续文件 | macOS 页头主按钮 | 完整可读历史 + 接续说明 | 粘贴到支持文件附件的 App |
+| 保存完整接续文件 | Windows／Linux 页头主按钮；各平台更多菜单 | 与上面相同的文件 | 手动拖入／上传 |
 | 导出聊天记录 | 更多菜单 | 当前已读文本 | 存档或分享当前片段 |
 | 原生历史迁移（高级） | 更多菜单 | 在目标客户端创建会话 | 仅 macOS：Codex／NewMax；Linux：NewMax |
 
@@ -98,6 +98,8 @@ Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSe
 | 复制接续文件到剪贴板 | ✅ | 用保存代替 | 用保存代替 |
 | 原生历史迁移（高级） | Codex／NewMax | NewMax | 暂不支持 |
 
+Windows 首版边界为日志类来源浏览、阅读和保存完整接续文件；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。
+
 ## 已知限制
 
 - **接续效果未逐一实测**：接续文件粘贴进各目标 App 后的接续效果，还没有逐个客户端验收。
@@ -119,6 +121,7 @@ npm run test:coverage  # 单元测试与覆盖率
 npm run build          # typecheck + 构建
 npm run test:e2e       # Playwright 桌面 E2E
 npm run dist:mac       # 打包 Apple 芯片 DMG（ad-hoc 签名）
+npm run dist:win       # 在 Windows 打包 x64 NSIS 测试安装包，未配置分发签名
 ```
 
 | 改动范围 | 需要执行 |
@@ -140,7 +143,7 @@ E2E 只使用合成数据和隔离的 userData，替换文件选择框与系统�
 | 接续 | [通用接续文件](docs/context-handoff.md) · [原生目标](docs/native-targets.md) · [NewMax 接续](docs/newmax-target.md) · [Codex 项目列表](docs/codex-project-catalog.md) |
 | 界面 | [界面设计](docs/ui-design.md) · [空占位规范](docs/empty-states.md) · [连续圆角](docs/continuous-corners.md) · [图标](docs/app-icon.md) |
 | 档案 | [档案格式与资源限制](docs/import-formats.md) · [Codex 格式](docs/codex-import.md) |
-| 发布 | [macOS 打包](docs/macos-packaging.md) |
+| 发布 | [macOS 打包](docs/macos-packaging.md) · [Windows 适配与验收](docs/windows-support.md) |
 | 核验 | [NewMax／Claude 核验](docs/newmax-claude-local-validation-2026-10-17.md) · [Cindy／DeepSeek 核验](docs/cindy-deepseek-local-validation-2026-10-17.md) · [品牌兼容](docs/pinekin-rename-verification.md) |
 
 <details>

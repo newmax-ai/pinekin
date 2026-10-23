@@ -7,6 +7,11 @@ import { DsSwitch } from './DsSwitch'
 import { DesignIcon, DsButton, DsDialog, DsDialogHeader } from './ui'
 
 const sources = browsableSources
+function unsupportedReason(source: BrowsableSource) {
+  const platform = window.staithe.platform
+  return platform && platform !== 'darwin' && (source === 'newmax' || source === 'cindy')
+    ? `${platform === 'win32' ? 'Windows' : '当前平台'} 暂不支持安全数据库直读；更换位置无法启用此能力。` : undefined
+}
 const statusNames = { idle: '待刷新', scanning: '加载中', ready: '统计未完成', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 interface Props {
   connections: SourceConnection[]
@@ -36,7 +41,7 @@ export function ConnectSourcesDialog({ connections, returnFocus, onConnected, on
     if (result.connections.some(item => item.status === 'ready' || item.status === 'partial')) setAdded(previous => [...new Set([...previous, source])])
   }
   async function change(source: BrowsableSource, mode: 'connect' | 'disconnect' | 'manual') {
-    if (busy || running.current) return
+    if (busy || running.current || (mode !== 'disconnect' && unsupportedReason(source))) return
     running.current = true; setActive({ source, mode })
     // 断开由父层统一串行处理并维护 busy，避免多位置逐项回调捕获旧页面状态。
     if (mode !== 'disconnect') onBusyChange(true)
@@ -81,12 +86,13 @@ export function ConnectSourcesDialog({ connections, returnFocus, onConnected, on
         const statistics = enabled ? complete ? `${count} 条会话` : `已发现 ${count} 条 · 统计未完成` : '自动查找本机会话'
         const progress = mode ? mode === 'manual' ? '等待选择位置…' : mode === 'disconnect' ? '正在断开…' : '正在连接…' : undefined
         // 重试期间保留原描述及换行，不能临时缩成一行后再撑回整个网格。
-        const notice = hints.length > 0 ? hints.join('；') : undefined
+        const unsupported = unsupportedReason(source)
+        const notice = unsupported ?? (hints.length > 0 ? hints.join('；') : undefined)
         const description = notice ?? statistics
         const diagnostic = `${sourceNames[source]}：${messages.join('；')}`
         return <li key={source}><section className="connection-source-card" aria-label={`${sourceNames[source]} 来源`} data-connected={enabled}>
           <div className="connection-app"><SourceIcon source={source} /><h3>{sourceNames[source]}</h3>
-            <DsSwitch size="small" data-dialog-initial-focus="true" aria-label={`连接 ${sourceNames[source]}`} checked={enabled} disabled={busy}
+            <DsSwitch size="small" data-dialog-initial-focus={!unsupported || enabled ? 'true' : undefined} aria-label={`连接 ${sourceNames[source]}`} checked={enabled} disabled={busy || (!!unsupported && !enabled)}
               onChange={checked => void change(source, checked ? 'connect' : 'disconnect')} />
           </div>
           <div className="connection-summary" data-notice={!!notice} data-pending={!!mode}>
@@ -100,7 +106,7 @@ export function ConnectSourcesDialog({ connections, returnFocus, onConnected, on
               <span className="connection-location-count">{item.status === 'ready' && item.total !== null ? `${item.total} 条` : `${statusNames[item.status]} · 已发现 ${item.discovered} 条`}</span>
               {(item.issues > 0 || item.ignoredLinks > 0) && <p className="connection-location-note">不可访问目录 {item.issues} · 跳过符号链接 {item.ignoredLinks}</p>}
             </section>)}</div>
-            {(messages.length > 0 || hints.length > 0) && <DsButton className="connection-manual" size="small" disabled={busy} onClick={() => void change(source, 'manual')}>使用自定义位置…</DsButton>}
+            {!unsupported && (messages.length > 0 || hints.length > 0) && <DsButton className="connection-manual" size="small" disabled={busy} onClick={() => void change(source, 'manual')}>使用自定义位置…</DsButton>}
           </div>
         </section></li>
       })}</ul>

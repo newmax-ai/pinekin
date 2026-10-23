@@ -28,10 +28,10 @@ describe('WorkBuddy 独立来源读取', () => {
   it('只定位官方 WorkBuddy 根，不把独立 CodeBuddy 默认目录误作来源', async () => {
     const { context } = await setup()
     expect(sourceCandidates(workbuddy, context)).toEqual([join(context.home, '.workbuddy', 'projects')])
-    context.env.WORKBUDDY_CONFIG_DIR = '/synthetic/workbuddy'
-    expect(sourceCandidates(workbuddy, context)).toEqual(['/synthetic/workbuddy/projects'])
-    context.env.CODEBUDDY_CONFIG_DIR = '/synthetic/independent-codebuddy'
-    expect(sourceCandidates(workbuddy, context)).toEqual(['/synthetic/workbuddy/projects'])
+    context.env.WORKBUDDY_CONFIG_DIR = join(context.home, 'workbuddy')
+    expect(sourceCandidates(workbuddy, context)).toEqual([join(context.home, 'workbuddy', 'projects')])
+    context.env.CODEBUDDY_CONFIG_DIR = join(context.home, 'independent-codebuddy')
+    expect(sourceCandidates(workbuddy, context)).toEqual([join(context.home, 'workbuddy', 'projects')])
     context.env.WORKBUDDY_CONFIG_DIR = 'relative'
     expect(() => sourceCandidates(workbuddy, context)).toThrow('绝对路径')
   })

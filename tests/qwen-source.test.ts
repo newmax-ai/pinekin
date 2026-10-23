@@ -32,10 +32,10 @@ describe('Qwen Code 来源契约', () => {
     const { context } = await setup()
     expect(sourceSchema.parse('qwen-code')).toBe('qwen-code')
     expect(sourceCandidates(qwen, context)).toEqual([join(context.home, '.qwen', 'projects')])
-    context.env.QWEN_HOME = '/synthetic/qwen-home'
-    expect(sourceCandidates(qwen, context)).toEqual(['/synthetic/qwen-home/projects'])
-    context.env.QWEN_RUNTIME_DIR = '/synthetic/runtime'
-    expect(sourceCandidates(qwen, context)).toEqual(['/synthetic/runtime/projects'])
+    context.env.QWEN_HOME = join(context.home, 'qwen-home')
+    expect(sourceCandidates(qwen, context)).toEqual([join(context.home, 'qwen-home', 'projects')])
+    context.env.QWEN_RUNTIME_DIR = join(context.home, 'runtime')
+    expect(sourceCandidates(qwen, context)).toEqual([join(context.home, 'runtime', 'projects')])
     context.env.QWEN_RUNTIME_DIR = '../relative'
     expect(() => sourceCandidates(qwen, context)).toThrow('绝对路径')
   })

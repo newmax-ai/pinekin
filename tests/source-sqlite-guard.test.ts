@@ -28,7 +28,7 @@ async function setup() {
   return { path, db }
 }
 
-describe('SQLite 在正文语句之前校验对象类型与列', () => {
+describe.runIf(process.platform === 'darwin')('SQLite 在正文语句之前校验对象类型与列', () => {
   it('Cindy messages 视图伪装字段时，子进程 stdout 也不能投影非白名单标记', async () => {
     const { path, db } = await setup()
     db.exec(`DROP TABLE messages; CREATE VIEW messages AS SELECT 'view-message' AS id, 'synthetic-session' AS session_id,

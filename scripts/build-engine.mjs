@@ -6,7 +6,10 @@ import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { build } from 'rolldown'
+
+const require = createRequire(import.meta.url)
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const out = join(root, 'dist', 'engine')
@@ -31,7 +34,7 @@ await writeFile(tsconfig, JSON.stringify({
   include: ['src/engine/index.ts'],
 }, null, 2))
 try {
-  execFileSync(join(root, 'node_modules/.bin/tsc'), ['-p', tsconfig], { cwd: root, stdio: 'inherit' })
+  execFileSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', tsconfig], { cwd: root, stdio: 'inherit' })
 } finally {
   await rm(tsconfig, { force: true })
 }

@@ -7,14 +7,17 @@ import { DatabaseSync } from 'node:sqlite'
 import { codexFixture, codexThreadId } from '../fixtures/codex'
 
 type State = { opened: string[]; launched: string[]; copied: string[]; files: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number }
+const isMac = process.platform === 'darwin'
+const macTest = isMac ? test : test.skip
+const handoffButton = isMac ? '复制接续文件' : '保存接续文件'
 let app: ElectronApplication, page: Page, root: string, dbPath: string, output: string
-async function connect(name: 'NewMax' | 'Codex' = 'NewMax') {
+async function connect(name: 'NewMax' | 'Codex' = isMac ? 'NewMax' : 'Codex') {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   const control = page.getByRole('switch', { name: `连接 ${name}`, exact: true })
   await control.click(); await expect(control).toBeChecked(); await expect(control).toBeEnabled()
   await page.getByRole('button', { name: '完成', exact: true }).click()
   await page.locator('.session-card').first().click()
-  await expect(page.getByRole('button', { name: '复制接续文件' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: handoffButton })).toBeEnabled()
   await expect(page.getByRole('button', { name: '在原 App 打开' })).toHaveCount(0)
 }
 async function more() { await page.getByRole('button', { name: '更多会话操作' }).click() }
@@ -22,6 +25,7 @@ test.beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-actions-e2e-')))
   await mkdir(join(root, '.newmax')); await mkdir(join(root, 'appData')); await mkdir(join(root, '.codex', 'sessions'), { recursive: true })
   dbPath = join(root, '.newmax', 'newmax.db'); output = join(root, 'export.md')
+  if (isMac) {
   const db = new DatabaseSync(dbPath)
   db.exec(`CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT, source TEXT, created_at INTEGER, updated_at INTEGER, forked_from_id TEXT, is_private INTEGER, message_count INTEGER);
     CREATE TABLE messages (seq INTEGER, id TEXT, conversation_id TEXT, role TEXT, content TEXT, timestamp INTEGER, data TEXT);
@@ -31,6 +35,7 @@ test.beforeEach(async () => {
     db.prepare('INSERT INTO messages VALUES (?,?,?,?,?,?,?)').run(index, id, 'synthetic-one', role, content, 2000, JSON.stringify(message))
   }
   db.close()
+  }
   await writeFile(join(root, '.codex', 'sessions', 'synthetic.jsonl'), codexFixture())
   const projectPath = join(root, 'synthetic-project'); await mkdir(projectPath)
   await writeFile(join(root, '.codex', '.codex-global-state.json'), JSON.stringify({
@@ -38,11 +43,13 @@ test.beforeEach(async () => {
     'project-order': ['synthetic-project'],
   }))
   const bundle = join(root, 'ChatGPT.app'), resources = join(bundle, 'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS')
+  const newmaxBundle = join(root, 'Electron.app')
+  if (isMac) {
   await mkdir(resources, { recursive: true }); await writeFile(join(resources, 'codex'), 'synthetic metadata-only fixture; never execute')
   await writeFile(join(bundle, 'Contents/Info.plist'), JSON.stringify({ CFBundleIdentifier: 'com.openai.codex', CFBundleName: 'ChatGPT', CFBundleURLTypes: [{ CFBundleURLSchemes: ['codex'] }] }))
-  const newmaxBundle = join(root, 'Electron.app')
   await mkdir(join(newmaxBundle, 'Contents'), { recursive: true })
   await writeFile(join(newmaxBundle, 'Contents/Info.plist'), JSON.stringify({ CFBundleIdentifier: 'cc.newmax.desktop.cn.dev', CFBundleName: 'Electron' }))
+  }
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard, shell, nativeImage } = require('electron');
     app.setPath('home', ${JSON.stringify(root)}); app.setPath('appData', ${JSON.stringify(join(root, 'appData'))});
@@ -101,10 +108,32 @@ test('读取说明收进更多菜单，正常阅读不显示报告，关闭后�
   expect(state.openCalls).toBe(0); expect(state.saveCalls).toBe(0)
 })
 
-test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
+test('通用日志可保存完整接续文件与导出文本，不访问文件剪贴板或原生目标', async () => {
+  const path = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(path)
+  await connect('Codex')
+  if (isMac) { await more(); await page.getByRole('menuitem', { name: '保存完整接续文件' }).click() }
+  else await page.getByRole('button', { name: '保存接续文件', exact: true }).click()
+  await expect(page.locator('.source-actions-feedback')).toContainText('文件已保存')
+  const handoff = await readFile(output, 'utf8')
+  expect(handoff).toContain('不是原生会话恢复')
+  expect(handoff).toContain('合成')
+  await page.getByRole('button', { name: '关闭操作提示' }).click()
+  await more(); await page.getByRole('menuitem', { name: '复制会话文本' }).click()
+  await expect(page.locator('.source-actions-feedback')).toContainText('已复制会话文本')
+  await page.getByRole('button', { name: '关闭操作提示' }).click()
+  await more(); await page.getByRole('menuitem', { name: '导出聊天记录' }).click()
+  await expect(page.locator('.source-actions-feedback')).toContainText('已导出聊天记录')
+  const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
+  expect(await readFile(output, 'utf8')).toBe(state.copied.at(-1))
+  expect(state.files).toEqual([]); expect(state.opened).toEqual([]); expect(state.launched).toEqual([])
+  expect(state.saveCalls).toBe(2)
+  expect(await readFile(path)).toEqual(before)
+})
+
+macTest('默认一次点击复制通用 Markdown 文件，经真实 preload 和文件 IPC，不打开目标', async () => {
   const before = await readFile(dbPath)
   await connect()
-  const copyButton = page.getByRole('button', { name: '复制接续文件' })
+  const copyButton = page.getByRole('button', { name: handoffButton })
   const size = await copyButton.boundingBox()
   await copyButton.click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -143,7 +172,7 @@ test('默认一次点击复制通用 Markdown 文件，经真实 preload 和文�
   expect(rejected).toEqual([true, true, true, true])
 })
 
-test('直接复制文件在等待与失败时不改变按钮位置，不弹目标选择', async () => {
+test('接续文件在等待与失败时不改变按钮位置，不弹目标选择', async () => {
   await connect()
   await app.evaluate(({ ipcMain }) => {
     const control = { finish: () => {} }
@@ -153,7 +182,7 @@ test('直接复制文件在等待与失败时不改变按钮位置，不弹目�
       control.finish = () => reject(new Error('合成读取失败'))
     }))
   })
-  const button = page.getByRole('button', { name: '复制接续文件' })
+  const button = page.getByRole('button', { name: handoffButton })
   const before = await button.boundingBox()
   await button.click()
   await expect(button).toBeDisabled()
@@ -167,7 +196,7 @@ test('直接复制文件在等待与失败时不改变按钮位置，不弹目�
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.files)).toEqual([])
 })
 
-test('高级原生入口仍可明确选择独立会话或项目；取消项目不创建', async () => {
+macTest('高级原生入口仍可明确选择独立会话或项目；取消项目不创建', async () => {
   const before = await readFile(dbPath)
   await connect()
   await more()
@@ -282,7 +311,7 @@ test('高级原生入口仍可明确选择独立会话或项目；取消项目�
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([])
 })
 
-test('更多菜单查看NewMax原会话，辅助复制和导出不再有目标或敏感表单', async () => {
+macTest('更多菜单查看NewMax原会话，辅助复制和导出不再有目标或敏感表单', async () => {
   const before = await readFile(dbPath)
   await connect()
   await expect(page.getByRole('button', { name: '在另一个 App 继续' })).toHaveCount(0)
@@ -316,7 +345,7 @@ test('更多菜单查看NewMax原会话，辅助复制和导出不再有目标�
   await page.screenshot({ path: 'test-results/source-actions-newmax.png', scale: 'css' })
 })
 
-test('长标题优先分配宽度，窄窗口操作另起一行；协议不可用不显示死按钮', async () => {
+macTest('长标题优先分配宽度，窄窗口操作另起一行；协议不可用不显示死按钮', async () => {
   const title = 'newmax://open?conversation=synthetic-long-title 继续完成 Electron 升级并核对桌面兼容性'
   const db = new DatabaseSync(dbPath)
   db.prepare('UPDATE conversations SET title = ?').run(title); db.close()
@@ -389,7 +418,7 @@ test('长标题优先分配宽度，窄窗口操作另起一行；协议不可�
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([])
 })
 
-test('Codex只打开既有UUID线程，不创建、不注入或触发模型请求', async () => {
+macTest('Codex只打开既有UUID线程，不创建、不注入或触发模型请求', async () => {
   await connect('Codex')
   await more()
   await page.getByRole('menuitem', { name: '查看原会话' }).click()
@@ -397,7 +426,7 @@ test('Codex只打开既有UUID线程，不创建、不注入或触发模型请�
   expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([`codex://threads/${codexThreadId}`])
 })
 
-test('IPC拒绝任意URL、未知ID及断开后的打开请求；协议失效不调用系统打开', async () => {
+macTest('IPC拒绝任意URL、未知ID及断开后的打开请求；协议失效不调用系统打开', async () => {
   await connect()
   const entry = await page.evaluate(async () => (await window.staithe.sources.page({})).items[0])
   const rejected = await page.evaluate(async id => {

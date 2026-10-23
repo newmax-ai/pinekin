@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { zstdCompressSync } from 'node:zlib'
 import { defaultLocations, engineSources, listSessions, PinekinUnsupportedError, readTranscript, workingDirectoryWithin, type SessionRef } from '../src/engine'
 import { codexFixture, codexMessage, codexMeta, codexRecord } from './fixtures/codex'
@@ -51,11 +51,12 @@ describe('Pinekin Engine 能力清单与位置', () => {
     expect(engineSources()[0].verifiedPlatforms).not.toContain('win32')
   })
   it('默认位置与 Pinekin App 一致，环境变量不是绝对路径时不猜测', () => {
-    const context = { home: '/synthetic/home', env: {} }
-    expect(defaultLocations('codex', context)).toEqual(['/synthetic/home/.codex/sessions', '/synthetic/home/.codex/archived_sessions'])
-    expect(defaultLocations('qwen-code', { ...context, env: { QWEN_HOME: '/synthetic/qwen' } })).toEqual(['/synthetic/qwen/projects'])
-    expect(defaultLocations('workbuddy', context)).toEqual(['/synthetic/home/.workbuddy/projects'])
-    expect(defaultLocations('workbuddy', { ...context, env: { WORKBUDDY_CONFIG_DIR: '/synthetic/wb', CODEBUDDY_CONFIG_DIR: '/synthetic/cb' } })).toEqual(['/synthetic/wb/projects'])
+    const context = { home: join(tmpdir(), 'synthetic', 'home'), env: {} }
+    const qwen = join(tmpdir(), 'synthetic', 'qwen'), workbuddy = join(tmpdir(), 'synthetic', 'wb')
+    expect(defaultLocations('codex', context)).toEqual([join(context.home, '.codex', 'sessions'), join(context.home, '.codex', 'archived_sessions')])
+    expect(defaultLocations('qwen-code', { ...context, env: { QWEN_HOME: qwen } })).toEqual([join(qwen, 'projects')])
+    expect(defaultLocations('workbuddy', context)).toEqual([join(context.home, '.workbuddy', 'projects')])
+    expect(defaultLocations('workbuddy', { ...context, env: { WORKBUDDY_CONFIG_DIR: workbuddy, CODEBUDDY_CONFIG_DIR: join(tmpdir(), 'synthetic', 'cb') } })).toEqual([join(workbuddy, 'projects')])
     expect(defaultLocations('codex', { ...context, env: { CODEX_HOME: 'relative' } })).toEqual([])
     expect(() => defaultLocations('cindy' as never)).toThrow('不支持的来源')
   })
@@ -87,7 +88,7 @@ describe('Pinekin Engine：Codex', () => {
     await writeFile(join(day, 'history.jsonl'), structuredCodex())
     await symlink(join(day, 'rollout-a.jsonl'), join(day, 'rollout-link.jsonl'))
     const items = await collect(listSessions('codex', { roots }))
-    expect(items.map(item => item.path.split('/').pop())).toEqual(['rollout-b.jsonl', 'rollout-a.jsonl', 'rollout-c.jsonl', 'rollout-d.jsonl'])
+    expect(items.map(item => basename(item.path))).toEqual(['rollout-b.jsonl', 'rollout-a.jsonl', 'rollout-c.jsonl', 'rollout-d.jsonl'])
     const [subagent, main, forked, broken] = items
     expect(main).toMatchObject({ source: 'codex', sessionId: '0199e6ba-0000-7000-8000-000000000001', workingDirectory: '/synthetic/project', kind: 'conversation', compressed: false })
     expect(main.revision).toMatch(/^[a-f0-9]{64}$/)
@@ -212,7 +213,7 @@ describe('Pinekin Engine：WorkBuddy', () => {
     const home = await temp()
     const projects = join(home, '.workbuddy', 'projects')
     for (const [name, text] of Object.entries(files)) {
-      await mkdir(join(projects, ...name.split('/').slice(0, -1)), { recursive: true })
+      await mkdir(dirname(join(projects, name)), { recursive: true })
       await writeFile(join(projects, name), text)
     }
     for (const [name, text] of Object.entries(sidecars)) await writeFile(join(projects, name), text)
@@ -238,8 +239,8 @@ describe('Pinekin Engine：WorkBuddy', () => {
       'stray.jsonl': session('stray'),
     }, { 'Users-synthetic-WorkBuddy-task-2/forked.meta.json': JSON.stringify({ forkedFrom: 'other', ignored: '不读取的字段' }) })
     const items = await collect(listSessions('workbuddy', { roots }))
-    expect(items.map(item => item.path.slice(projects.length + 1))).toEqual([
-      'Users-synthetic-WorkBuddy-task-1/synthetic-workbuddy.jsonl', 'Users-synthetic-WorkBuddy-task-2/forked.jsonl',
+    expect(items.map(item => relative(projects, item.path))).toEqual([
+      join('Users-synthetic-WorkBuddy-task-1', 'synthetic-workbuddy.jsonl'), join('Users-synthetic-WorkBuddy-task-2', 'forked.jsonl'),
     ])
     expect(items[0]).toMatchObject({ source: 'workbuddy', sessionId: 'synthetic-workbuddy', kind: 'conversation', compressed: false })
     expect(items[0].workingDirectory).toBeUndefined()

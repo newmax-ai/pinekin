@@ -4,6 +4,27 @@ import { parseSigningEnv, resolveSignedBuild } from '../scripts/dist-mac-signed.
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
+describe('Windows 构建入口', () => {
+  it('提供经过生产构建的 NSIS x64 安装包命令', () => {
+    expect(pkg.scripts['dist:win']).toBe('npm run build && electron-builder --win nsis --x64')
+    expect(pkg.build.win).toMatchObject({ icon: 'resources/pinekin.ico', target: 'nsis' })
+  })
+  it('Engine 通过当前 Node 执行 TypeScript CLI，不执行 Unix shim', () => {
+    const script = readFileSync(new URL('../scripts/build-engine.mjs', import.meta.url), 'utf8')
+    expect(script).toContain('execFileSync(process.execPath, [')
+    expect(script).toContain("require.resolve('typescript/bin/tsc')")
+    expect(script).not.toContain('node_modules/.bin/tsc')
+  })
+  it('CI 在 Windows 原生 runner 执行测试、Engine 构建和 NSIS 打包', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(workflow).toContain('windows-latest')
+    expect(workflow).toContain('node scripts/build-engine.mjs')
+    expect(workflow).toContain('npm exec electron-builder -- --win nsis --x64')
+    expect(workflow).toContain('npm run test:coverage')
+    expect(workflow).toContain('npm run test:e2e')
+  })
+})
+
 describe('macOS 打包配置', () => {
   it('只产出 Apple 芯片 DMG，不打 Intel 或 universal 包', () => {
     expect(pkg.build.mac.target).toEqual([{ target: 'dmg', arch: ['arm64'] }])

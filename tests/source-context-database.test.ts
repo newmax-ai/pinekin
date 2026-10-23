@@ -35,7 +35,7 @@ async function setup(source: 'newmax' | 'cindy', text: string) {
   return { path, before, browser, entry }
 }
 
-describe.each(['newmax', 'cindy'] as const)('%s 数据库到接续的真实合成链路', source => {
+describe.runIf(process.platform === 'darwin').each(['newmax', 'cindy'] as const)('%s 数据库到接续的真实合成链路', source => {
   it('默认阅读、复制导出和完整接续使用同一已净化文字，纯提示记录不进入问答', async () => {
     const raw = '<system-reminder data-role="user-context">合成隐藏运行环境</system-reminder>\n真实用户问题'
     const { path, before, browser, entry } = await setup(source, raw)

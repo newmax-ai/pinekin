@@ -20,7 +20,7 @@ async function snapshot(path: string) {
     return { bytes: await readFile(name), size: info.size, mtimeMs: info.mtimeMs }
   }))
 }
-describe('Cindy 授权数据库的正文白名单投影', () => {
+describe.runIf(process.platform === 'darwin')('Cindy 授权数据库的正文白名单投影', () => {
   it('目录与正文读活跃 WAL，仅显示当前问答、保留相同时间 rowid 顺序且不写原件', async () => {
     const { root, path, writer, browser } = await setup()
     try {

@@ -100,7 +100,7 @@ describe('来源增量检查与稳定快照', () => {
     expect(content.revision).toBeTruthy()
     expect(content.revision).toBe(checked.selected?.revision)
   })
-  it('SQLite 无变化不启动查询进程，活跃 WAL 提交后刷新目录且不读取正文', async () => {
+  it.runIf(process.platform === 'darwin')('SQLite 无变化不启动查询进程，活跃 WAL 提交后刷新目录且不读取正文', async () => {
     const { root } = await setup(), path = join(root, 'cindy.db'), db = new DatabaseSync(path)
     try {
       db.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0'); createCindySchema(db)
@@ -118,7 +118,7 @@ describe('来源增量检查与稳定快照', () => {
       expect(result.selected?.revision).toBe(first.items[0].revision)
     } finally { db.close() }
   })
-  it('结果指纹区分来源和关键词，覆盖未加载页，不受分页和已读状态影响', async () => {
+  it.runIf(process.platform === 'darwin')('结果指纹区分来源和关键词，覆盖未加载页，不受分页和已读状态影响', async () => {
     const { root, path, browser, first } = await setup()
     const dbPath = join(root, 'cindy-filter.db'), db = new DatabaseSync(dbPath)
     try {

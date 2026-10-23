@@ -12,7 +12,7 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
-  window.staithe = { ...window.staithe, sources: { connections: vi.fn(), autoConnect: vi.fn().mockImplementation(async source => success(source)), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), check: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), page: vi.fn(), read: vi.fn() } }
+  window.staithe = { ...window.staithe, platform: 'darwin', sources: { connections: vi.fn(), autoConnect: vi.fn().mockImplementation(async source => success(source)), connect: vi.fn().mockResolvedValue(null), refresh: vi.fn(), check: vi.fn(), cancel: vi.fn(), disconnect: vi.fn(), page: vi.fn(), read: vi.fn() } }
 })
 function mount(initial: SourceConnection[] = []) {
   const disconnect = vi.fn<(items: SourceConnection[]) => Promise<boolean>>().mockResolvedValue(true)
@@ -35,6 +35,34 @@ function mount(initial: SourceConnection[] = []) {
 function toggle(source: BrowsableSource) { fireEvent.click(screen.getByRole('switch', { name: `连接 ${sourceNames[source]}` })) }
 function card(source: BrowsableSource) { return screen.getByRole('region', { name: `${sourceNames[source]} 来源` }) }
 async function idle(source: BrowsableSource) { await waitFor(() => expect((screen.getByRole('switch', { name: `连接 ${sourceNames[source]}` }) as HTMLButtonElement).disabled).toBe(false)) }
+
+describe('平台来源能力', () => {
+  it.each(['win32', 'linux'])('%s 提前禁用数据库来源，不扫描或弹出位置选择', async platform => {
+    window.staithe = { ...window.staithe, platform }
+    mount()
+    for (const source of ['newmax', 'cindy'] as const) {
+      expect(within(card(source)).getByText(/暂不支持安全数据库直读/)).toBeTruthy()
+      expect((within(card(source)).getByRole('switch') as HTMLButtonElement).disabled).toBe(true)
+      expect(within(card(source)).queryByRole('button', { name: '使用自定义位置…' })).toBeNull()
+      toggle(source)
+    }
+    expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
+    expect(window.staithe.sources.connect).not.toHaveBeenCalled()
+    toggle('codex'); await idle('codex')
+    expect(window.staithe.sources.autoConnect).toHaveBeenCalledExactlyOnceWith('codex')
+  })
+  it('Windows 已保存的不支持来源仍能撤销连接，不能重新开启', async () => {
+    window.staithe = { ...window.staithe, platform: 'win32' }
+    const { disconnect } = mount([connection('newmax')])
+    const control = within(card('newmax')).getByRole('switch') as HTMLButtonElement
+    expect(control.disabled).toBe(false)
+    toggle('newmax')
+    await waitFor(() => expect(disconnect).toHaveBeenCalledExactlyOnceWith([connection('newmax')]))
+    await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('false'))
+    expect(control.disabled).toBe(true)
+    expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
+  })
+})
 
 describe('App 连接开关', () => {
   it('描述紧跟标题，所有来源同时可见，不保留地区筛选或空工具栏', () => {
