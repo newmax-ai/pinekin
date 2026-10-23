@@ -41,11 +41,11 @@ const structuredCodex = () => codexFixture([
 describe('Pinekin Engine 能力清单与位置', () => {
   it('只声明已结构化验证的来源，返回副本不可被调用方篡改', () => {
     const list = engineSources()
-    expect(list.map(item => item.source)).toEqual(['codex', 'qwen-code', 'workbuddy'])
+    expect(list.map(item => item.source)).toEqual(['codex', 'qwen-code', 'workbuddy', 'deepseek'])
     expect(list.every(item => item.structured)).toBe(true)
     // WorkBuddy 会话没有可信工作目录，只能作为全局来源；其余来源按工作目录归属工作区。
     expect(list.map(item => [item.source, item.scope, item.workingDirectory])).toEqual([
-      ['codex', 'workspace', true], ['qwen-code', 'workspace', true], ['workbuddy', 'global', false],
+      ['codex', 'workspace', true], ['qwen-code', 'workspace', true], ['workbuddy', 'global', false], ['deepseek', 'workspace', true],
     ])
     list[0].verifiedPlatforms.push('win32')
     expect(engineSources()[0].verifiedPlatforms).not.toContain('win32')

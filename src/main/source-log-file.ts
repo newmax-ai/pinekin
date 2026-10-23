@@ -2,9 +2,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, realpath, type FileHandle } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
-import { constants as zstd, createZstdDecompress } from 'node:zlib'
+import { decodeZstdLogFrames } from './zstd-log-frames'
 
 export const LOG_LINE_BYTES = 8 * 1024 * 1024
 const chunkBytes = 64 * 1024
@@ -61,6 +59,7 @@ async function readLogFile<T>(path: string, root: string, compressed: boolean, a
     const scan: LogScan = async consume => {
       check()
       const read = chunks(handle, check)
+      let consumerFailure: { error: unknown } | undefined
       async function consumeChunks(stream: AsyncIterable<Uint8Array>) {
         let fragments: Buffer[] = [], length = 0, line = 0
         function finish() {
@@ -74,7 +73,8 @@ async function readLogFile<T>(path: string, root: string, compressed: boolean, a
           let record: unknown
           try { record = JSON.parse(text) } catch { throw new Error(`日志第 ${line} 行 JSON 无效或截断`) }
           if (!record || typeof record !== 'object' || Array.isArray(record)) throw new Error(`日志第 ${line} 行不是 JSON 对象`)
-          consume(record as LogRecord, line)
+          try { consume(record as LogRecord, line) }
+          catch (error) { consumerFailure = { error }; throw error }
         }
         for await (const value of stream) {
           check()
@@ -92,9 +92,9 @@ async function readLogFile<T>(path: string, root: string, compressed: boolean, a
       }
       if (compressed) {
         try {
-          await pipeline(Readable.from(read), createZstdDecompress({ chunkSize: chunkBytes,
-            params: { [zstd.ZSTD_d_windowLogMax]: 23 }, rejectGarbageAfterEnd: true }), consumeChunks)
+          await consumeChunks(decodeZstdLogFrames(read))
         } catch (error) {
+          if (consumerFailure) throw consumerFailure.error
           if ((error as NodeJS.ErrnoException).code) throw new Error('Zstandard 解压失败：损坏、截断、尾随垃圾、外部字典或窗口超过 8 MiB；未返回局部成功')
           throw error
         }

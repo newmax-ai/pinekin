@@ -67,7 +67,7 @@ flowchart LR
 | Cindy | `Cindy` / `CindyGlobal` 下的账号库 | 普通桌面会话当前问答；分叉、协作、远程、隐藏会话不支持 |
 | Claude Code | `~/.claude/projects` 或单项目目录 | 当前文件单根父链；不追读父文件，压缩日志不支持 |
 | Codex | `sessions`、`archived_sessions` | 当前文件内主／子会话；跨文件继承历史不追读 |
-| DeepSeek Harness | 手动选择日志目录 | v4 独立主会话；不是 DeepSeek 网页聊天 |
+| DeepSeek Harness | `~/.dsh/sessions`、`DSH_HOME`；其他位置手动选择 | v4 独立主会话问答文本；不是 DeepSeek 网页聊天 |
 | WorkBuddy | `.workbuddy/projects` | 本地普通主会话；分叉、压缩、重发回退不支持 |
 | Qwen Code | `.qwen/projects` | 独立主会话单根父链；分叉、子会话、压缩不支持 |
 
@@ -76,6 +76,8 @@ flowchart LR
 - 七类来源共用运行时上下文投影：身份、环境、IDE 等已知前置包装不进入问答和接续文件。
 
 每类来源的路径、版本契约与限制见 [来源直读](docs/source-browser.md)、[国内来源契约](docs/domestic-sources.md) 和 [统一上下文规则](docs/source-context-projection.md)。
+
+Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSeek Harness 的统一记录接口，并修复 Electron 自带旧 Node 的多帧 Zstandard 读取兼容。Harness 首批仅含问答文本，不迁移推理、工具或附件；普通运行态事件按官方契约省略，未知事件和历史表面替换仍保守拒绝，不能将 App 文本阅读能力等同于引擎完整兼容。构建与边界见 [引擎说明](docs/engine.md)。
 
 ## 数据与隐私
 
