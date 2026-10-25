@@ -1,10 +1,10 @@
 # Windows 适配与验收
 
-更新：2026-10-23。
+更新：2026-10-25。
 
 ## 首版范围
 
-Windows 首版以 **连接日志来源 → 浏览／搜索 → 阅读 → 保存完整接续文件** 为目标。目前有代码适配和 CI 配置，尚未完成 Windows 原生运行与安装包实机验收，不能标为正式可发布。
+Windows 首版以 **连接日志来源 → 浏览／搜索 → 阅读 → 保存完整接续文件** 为目标。目前 Windows 原生 CI 的依赖安装、单测／覆盖率、生产构建与 Engine 构建已通过；桌面 E2E 尚未完整通过，NSIS 安装包与交互验收未完成，不能标为正式可发布。
 
 - 日志来源：Claude Code、Codex、DeepSeek Harness、WorkBuddy、Qwen Code，继续遵守各自版本与内容边界。
 - 主按钮「保存接续文件」：通过现有令牌接口重新读取完整可读历史，以系统保存框选择 `.md` 文件；取消不显示成功，不静默复制正文或路径。
@@ -33,7 +33,9 @@ npm run dist:win
 
 `dist:win` 先做类型检查和生产构建，再生成 x64 NSIS 安装包至 `release/`；现有多尺寸 ICO 直接复用，不要求运行 macOS 图标生成工具。Engine 使用当前 Node 运行已安装 TypeScript 的 JS CLI，不执行 Unix `.bin/tsc` shim。
 
-GitHub Actions 配置 `macos-latest` / `windows-latest` 矩阵，在各平台执行覆盖率、生产构建、Engine 构建和桌面 E2E；Windows job 随后打包并上传 NSIS 测试安装包。两个系统的失败附件分开命名。没有触发／查看成功的 Windows 运行前，不能把配置存在当作 CI 已通过。
+GitHub Actions 配置 `macos-latest` / `windows-latest` 矩阵，在各平台执行覆盖率、生产构建、Engine 构建和桌面 E2E；Windows job 随后打包并上传 NSIS 测试安装包。两个系统的诊断附件分开命名。没有触发／查看成功的 Windows 运行前，不能把配置存在当作 CI 已通过。
+
+执行预算按层级区分：CI 中 Playwright 全局 25 分钟、E2E 步骤 28 分钟、整个 job 40 分钟；单用例仍为 30 秒，保持串行、不增加重试、不忽略失败。全局预算依据 Windows 已运行 12.9 分钟只执行至第 68 / 106 项的实际记录设置，用于让套件完成或先由 Playwright 结束并写出报告，不代表已解决单项超时。始终生成 `test-results/e2e-report.json`，诊断上传使用 `always()` 并限时 3 分钟；`desktop.spec.ts` 对手工创建的 Electron context 显式采集 CI trace，失败时保留 `trace.zip`。只包含隔离合成数据；其他 spec 尚未统一采集 trace。步骤失败或取消会尝试上传现有结果，但 runner 丢失／强制结束整个 job 时不保证能执行收尾。安装包仍受成功门禁约束，不因诊断上传成功而视为通过。
 
 锁文件必须包含打包器的跨平台 peer 依赖，包括 NSIS 未直接使用、但 `app-builder-lib` 声明的 `electron-builder-squirrel-windows`。开发机若设置了 `legacy-peer-deps=true`，不能据本地安装成功判断干净 CI 可安装；修复锁文件可用 `npm install --package-lock-only --ignore-scripts --legacy-peer-deps=false`，不修改全局设置或现有 `node_modules`。用 `npm ci --dry-run --ignore-scripts --legacy-peer-deps=false` 检查依赖解析；这只是安装计划验证，不代替云端实际安装、生命周期脚本和测试。
 
@@ -49,7 +51,19 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 2026-10-24 检查的[第三轮 CI（25f7504）](https://github.com/newmax-ai/pinekin/actions/runs/39982896712) 中，上一轮 Windows 的 14 项失败均未再出现；Windows 为 1756 通过、1 失败、143 跳过，macOS 为 1900 通过、1 失败。两平台都在同一无限滚动用例等待「100 / 130 条已加载」时失败，因此本轮均未进入构建、E2E 和打包。该用例在本机定向运行、覆盖率插桩及后续全量运行通过，根因仍未确认，不能据此关闭云端阻塞或放宽超时。
 
-后续本地修改补测并修复了展开侧栏时 Tooltip 被误抑制、取消系统文件框后未恢复导入入口焦点两个 UI 缺口；对齐了 E2E 的重启后档案选择、展开原始读取说明、详情标题范围和现行页头布局。全量 1906 项测试、类型检查与生产构建通过；106 项 E2E 仅收集，未在本机执行。这些后续修改尚无云端运行证据。上一轮剩余的侧栏材质／对比度、Electron 背景色 getter 断言和连接弹窗尺寸稳定性仍需分别处理，不能把更改测试期待值当作真实桌面验收。
+后续本地修改补测并修复了展开侧栏时 Tooltip 被误抑制、取消系统文件框后未恢复导入入口焦点两个 UI 缺口；对齐了 E2E 的重启后档案选择、展开原始读取说明、详情标题范围和现行页头布局。全量 1906 项测试、类型检查与生产构建通过；106 项 E2E 仅收集，未在本机执行。这些修改在后续第四轮 CI 中已有运行证据，见下方；不代表桌面验收已通过。
+
+2026-10-25 核对的[第四轮 CI（3b41fad）](https://github.com/newmax-ai/pinekin/actions/runs/39985818907) 中，两平台单测／覆盖率、生产构建与 Engine 构建通过。Windows E2E 执行 12.9 分钟到第 68 项后触及原 job 的 15 分钟限时，取消时日志汇总为 48 通过、14 失败、6 跳过，其余未执行；其中 1 项在取消阶段超时，不能把取消前的失败都归为取消副作用。诊断上传原先仅匹配 `failure()`，本次取消未上传。macOS E2E 为 97 通过、8 失败、1 跳过。两平台均未进入后续审计，Windows 未生成 NSIS 包。
+
+本地后续修正：
+
+- 补带初始 `openingId` 的回归测试，复现并修复 focus 回读重放旧深链、重置来源筛选及选中会话的问题；新的深链请求仍可处理。
+- 页面留白测试改用 `setContentSize` 并核对 `innerWidth / innerHeight`，不再把 Windows 原生窗口边框和标题栏计入网页内容区。
+- 对齐现有透明侧栏／半透明 shell 的断言；对比度计算先铺明确的不透明主题底板，再按祖先顺序合成表面及文字，保留原有阈值，不代表已测得原生磨砂后的实际对比度。
+- 页头元信息容器保留位置和高度检查，允许数字／日期自然改变宽度，保留小点两侧 8px 检查。
+- 按已安装 Electron 44 类型文档修正 `getBackgroundColor()` 仅返回 RGB 的断言；原生透明配置仍由窗口选项单测检查，CSS alpha 仍单独验证，不能由 getter 推断实际透明度。
+
+这些修正尚待下一轮云端运行。Windows 后台动作／动画单项超时、连接弹窗尺寸基线和刷新标题几何采样仍未确认根因；不跳过或放宽对应断言，不猜改生产动画／布局。
 
 ## 没有本地 Windows 电脑时
 

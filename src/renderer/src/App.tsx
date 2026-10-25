@@ -35,6 +35,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
   const [loaded, setLoaded] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const handledOpeningId = useRef<string | undefined>(undefined)
   // 每个窗口只在内存保留最近 100 个浏览位置，不修改 URL 或持久化搜索词。
   const [navigation, setNavigation] = useState<{ entries: LibraryView[]; index: number; editingSearch: boolean }>({
     entries: [{ query: '', source: 'all', selectedId: '' }], index: 0, editingSearch: false,
@@ -77,10 +78,12 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
     })
   }, [sessions, loaded])
   useEffect(() => {
-    if (loaded && openingId) {
-      if (sessions.some(session => session.id === openingId)) navigate({ query: '', source: 'all', selectedId: openingId })
-      else setStatus('本机没有这段会话，请先导入对应的 Pinekin 包。')
-    }
+    if (!openingId) { handledOpeningId.current = undefined; return }
+    if (!loaded || handledOpeningId.current === openingId) return
+    // 初始深链只处理一次；focus 回读档案不能重放旧请求、覆盖用户当前浏览位置。
+    handledOpeningId.current = openingId
+    if (sessions.some(session => session.id === openingId)) navigate({ query: '', source: 'all', selectedId: openingId })
+    else setStatus('本机没有这段会话，请先导入对应的 Pinekin 包。')
   }, [loaded, openingId])
   useEffect(() => {
     if (searchOpen) { search.current?.focus(); search.current?.select() }

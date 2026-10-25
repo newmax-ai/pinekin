@@ -179,6 +179,7 @@ test('页头在延迟读取、成功、切换和失败时保持位置，元信�
     return header.evaluate(element => [element, ...element.querySelectorAll('.detail-title-group, .detail-meta, .source-detail-meta > *, .detail-title-row > button')].map(node => {
       const { x, y, width, height } = node.getBoundingClientRect()
       // 数字和日期随内容自然占宽，只约束这一行的位置和高度不跳动。
+      if (node.classList.contains('detail-meta')) return { x, y, height }
       return node.parentElement?.classList.contains('source-detail-meta') ? { y, height } : { x, y, width, height }
     }))
   }

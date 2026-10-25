@@ -25,6 +25,17 @@ describe('Windows 构建入口', () => {
     expect(script).toContain("require.resolve('typescript/bin/tsc')")
     expect(script).not.toContain('node_modules/.bin/tsc')
   })
+  it('CI 为 E2E 单独限时，并为报告和安装包保留 job 时间', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(workflow).toContain('timeout-minutes: 40')
+    expect(workflow).toMatch(/- name: 桌面 E2E\s+timeout-minutes: 28\s+run: npm run test:e2e/)
+  })
+  it('CI 即使 E2E 失败或取消也尝试保存诊断结果，不放宽安装包成功门禁', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    expect(workflow).toMatch(/if: always\(\)[\s\S]*name: desktop-test-results-\$\{\{ matrix.os \}\}/)
+    expect(workflow).toContain("if: success() && runner.os == 'Windows'")
+    expect(workflow).not.toContain('continue-on-error')
+  })
   it('CI 在 Windows 原生 runner 执行测试、Engine 构建和 NSIS 打包', () => {
     const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
     expect(workflow).toContain('windows-latest')

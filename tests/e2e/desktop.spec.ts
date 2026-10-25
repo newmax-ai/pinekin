@@ -36,6 +36,18 @@ function isolatedEnv(): Record<string, string> {
     entry[1] !== undefined && !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'STAITHE_DATA_DIR', 'EMBER_DATA_DIR', 'STAITHE_TEST_BACKGROUND'].includes(entry[0]))),
     STAITHE_TEST_BACKGROUND: '1' }
 }
+async function assertShellSurface(channel: number) {
+  const surface = await page.locator('.shell').evaluate(element => {
+    const context = document.createElement('canvas').getContext('2d')!
+    context.fillStyle = getComputedStyle(element).backgroundColor
+    context.fillRect(0, 0, 1, 1)
+    return { rgba: Array.from(context.getImageData(0, 0, 1, 1).data), translucent: element.getAttribute('data-platform') === 'darwin'
+      && !matchMedia('(prefers-reduced-transparency: reduce)').matches }
+  })
+  // Canvas 反预乘可能有 1 个色阶的舍入；透明度契约仍严格验证。
+  for (const actual of surface.rgba.slice(0, 3)) expect(Math.abs(actual - channel)).toBeLessThanOrEqual(1)
+  expect(surface.rgba[3]).toBe(surface.translucent ? 140 : 255)
+}
 async function assertBackground() {
   const state = await app.evaluate(({ app, BrowserWindow }) => ({
     active: process.platform === 'darwin' ? app.isActive() : false,
@@ -61,6 +73,7 @@ async function launch(legacyEnv = false, link?: string, legacyAppData = false) {
     import(${JSON.stringify(pathToFileURL(resolve('out/main/index.js')).href)});`)
   app = await electron.launch({ args: [bootstrap, ...(link ? [link] : [])],
     env: legacyAppData ? env : { ...env, [legacyEnv ? 'EMBER_DATA_DIR' : 'STAITHE_DATA_DIR']: directory } })
+  if (process.env.CI) await app.context().tracing.start({ screenshots: true, snapshots: true })
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
   await expect(page.locator('.sidebar .brand-logo')).toHaveText('pinekin.')
@@ -79,9 +92,19 @@ test.beforeEach(async ({ seedLibrary }) => {
   if (seedLibrary) await writeFile(join(directory, 'library.json'), JSON.stringify(demoSessions))
   await launch()
 })
-test.afterEach(async () => {
-  try { if (app && app.process().exitCode === null) await assertBackground() }
-  finally { await app?.close(); await rm(directory, { recursive: true, force: true }) }
+test.afterEach(async ({}, testInfo) => {
+  try {
+    if (app && app.process().exitCode === null) {
+      if (process.env.CI) {
+        const failed = testInfo.status !== testInfo.expectedStatus
+        // Electron 使用手工创建的 context，不能依赖 Playwright 的 use.trace 自动采集。
+        const tracePath = failed ? testInfo.outputPath('trace.zip') : undefined
+        await app.context().tracing.stop({ path: tracePath })
+        if (tracePath) await testInfo.attach('electron-trace', { path: tracePath, contentType: 'application/zip' })
+      }
+      await assertBackground()
+    }
+  } finally { await app?.close(); await rm(directory, { recursive: true, force: true }) }
 })
 
 test('所有滚动区域复用 NewMax mask，边界、双轴和动态内容在深浅主题下更新', async () => {
@@ -978,10 +1001,16 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
     await expect(note.locator('.storage-description')).toHaveCSS('font-weight', '400')
     const contrasts = await note.evaluate(element => {
       const context = document.createElement('canvas').getContext('2d')!
-      context.fillStyle = getComputedStyle(element.closest('.sidebar')!).backgroundColor
+      // 这是明确主题底板上的 CSS 对比度，不是原生 vibrancy 背后的桌面截图验收。
+      // 先铺不透明底板，再按祖先顺序合成；不能忽略透明 canvas 的 alpha 直接算亮度。
+      context.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ds-surface-300')
       context.fillRect(0, 0, 1, 1)
-      context.fillStyle = getComputedStyle(element).backgroundColor
-      context.fillRect(0, 0, 1, 1)
+      const ancestors: Element[] = []
+      for (let node: Element | null = element; node; node = node.parentElement) ancestors.unshift(node)
+      for (const ancestor of ancestors) {
+        context.fillStyle = getComputedStyle(ancestor).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+      }
       const luminance = (channels: Uint8ClampedArray) => Array.from(channels).slice(0, 3)
         .map(channel => channel / 255)
         .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
@@ -1037,7 +1066,9 @@ test('右侧整体包入圆角卡片，侧栏无竖线且收起后保留外边�
     { width: 1440, height: 900, colorScheme: 'light' },
     { width: 1000, height: 680, colorScheme: 'dark' },
   ] as const) {
-    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    // 验证的是网页内边距，不能把 Windows 原生边框和标题栏算进内容尺寸。
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height), { width, height })
+    await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
     await page.emulateMedia({ colorScheme })
     const card = page.locator('main.workspace-card')
     await expect(card.locator(':scope > .topbar')).toHaveCount(0)
@@ -1246,7 +1277,8 @@ test('桌面启动、全文搜索、来源筛选与视觉检查', async () => {
   await expect(page.locator('.sidebar .brand .lucide-search')).toHaveCount(1)
   await expect(page.locator('.sidebar-toggle .design-icon:not(.lucide)')).toHaveCount(1)
   await expect(page.locator('.design-icon:not(.lucide):not(.sidebar-toggle .design-icon)')).toHaveCount(0)
-  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  await assertShellSurface(244)
   await expect(page.locator('.detail')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
   await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toHaveCSS('background-color', 'rgb(23, 23, 23)')
@@ -1501,9 +1533,9 @@ test('紧凑工作台的键盘导航、焦点返回、主题与窄窗口布局',
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toBeInViewport()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.emulateMedia({ colorScheme: 'dark' })
-  await expect(page.locator('.shell')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+  await assertShellSurface(38)
   await expect(page.locator('.workspace-card')).toHaveCSS('background-color', 'rgb(29, 29, 29)')
-  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(38, 38, 38)')
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(page.getByRole('button', { name: '导入会话文件' })).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toHaveCSS('background-color', 'rgb(255, 255, 255)')
   await expect(page.getByRole('button', { name: 'Pin 走这段对话' })).toHaveCSS('color', 'rgb(23, 23, 23)')
@@ -1513,7 +1545,7 @@ test('紧凑工作台的键盘导航、焦点返回、主题与窄窗口布局',
   expect(narrowMessages.scrollWidth).toBeLessThanOrEqual(narrowMessages.width)
   await page.screenshot({ scale: 'css', path: 'test-results/staithe-desktop-dark.png' })
   await page.emulateMedia({ colorScheme: 'light' })
-  await expect(page.locator('.shell')).toHaveCSS('background-color', 'rgb(244, 244, 244)')
+  await assertShellSurface(244)
   await expect(page.locator('.workspace-card')).toHaveCSS('background-color', 'rgb(250, 250, 250)')
 })
 

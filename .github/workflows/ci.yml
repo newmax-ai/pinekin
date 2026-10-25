@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,7 +23,9 @@ jobs:
       - run: npm run test:coverage
       - run: npm run build
       - run: node scripts/build-engine.mjs
-      - run: npm run test:e2e
+      - name: 桌面 E2E
+        timeout-minutes: 28
+        run: npm run test:e2e
       - run: npm audit --omit=dev
       - name: 构建 Windows x64 测试安装包（不代表签名发布）
         if: runner.os == 'Windows'
@@ -37,7 +39,8 @@ jobs:
           path: release/*.exe
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
+        timeout-minutes: 3
         with:
           name: desktop-test-results-${{ matrix.os }}
           path: test-results/

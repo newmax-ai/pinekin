@@ -51,7 +51,8 @@ test.afterEach(async () => {
 test('macOS 外壳共用半透明底色，浅深主题的内容区保持实色', async () => {
   const platform = await page.locator('.shell').getAttribute('data-platform')
   if (platform === 'darwin') {
-    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toBe('#00000000')
+    // Electron 44 的 getter 只返回 RGB；alpha 由窗口配置单测与下面的 CSS 断言分别验证。
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBackgroundColor())).toBe('#000000')
   }
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
@@ -84,7 +85,8 @@ test('工作区外阴影四边实际可见，不被侧栏背景覆盖且保留�
     { width: 1440, height: 900, colorScheme: 'light' },
     { width: 1000, height: 680, colorScheme: 'dark' },
   ] as const) {
-    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size.width, size.height), { width, height })
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(size.width, size.height), { width, height })
+    await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual({ width, height })
     await page.emulateMedia({ colorScheme })
     for (const sidebarOpen of [true, false]) {
       const box = (await card.boundingBox())!

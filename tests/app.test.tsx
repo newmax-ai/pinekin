@@ -760,6 +760,28 @@ describe('档案界面', () => {
     fireEvent.click(screen.getByRole('button', { name: '选择会话文件' }))
     await waitFor(() => expect(window.staithe.previewImport).toHaveBeenCalledOnce())
   })
+  it('初始深链只消费一次，focus 回读不重放旧深链或清空来源筛选', async () => {
+    render(<App openingId={demoSessions[0].id} />)
+    await screen.findByRole('heading', { level: 2, name: demoSessions[0].title })
+    fireEvent.click(screen.getByRole('button', { name: /^Codex\s*1$/ }))
+    const selected = demoSessions.find(session => session.source === 'codex')!
+    vi.mocked(window.staithe.list).mockResolvedValue([...demoSessions, { ...selected, id: 'new-deep-link-archive', title: '深链回读的新档案' }])
+    fireEvent.focus(window)
+    await screen.findByRole('button', { name: /^Codex\s*2$/ })
+    expect(screen.getByRole('heading', { level: 2, name: selected.title })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^Codex\s*2$/ }).getAttribute('aria-pressed')).toBe('true')
+  })
+  it('初始深链已消费后仍接受新的 openingId，清空后可再次定位相同 ID', async () => {
+    const view = render(<App openingId={demoSessions[0].id} />)
+    await screen.findByRole('heading', { level: 2, name: demoSessions[0].title })
+    view.rerender(<App openingId={demoSessions[1].id} />)
+    await screen.findByRole('heading', { level: 2, name: demoSessions[1].title })
+    view.rerender(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /^Codex\s*1$/ }))
+    view.rerender(<App openingId={demoSessions[1].id} />)
+    expect(screen.getByRole('button', { name: /所有会话/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('heading', { level: 2, name: demoSessions[1].title })).toBeTruthy()
+  })
   it('窗口重新获得焦点时回读本地档案，更新外部批次计数并保留当前来源和选中会话', async () => {
     await open()
     fireEvent.click(screen.getByRole('button', { name: /^Codex\s*1$/ }))
