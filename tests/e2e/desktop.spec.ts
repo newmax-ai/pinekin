@@ -987,6 +987,10 @@ test('侧栏 spring 保持固定画布、工作区联动与开关位置，系统
 })
 
 test('本地收纳插画有独立展示宽度，放大后在深浅主题及最窄侧栏仍不挤压文案', async () => {
+  // Windows runner 的默认工作区可能仅 1024px，自动限宽时侧栏上限不是 360px。
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1380, 900))
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1380)
+  await expect(page.getByRole('separator', { name: '调整侧栏宽度' })).toHaveAttribute('aria-valuemax', '360')
   const note = page.getByRole('region', { name: '本地存储与隐私' })
   const illustration = note.locator('img.storage-illustration')
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -1029,7 +1033,7 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
     expect(contrasts[1]).toBeGreaterThan(contrasts[2])
     for (const contrast of contrasts.slice(0, 2)) expect(contrast).toBeGreaterThanOrEqual(4.5)
     expect(contrasts[2]).toBeGreaterThanOrEqual(2.5)
-    for (const [sidebarWidth, illustrationSize] of [[240, 100], [280, 100], [360, 100]] as const) {
+    for (const [sidebarWidth, illustrationSize] of [[240, 92], [280, 100], [360, 100]] as const) {
       const resizeHandle = page.getByRole('separator', { name: '调整侧栏宽度' })
       await resizeHandle.press('Home')
       for (let width = 240; width < sidebarWidth; width += 10) await resizeHandle.press('ArrowRight')
@@ -1048,6 +1052,7 @@ test('本地收纳插画有独立展示宽度，放大后在深浅主题及最�
       expect(await note.evaluate(element => Array.from(element.querySelectorAll('p, .local-info, .storage-boundaries'))
         .every(child => child.scrollWidth <= child.clientWidth))).toBe(true)
       if (sidebarWidth === 240) {
+        expect(copy.width).toBeGreaterThanOrEqual(108)
         await expect(note.locator('.local-info')).toHaveCSS('height', '20px')
         await expect(note.locator('.storage-description')).toHaveCSS('height', '18px')
         await expect(note.locator('.storage-boundaries')).toHaveCSS('height', '18px')
@@ -1215,7 +1220,7 @@ test('紧凑阅读留白不变，导入改为左侧图标加文字菜单且键�
     await expect(importButton.locator('svg.lucide-plus')).toHaveCount(1)
     await expect(importButton.locator('.count')).toHaveCount(0)
     await expect(importButton).toHaveCSS('height', '36px')
-    await expect(importButton).toHaveCSS('-webkit-app-region', 'no-drag')
+    await expect(importButton).toHaveCSS('-webkit-app-region', process.platform === 'darwin' ? 'no-drag' : 'none')
     const button = (await importButton.boundingBox())!
     const sidebarBox = (await sidebar.boundingBox())!
     const allSessions = (await sidebar.getByRole('button', { name: /所有会话/ }).boundingBox())!

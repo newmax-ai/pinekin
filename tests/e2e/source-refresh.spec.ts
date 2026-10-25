@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
 import { DatabaseSync } from 'node:sqlite'
 import { createCindySchema } from '../fixtures/cindy-database'
+import { startElectronDiagnostics, finishElectronDiagnostics } from '../support/electron-diagnostics'
 
 let app: ElectronApplication, page: Page, root: string, source: string, selectedPath: string
 
@@ -32,6 +33,7 @@ test.beforeEach(async () => {
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined &&
     !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: join(root, 'data'), STAITHE_TEST_BACKGROUND: '1' } })
+  await startElectronDiagnostics(app, Boolean(process.env.CI))
   page = await app.firstWindow(); await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   await page.getByRole('switch', { name: '连接 Claude Code', exact: true }).click()
@@ -39,8 +41,9 @@ test.beforeEach(async () => {
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('.session-card')).toHaveCount(50)
 })
-test.afterEach(async () => {
+test.afterEach(async ({}, testInfo) => {
   try {
+    if (app) await finishElectronDiagnostics(app, testInfo, Boolean(process.env.CI))
     const state = await app.evaluate(({ BrowserWindow }) => ({ events: (globalThis as unknown as { refreshWindowEvents: string[] }).refreshWindowEvents,
       windows: BrowserWindow.getAllWindows().map(window => ({ visible: window.isVisible(), focused: window.isFocused() })) }))
     expect(state.events).toEqual([])
@@ -76,7 +79,11 @@ test('连接管理暂停自动检查，在途检查不锁住弹窗，关闭后�
   await expect(dialog).toHaveAttribute('aria-busy', 'false')
   await expect(dialog.getByRole('button', { name: '完成', exact: true })).toBeEnabled()
   await expect(dialog.getByRole('button', { name: '关闭连接面板', exact: true })).toBeEnabled()
-  for (const control of await dialog.getByRole('switch').all()) await expect(control).toBeEnabled()
+  for (const control of await dialog.getByRole('switch').all()) {
+    const label = await control.getAttribute('aria-label')
+    if (process.platform !== 'darwin' && (label === '连接 NewMax' || label === '连接 Cindy')) await expect(control).toBeDisabled()
+    else await expect(control).toBeEnabled()
+  }
   await app.evaluate(() => (globalThis as unknown as { finishDialogCheck: () => void }).finishDialogCheck())
   await focus(); await page.clock.fastForward(180_000)
   expect(await app.evaluate(() => (globalThis as unknown as { dialogAutoChecks: number }).dialogAutoChecks)).toBe(1)
@@ -94,16 +101,25 @@ test('标题下方显示加载描述，刷新图标在请求期间旋转且遵�
   const turn = button.locator('.ds-refresh-turn')
   const progress = button.locator('.ds-refresh-progress')
   for (const width of [1000, 1380]) {
-    await app.evaluate(({ BrowserWindow }, width) => { BrowserWindow.getAllWindows()[0].setSize(width, 900) }, width)
-    const title = (await heading.locator('h2').boundingBox())!
-    const count = (await heading.getByRole('status').boundingBox())!
-    const control = (await button.boundingBox())!
-    expect(count.y - title.y - title.height).toBeCloseTo(2)
-    expect(count.x).toBe(title.x)
-    expect(control.x).toBeGreaterThan(title.x + title.width)
-    expect(control.width).toBe(28)
-    expect(control.height).toBe(28)
-    expect(await heading.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await app.evaluate(({ BrowserWindow }, width) => { BrowserWindow.getAllWindows()[0].setContentSize(width, 900) }, width)
+    await expect.poll(() => page.evaluate(() => innerWidth)).toBe(width)
+    // 标题与按钮必须来自同一布局快照，不能跨多次 CDP 调用混合 resize 前后的尺寸。
+    await expect(async () => {
+      const { title, count, control, fits } = await heading.evaluate(element => {
+        const box = (selector: string) => {
+          const { x, y, width, height } = element.querySelector(selector)!.getBoundingClientRect()
+          return { x, y, width, height }
+        }
+        return { title: box('h2'), count: box('[role="status"]'), control: box('button[aria-label="刷新当前来源"]'),
+          fits: element.scrollWidth <= element.clientWidth }
+      })
+      expect(count.y - title.y - title.height).toBeCloseTo(2)
+      expect(count.x).toBe(title.x)
+      expect(control.x).toBeGreaterThan(title.x + title.width)
+      expect(control.width).toBe(28)
+      expect(control.height).toBe(28)
+      expect(fits).toBe(true)
+    }).toPass({ timeout: 5000 })
   }
   await expect(button).toHaveText('')
   await expect(button).toHaveAttribute('aria-busy', 'false')

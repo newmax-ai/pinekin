@@ -68,7 +68,8 @@ test('macOS 外壳共用半透明底色，浅深主题的内容区保持实色',
       return {
         reduced: matchMedia('(prefers-reduced-transparency: reduce)').matches,
         root: alpha(':root'), shell: alpha('.shell'), sidebar: alpha('.sidebar'), toolbar: alpha('.window-toolbar'),
-        content: ['.workspace-card', '.session-pane', '.detail', '.topbar'].map(alpha),
+        // 双行导航模式没有 .topbar；三个实际内容面仍必须存在且不透明。
+        content: ['.workspace-card', '.session-pane', '.detail', ...(document.querySelector('.topbar') ? ['.topbar'] : [])].map(alpha),
       }
     })
     expect(surfaces.root.alpha).toBe(platform === 'darwin' ? 0 : 255)

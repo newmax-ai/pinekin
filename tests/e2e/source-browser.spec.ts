@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeRecords } from '../fixtures/claude-code'
 import { fixtureSessions } from '../fixtures/sessions'
+import { startElectronDiagnostics, finishElectronDiagnostics } from '../support/electron-diagnostics'
 import { codexFixture, codexMessage, codexMeta } from '../fixtures/codex'
 import { DatabaseSync } from 'node:sqlite'
 import { createCindyDatabase } from '../fixtures/cindy-database'
@@ -31,6 +32,7 @@ async function launch(newmaxDataDirectory?: string, claudeConfigDirectory?: stri
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1',
     ...(newmaxDataDirectory ? { NEWMAX_USER_DATA_DIR: newmaxDataDirectory } : {}),
     ...(claudeConfigDirectory ? { CLAUDE_CONFIG_DIR: claudeConfigDirectory } : {}) } })
+  await startElectronDiagnostics(app, Boolean(process.env.CI))
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.getByRole('button', { name: '连接 App', exact: true })).toBeEnabled()
@@ -71,9 +73,23 @@ async function openMatchingSession(query: string) {
   await page.locator('.search-result').click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
+async function settleConnectionDialog() {
+  const dialog = page.getByRole('dialog', { name: '连接来源 App' })
+  // 开关状态和网格列数先于 ResizeObserver → rAF 的高度提交；基线必须等自然高度收敛。
+  await expect.poll(() => dialog.evaluate(element => {
+    const height = (selector: string) => element.querySelector<HTMLElement>(selector)!.offsetHeight
+    const viewport = element.querySelector<HTMLElement>('.dialog-content')!
+    const style = getComputedStyle(viewport)
+    const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0)
+    const target = Math.min(Math.ceil(height('.dialog-header') + height('.connection-content-inner') + height('.dialog-footer') + padding), Math.max(0, innerHeight - 64))
+    return Math.abs(element.getBoundingClientRect().height - target) < 0.5
+      && Math.abs(parseFloat(element.style.height) - target) < 0.5
+  })).toBe(true)
+}
 async function manageConnections() {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   await expect(page.getByRole('dialog', { name: '连接来源 App' })).toBeVisible()
+  await settleConnectionDialog()
 }
 function seedNewMax(db: DatabaseSync) {
   db.exec(`CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT, source TEXT, created_at INTEGER, updated_at INTEGER,
@@ -97,9 +113,11 @@ test.beforeEach(async () => {
   await writeFile(join(source, 'broken.jsonl'), 'not a session')
   await launch()
 })
-test.afterEach(async () => {
-  try { if (app?.process().exitCode === null) await background() }
-  finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
+test.afterEach(async ({}, testInfo) => {
+  try {
+    if (app) await finishElectronDiagnostics(app, testInfo, Boolean(process.env.CI))
+    if (app?.process().exitCode === null) await background()
+  } finally { await app?.close(); await rm(root, { recursive: true, force: true }) }
 })
 
 test('NewMax 继承的 Claude 环境目录不会混淆来源，旧误连明确报错并可修复', async () => {
@@ -454,7 +472,14 @@ test('连接开关浅深主题、键盘、减少动画与忙碌保护一致，�
       (globalThis as unknown as { finishSwitchTest: () => void }).finishSwitchTest = () => resolve({ connections: [], warnings: ['合成连接失败'] })
     }))
   })
-  const stableFrame = await dialog.boundingBox(), stableFooter = await dialog.locator('.dialog-footer').boundingBox()
+  await settleConnectionDialog()
+  const { frame: stableFrame, footer: stableFooter } = await dialog.evaluate(element => {
+    const box = (node: Element) => {
+      const { x, y, width, height } = node.getBoundingClientRect()
+      return { x, y, width, height }
+    }
+    return { frame: box(element), footer: box(element.querySelector('.dialog-footer')!) }
+  })
   await control.click()
   await expect(control).toBeDisabled(); await expect(control).not.toBeChecked()
   await expect(dialog.getByRole('region', { name: 'Claude Code 来源', exact: true }).getByRole('status')).toHaveText('正在连接…')
@@ -583,7 +608,7 @@ test('多选列表保留原关闭规格，初始不聚焦关闭按钮，键盘�
     await page.evaluate(() => { (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents = [] })
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).toBeFocused()
+    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
     await expect(page.getByRole('tooltip')).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents)).not.toContain('关闭连接面板')
     await expect(dialog.locator('.notice')).toHaveCount(0)
@@ -619,7 +644,7 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     await expect(page.locator('.sidebar-section .nav-item')).toHaveText(['连接 App', '所有会话'])
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await expect(dialog.getByRole('switch', { name: '连接 NewMax', exact: true })).toBeFocused()
+    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
     const list = dialog.getByRole('list', { name: '来源 App' })
     await expect(list.getByRole('switch')).toHaveCount(7)
     const box = (await dialog.boundingBox())!, viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
@@ -629,6 +654,9 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     expect(await page.evaluate(async () => (await window.staithe.sources.connections()).length)).toBe(0)
     await page.keyboard.press('Tab')
+    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 Claude Code' : '连接 Codex', exact: true })).toBeFocused()
+    // Windows 跳过禁用的 NewMax，从 Claude 开始；仍验证 Tab / Shift+Tab 顺序。
+    if (process.platform !== 'darwin') await page.keyboard.press('Shift+Tab')
     const control = page.getByRole('switch', { name: '连接 Claude Code', exact: true })
     await expect(control).toBeFocused()
     await page.keyboard.press('Space')
@@ -733,7 +761,9 @@ windowsTest('Windows 明确禁用未验证数据库连接，通用日志连接�
   expect(await page.evaluate(async () => (await window.staithe.sources.connections()).map(item => item.source))).toEqual(['claude-code'])
   expect(await app.evaluate(() => (globalThis as unknown as { sourceDialogCalls: number }).sourceDialogCalls)).toBe(0)
   await submit()
-  await page.locator('.session-card').first().click()
+  await expect(dialog).toHaveCount(0)
+  // 排序依赖文件时间；首项可能是专门用于错误测试的 broken.jsonl，明确选择健康合成日志。
+  await openMatchingSession('synthetic-0')
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
 })
 
@@ -1259,6 +1289,7 @@ test('来源卡片直接整合位置统计与 small 开关，适配三列两列�
       }, width)
       await expect(grid).toHaveCSS('display', 'grid')
       await expect.poll(() => grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(columns)
+      await settleConnectionDialog()
       const boxes = await grid.locator(':scope > li:not([hidden])').evaluateAll(items => items.map(item => {
         const box = item.getBoundingClientRect()
         return { x: box.x, y: box.y, width: box.width, height: box.height }

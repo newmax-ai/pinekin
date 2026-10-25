@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { claudeFixture, claudeLocalCommandRecords, claudeRecords } from '../fixtures/claude-code'
+import { startElectronDiagnostics, finishElectronDiagnostics } from '../support/electron-diagnostics'
 
 let app: ElectronApplication | undefined, root: string
 
-test.afterEach(async () => {
+test.afterEach(async ({}, testInfo) => {
   try {
+    if (app) await finishElectronDiagnostics(app, testInfo, Boolean(process.env.CI))
     if (app?.process().exitCode === null) {
       const state = await app.evaluate(({ BrowserWindow, app }) => ({ active: process.platform === 'darwin' && app.isActive(),
         visible: BrowserWindow.getAllWindows().some(window => window.isVisible() || window.isFocused()),
@@ -83,6 +85,7 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
   const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined &&
     !['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EMBER_DATA_DIR', 'STAITHE_DATA_DIR', 'STAITHE_TEST_BACKGROUND', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DSH_HOME', 'NEWMAX_USER_DATA_DIR'].includes(entry[0])))
   app = await electron.launch({ args: [bootstrap], env: { ...env, STAITHE_DATA_DIR: data, STAITHE_TEST_BACKGROUND: '1' } })
+  await startElectronDiagnostics(app, Boolean(process.env.CI))
   const page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.locator('.session-card')).toHaveCount(4)
