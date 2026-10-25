@@ -10,6 +10,7 @@ import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
+import { ScrollToBottom } from './components/ScrollToBottom'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { SourceApp } from './SourceApp'
 import { EmptyState, resolveArchiveEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
@@ -49,6 +50,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
   const [handoff, setHandoff] = useState(false)
   const [target, setTarget] = useState<Target>('通用')
   const search = useRef<HTMLInputElement>(null)
+  const messagesViewport = useRef<HTMLDivElement>(null)
   const importTrigger = useRef<HTMLElement | null>(null)
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [restoreImportFocus, setRestoreImportFocus] = useState(false)
@@ -252,12 +254,15 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
               <ScrollArea className="report-body"><p>适配器：{selected.archive.adapterId} · {selected.archive.adapterVersion}。原始文件不随交接导出。</p>
                 <ul>{selected.archive.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></ScrollArea>
             </details>}
-            <ScrollArea className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{selected.messages.length ? selected.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
+            <div className="messages-region">
+            <ScrollArea ref={messagesViewport} className="messages" bottomFadeSize={160} role="region" aria-label="会话消息" tabIndex={0}><div className="message-column">{selected.messages.length ? selected.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`第 ${index + 1} 条消息 · ${roles[message.role]}`}>
               <div className={`message-body ${message.role === 'user' ? 'message-bubble' : message.role === 'assistant' ? 'chat-assistant-content' : 'message-record'}`}>
                 {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
                 <MessageContent content={message.content} />
               </div>
             </article>) : <EmptyState kind="messages" />}{selected.messages.length > 0 && <div className="conversation-end"><span />档案到这里，思考可以继续<span /></div>}</div></ScrollArea>
+            <ScrollToBottom viewport={messagesViewport} contentKey={selected} />
+            </div>
             <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton></footer>
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"
             description={emptyKind === 'archive-error' ? loadError : undefined}

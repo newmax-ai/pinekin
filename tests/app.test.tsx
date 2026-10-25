@@ -34,6 +34,17 @@ function closeSearch() {
   fireEvent(screen.getByRole('dialog', { name: '搜索会话' }), new Event('cancel', { bubbles: true, cancelable: true }))
 }
 describe('档案界面', () => {
+  it('档案详情复用底部箭头，按钮不受正文渐隐遮罩影响', async () => {
+    await open()
+    const viewport = screen.getByRole('region', { name: '会话消息' })
+    Object.defineProperties(viewport, { clientHeight: { value: 300 }, scrollHeight: { value: 1000 } })
+    viewport.scrollTo = vi.fn()
+    fireEvent.scroll(viewport)
+    const button = screen.getByRole('button', { name: '滚动到底部' })
+    expect(button.parentElement).toBe(viewport.parentElement)
+    fireEvent.click(button)
+    expect(viewport.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 700, behavior: 'smooth' })
+  })
   it('本地档案卡片也显示友好时间和完整悬停时刻，保留原卡片布局', async () => {
     const now = new Date(2026, 9, 18, 12, 30, 45).getTime()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
@@ -509,7 +520,7 @@ describe('档案界面', () => {
     expect(header.querySelector('.detail-meta')?.textContent).toContain(`${demoSessions[0].messages.length} 条消息`)
     expect(header.querySelector('.detail-meta time')?.getAttribute('dateTime')).toBe(demoSessions[0].updatedAt)
     expect(reader.querySelector('.reader-toolbar, .detail-kicker')).toBeNull()
-    expect(header.nextElementSibling).toBe(within(reader).getByRole('region', { name: '会话消息' }))
+    expect(header.nextElementSibling).toBe(within(reader).getByRole('region', { name: '会话消息' }).closest('.messages-region'))
   })
   it('顶部不把本地保存说明伪装为连接状态，侧栏仍说明隐私边界', async () => {
     await open()

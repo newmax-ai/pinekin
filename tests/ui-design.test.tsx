@@ -34,6 +34,31 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('来源和档案详情仅将下沿渐隐加高至 160px，不启用常驻遮挡', () => {
+    for (const file of ['src/renderer/src/App.tsx', 'src/renderer/src/SourceApp.tsx']) {
+      const source = readFileSync(resolve(file), 'utf8')
+      const viewport = /<ScrollArea ref=\{messagesViewport\}[^>]*>/.exec(source)?.[0]
+      expect(viewport).toContain('bottomFadeSize={160}')
+      expect(viewport).not.toContain('bottomOverlayHeight')
+    }
+  })
+  it('滚动到底部按钮保持居中，并与详情底边留出 48 px 空间', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const button = /\.scroll-to-bottom\.ds-button\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(button).toContain('bottom: 48px;')
+    expect(button).toContain('left: 50%;')
+    expect(button).toContain('transform: translateX(-50%);')
+  })
+  it('滚动到底部按钮交互保持不透明，仅箭头播放一次轻微下移动画', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const interaction = /\.ds-button\.scroll-to-bottom:not\(:disabled\):is\(:hover, :active, :focus-visible\)\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(interaction).toContain('opacity: 1;')
+    const motion = /\.scroll-to-bottom:not\(:disabled\):is\(:hover, :focus-visible\) > \.design-icon\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(motion).toContain('animation: scroll-to-bottom-nudge 420ms var(--ds-ease-swift) 1;')
+    expect(motion).not.toContain('infinite')
+    expect(styles).toMatch(/@keyframes scroll-to-bottom-nudge\s*\{\s*0%, 100%\s*\{\s*transform: translateY\(0\);\s*\}\s*50%\s*\{\s*transform: translateY\(3px\);/)
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)\s*\{[^]*?animation: none !important;/)
+  })
   it('详情长标题仅在悬停或键盘聚焦时慢滚一次，延迟启动并尊重减少动态效果', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     const track = /\.ds-fade-text\[data-scroll-on-hover='true'\] > \.ds-fade-text-content\s*\{([^}]*)\}/.exec(styles)?.[1]

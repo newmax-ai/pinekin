@@ -169,6 +169,18 @@ describe('NewMax 图标按钮提示适配', () => {
     expect(screen.getByRole('tooltip').style.top).toBe(`${window.innerHeight - 64}px`)
     expect(screen.getByRole('tooltip').style.left).toBe('8px')
   })
+  it.each([
+    { top: 500, bottom: 536, side: 'top', expectedTop: 464 },
+    { top: 8, bottom: 44, side: 'bottom', expectedTop: 48 },
+  ])('可指定优先向上定位，上方空间不足时向下避让：$side', ({ top, bottom, side, expectedTop }) => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(32)
+    render(<DsButton iconOnly tooltipSide="top" aria-label="导入会话文件">+</DsButton>)
+    expect(button().hasAttribute('tooltipSide')).toBe(false)
+    vi.spyOn(button(), 'getBoundingClientRect').mockReturnValue({ left: 300, right: 336, top, bottom, width: 36, height: 36 } as DOMRect)
+    fireEvent.focus(button())
+    expect(screen.getByRole('tooltip').getAttribute('data-side')).toBe(side)
+    expect(screen.getByRole('tooltip').style.top).toBe(`${expectedTop}px`)
+  })
   it('使用原生顶层提示以覆盖 modal，卸载后清理顶层和定时器', () => {
     const show = vi.fn(function (this: HTMLElement) { this.style.display = 'block' }), hide = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: show })

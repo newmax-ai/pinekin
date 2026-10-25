@@ -334,6 +334,7 @@ describe('不打断阅读的来源刷新', () => {
     { label: '新增内容超出一屏', bounds: [[160, 680], [700, 760]], visible: false },
     { label: '新增内容落在上沿渐隐区', bounds: [[120, 180], [260, 340]], visible: false },
     { label: '新增内容落在下沿渐隐区', bounds: [[180, 240], [420, 480]], visible: false },
+    { label: '新增内容落在加高后的下沿渐隐区', bounds: [[180, 240], [360, 400]], visible: false },
     { label: '新增消息尚无可测量高度', bounds: [[180, 180], [260, 340]], visible: false },
   ].flatMap(testCase => [true, false].map(direct => ({ ...testCase, direct }))))('新增内容定位（点击提示=$direct）：$label', async ({ bounds, visible, direct }) => {
     const messages = await open(); messages.scrollTop = 120

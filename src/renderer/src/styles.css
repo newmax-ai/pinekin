@@ -194,8 +194,12 @@ h1, h2, h3, strong { font-weight: 500; }
 .archive-report[open] summary > svg:last-child { transform: rotate(90deg); }
 .report-body { border-top: 1px solid var(--ds-divider); padding: 12px 16px; max-height: 140px; overflow: auto; line-height: 1.8; overflow-wrap: anywhere; }
 .report-body ul { margin: 8px 0 0; padding-left: 18px; }
-/* 更新提示定位在消息视口外，避开页头与报告，也不受滚动渐隐遮罩影响。 */
-.source-messages-region { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+/* 悬浮控件定位在消息视口外，避开页头与报告，也不受滚动渐隐遮罩影响。 */
+.messages-region, .source-messages-region { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.scroll-to-bottom.ds-button { position: absolute; z-index: 2; bottom: 48px; left: 50%; transform: translateX(-50%); width: 36px; height: 36px; border-radius: var(--ds-radius-pill); background: var(--ds-surface-100); color: var(--ds-icon); box-shadow: var(--ds-floating-card-shadow); }
+.ds-button.scroll-to-bottom:not(:disabled):is(:hover, :active, :focus-visible) { opacity: 1; }
+.scroll-to-bottom:not(:disabled):is(:hover, :focus-visible) > .design-icon { animation: scroll-to-bottom-nudge 420ms var(--ds-ease-swift) 1; }
+@keyframes scroll-to-bottom-nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
 .source-content-update { position: absolute; z-index: 2; top: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 48px); animation: source-update-enter var(--ds-motion-swift); }
 .source-content-update[data-state='closing'] { pointer-events: none; animation: source-update-exit 140ms var(--ds-ease-swift) forwards; }
 .source-content-update > .ds-toast-surface { max-width: 100%; height: auto; min-height: 32px; padding: 8px 14px; white-space: normal; opacity: 1; border: 0; background: var(--ds-surface-100); color: var(--ds-text-primary); box-shadow: var(--ds-floating-card-shadow); }

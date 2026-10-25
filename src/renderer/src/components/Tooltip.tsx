@@ -20,7 +20,7 @@ export function restoreFocusWithoutTooltip(element: HTMLElement) {
   finally { restoringFocus.delete(element) }
 }
 
-export function Tooltip({ content, disabled = false, children }: { content: string; disabled?: boolean; children: ReactElement<TriggerProps> }) {
+export function Tooltip({ content, disabled = false, side = 'bottom', children }: { content: string; disabled?: boolean; side?: 'top' | 'bottom'; children: ReactElement<TriggerProps> }) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement | null>(null)
   const tooltip = useRef<HTMLDivElement>(null)
@@ -70,17 +70,20 @@ export function Tooltip({ content, disabled = false, children }: { content: stri
     const rect = trigger.current.getBoundingClientRect()
     const width = element.offsetWidth
     const height = element.offsetHeight
-    const below = window.innerHeight - rect.bottom - offset - viewportPadding
-    const above = rect.top - offset - viewportPadding
-    const side = height > below && above > below ? 'top' : 'bottom'
+    const available = {
+      bottom: window.innerHeight - rect.bottom - offset - viewportPadding,
+      top: rect.top - offset - viewportPadding,
+    }
+    const oppositeSide = side === 'top' ? 'bottom' : 'top'
+    const resolvedSide = height > available[side] && available[oppositeSide] > available[side] ? oppositeSide : side
     const clamp = (value: number, maximum: number) => Math.max(viewportPadding, Math.min(value, maximum))
     setPosition({
       left: clamp(rect.left + (rect.width - width) / 2, window.innerWidth - width - viewportPadding),
-      top: clamp(side === 'top' ? rect.top - offset - height : rect.bottom + offset, window.innerHeight - height - viewportPadding),
-      side,
+      top: clamp(resolvedSide === 'top' ? rect.top - offset - height : rect.bottom + offset, window.innerHeight - height - viewportPadding),
+      side: resolvedSide,
     })
     return () => { element.hidePopover?.() }
-  }, [visible, content])
+  }, [visible, content, side])
 
   useEffect(() => {
     if (!visible) return

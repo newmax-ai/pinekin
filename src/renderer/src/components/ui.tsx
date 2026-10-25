@@ -4,11 +4,11 @@ import { Archive, ArrowLeft, ArrowRight, Check, ChevronDown, ChevronRight, CodeX
 import { restoreFocusWithoutTooltip, Tooltip } from './Tooltip'
 
 // 视觉契约源自 NewMax DS；这是独立实现，不引用宿主 store、窗口或运行时。
-export function DsButton({ variant = 'tertiary', size = 'default', iconOnly = false, iconRelaxed = false, className = '', type = 'button', title, ...props }:
-  ComponentPropsWithRef<'button'> & { variant?: 'primary' | 'tertiary' | 'ghost'; size?: 'mini' | 'small' | 'default'; iconOnly?: boolean; iconRelaxed?: boolean }) {
+export function DsButton({ variant = 'tertiary', size = 'default', iconOnly = false, iconRelaxed = false, className = '', type = 'button', title, tooltipSide, ...props }:
+  ComponentPropsWithRef<'button'> & { variant?: 'primary' | 'tertiary' | 'ghost'; size?: 'mini' | 'small' | 'default'; iconOnly?: boolean; iconRelaxed?: boolean; tooltipSide?: 'top' | 'bottom' }) {
   const content = iconOnly ? props['aria-label'] || title : undefined
   const button = <button type={type} data-ds-pill-control="true" className={`ds-button ds-button-${variant}${iconOnly ? ' ds-button-icon' : ''}${iconRelaxed ? ' ds-button-icon-relaxed' : ''}${size !== 'default' ? ` ds-button-${size}` : ''} ${className}`} title={content ? undefined : title} {...props} />
-  return content ? <Tooltip content={content} disabled={props.disabled}>{button}</Tooltip> : button
+  return content ? <Tooltip content={content} disabled={props.disabled} side={tooltipSide}>{button}</Tooltip> : button
 }
 
 // 弹窗关闭入口统一在组件层维护规格，页面只提供名称、状态与关闭行为。

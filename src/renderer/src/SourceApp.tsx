@@ -10,6 +10,7 @@ import { useDetailTransition } from './components/useDetailTransition'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
+import { ScrollToBottom } from './components/ScrollToBottom'
 import { SourceIcon } from './components/SourceIcon'
 import { useCurrentTime } from './components/SessionTime'
 import { SourceSessionCard } from './components/SourceSessionCard'
@@ -30,10 +31,10 @@ function errorText(error: unknown) { return error instanceof Error ? error.messa
 function newMessagesAreVisible(viewport: HTMLDivElement, firstIndex: number) {
   const bounds = viewport.getBoundingClientRect()
   if (viewport.clientHeight <= 0 || bounds.height <= 0) return false
-  // 与 ScrollArea 的 48px 渐隐和 4px 边界容差一致；渐隐区内不算完整可读。
+  // 与消息视口的上沿 48px、下沿 160px 渐隐及 4px 边界容差一致；渐隐区内不算完整可读。
   const top = bounds.top + viewport.clientTop + (viewport.scrollTop > 4 ? 48 : 0)
   const bottom = bounds.top + viewport.clientTop + viewport.clientHeight
-    - (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 4 ? 48 : 0)
+    - (viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 4 ? 160 : 0)
   const added = [...viewport.querySelectorAll('article.message')].slice(firstIndex)
   return added.length > 0 && added.every(message => {
     const rect = message.getBoundingClientRect()
@@ -526,7 +527,7 @@ export function SourceApp() {
                   messagesViewport.current?.querySelectorAll('article')[newMessageIndex]?.scrollIntoView({ block: 'start' })
                   setNewMessageIndex(undefined)
                 }} />
-              <ScrollArea ref={messagesViewport} className="messages" role="region" aria-label="会话消息" tabIndex={0}><div className="message-column" key={`${selected.id}:${content.window?.offset ?? 0}:${content.window?.textOffset ?? 0}:${content.window?.snapshot ?? ''}`}>
+              <ScrollArea ref={messagesViewport} className="messages" bottomFadeSize={160} role="region" aria-label="会话消息" tabIndex={0}><div className="message-column" key={`${selected.id}:${content.window?.offset ?? 0}:${content.window?.textOffset ?? 0}:${content.window?.snapshot ?? ''}`}>
                 {!content.session.messages.length && !content.presentation && (content.window?.hasMore ? <p className="privacy-note">当前片段没有可显示的问答文本，可以继续读取下一段。</p> : <EmptyState kind="messages" />)}
                 {content.session.messages.map((message, index) => <article key={index} className={`message ${message.role}`} aria-label={`${content.window ? '当前片段' : ''}第 ${index + 1} 条消息 · ${roles[message.role]}`}>
                 <div className={`message-body ${message.role === 'user' ? 'message-bubble' : message.role === 'assistant' ? 'chat-assistant-content' : 'message-record'}`}>
@@ -534,6 +535,7 @@ export function SourceApp() {
                   <SourceMessage message={message} source={content.session.source} fragment={!!(content.window?.textOffset || content.window?.next?.textOffset)} />
                 </div>
               </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && !content.window?.hasMore && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
+              <ScrollToBottom viewport={messagesViewport} contentKey={content} />
               </div>
             </>}
           </> : <EmptyState kind={emptyKind ?? 'selection'} layout="hero"

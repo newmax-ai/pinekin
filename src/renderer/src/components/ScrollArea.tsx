@@ -29,10 +29,10 @@ export function buildScrollMask(direction: 'to bottom' | 'to right', start: bool
 }
 
 type Viewport = HTMLDivElement | HTMLPreElement
-type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport>; bottomOverlayHeight?: number; revealSelector?: string }
+type ScrollAreaProps = HTMLAttributes<Viewport> & { as?: 'div' | 'pre'; ref?: Ref<Viewport>; bottomOverlayHeight?: number; bottomFadeSize?: number; revealSelector?: string }
 
 // 不增加布局包装层：原生滚动、键盘、选择与业务事件仍由同一个视口承载。
-export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bottomOverlayHeight = 0, revealSelector, ...props }: ScrollAreaProps) {
+export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bottomOverlayHeight = 0, bottomFadeSize = FADE_SIZE, revealSelector, ...props }: ScrollAreaProps) {
   const viewport = useRef<Viewport | null>(null)
   const refresh = useRef<(() => void) | null>(null)
   const scrollDestination = useRef<number | null>(null)
@@ -58,11 +58,11 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
       const top = rect.top - element.getBoundingClientRect().top - element.clientTop + current
       const bottom = top + rect.height
       const startInset = current > EDGE_THRESHOLD ? FADE_SIZE : 0
-      const endInset = bottomOverlayHeight > 0 ? bottomOverlayHeight : maxScroll - current > EDGE_THRESHOLD ? FADE_SIZE : 0
+      const endInset = bottomOverlayHeight > 0 ? bottomOverlayHeight : maxScroll - current > EDGE_THRESHOLD ? bottomFadeSize : 0
       let next = current
       // 不调用 scrollIntoView，避免同时移动外层页面；超高项优先展示开头。
       if (top < current + startInset || rect.height > height - startInset - endInset) next = top - FADE_SIZE
-      else if (bottom > current + height - endInset) next = bottom - height + (bottomOverlayHeight || FADE_SIZE)
+      else if (bottom > current + height - endInset) next = bottom - height + (bottomOverlayHeight || bottomFadeSize)
       next = Math.max(0, Math.min(maxScroll, next))
       // 到达边界容差时直接贴边，让该端 mask 确实关闭。
       if (next <= EDGE_THRESHOLD) next = 0
@@ -89,7 +89,7 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
       const vertical = visible && (verticalOverflow || bottomOverlayHeight > 0)
         ? buildScrollMask('to bottom', verticalOverflow && element.scrollTop > EDGE_THRESHOLD,
           bottomOverlayHeight > 0 || scrollHeight - clientHeight - element.scrollTop > EDGE_THRESHOLD,
-          FADE_SIZE, bottomOverlayHeight > 0 ? bottomOverlayHeight : FADE_SIZE)
+          FADE_SIZE, bottomOverlayHeight > 0 ? bottomOverlayHeight : bottomFadeSize)
         : undefined
       const horizontal = visible && scrollWidth - clientWidth > EDGE_THRESHOLD
         ? buildScrollMask('to right', element.scrollLeft > EDGE_THRESHOLD, scrollWidth - clientWidth - element.scrollLeft > EDGE_THRESHOLD)
@@ -143,7 +143,7 @@ export function ScrollArea({ as: Tag = 'div', ref, className = '', children, bot
       element.removeEventListener('click', revealInteracted)
       element.removeEventListener('focusin', revealInteracted)
     }
-  }, [Tag, bottomOverlayHeight, revealSelector])
+  }, [Tag, bottomOverlayHeight, bottomFadeSize, revealSelector])
   useLayoutEffect(() => { refresh.current?.() }, [children])
 
   return <Tag {...props} ref={(element: Viewport | null) => { viewport.current = element }} className={`ds-scroll-area ${className}`}>{children}</Tag>

@@ -37,6 +37,20 @@ function chooseSource(source: BrowsableSource) {
 }
 
 describe('来源逻辑沿用原有设计', () => {
+  it('来源详情的向下箭头位于消息视口外，点击只滚动当前正文', async () => {
+    vi.mocked(window.staithe.sources.page).mockResolvedValue(page)
+    render(<App />); await ready()
+    expect(screen.queryByRole('button', { name: '滚动到底部' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: `${entry.title} ${entry.project}` }))
+    const viewport = await screen.findByRole('region', { name: '会话消息' })
+    Object.defineProperties(viewport, { clientHeight: { value: 300 }, scrollHeight: { value: 1000 } })
+    viewport.scrollTo = vi.fn()
+    fireEvent.scroll(viewport)
+    const button = screen.getByRole('button', { name: '滚动到底部' })
+    expect(button.parentElement).toBe(viewport.parentElement)
+    fireEvent.click(button)
+    expect(viewport.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 700, behavior: 'smooth' })
+  })
   it('搜索结果描述复用单行渐隐组件，并保留完整来源和项目说明', async () => {
     const project = Array.from({ length: 12 }, (_, index) => `very-long-project-${index}`).join('/')
     vi.mocked(window.staithe.sources.page).mockResolvedValue({ ...page, items: [{ ...entry, project }] })

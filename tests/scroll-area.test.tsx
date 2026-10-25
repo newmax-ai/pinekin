@@ -228,6 +228,48 @@ describe('NewMax ScrollArea mask 本地适配', () => {
     fireEvent.scroll(element); flushFrames()
     expect(mask(element).match(/black 48px/g)).toHaveLength(2)
   })
+  it('详情下沿可加高至 160px，上沿和横轴不变，改值不重置阅读位置', () => {
+    height = 400; contentHeight = 1000; contentWidth = 300
+    const view = render(<ScrollArea bottomFadeSize={160}>内容</ScrollArea>)
+    const element = view.container.firstElementChild as HTMLElement
+    element.scrollTop = 100
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe([
+      buildScrollMask('to bottom', true, true, 48, 160),
+      buildScrollMask('to right', false, true),
+    ].join(', '))
+    expect(element.hasAttribute('bottomFadeSize')).toBe(false)
+    view.rerender(<ScrollArea bottomFadeSize={120}>内容</ScrollArea>); flushFrames()
+    expect(view.container.firstElementChild).toBe(element)
+    expect(element.scrollTop).toBe(100)
+    expect(mask(element)).toContain('black calc(100% - 120px)')
+  })
+  it('加高渐隐在到底和短内容时关闭，不遮住最后几行', () => {
+    height = 400; contentHeight = 1000
+    const view = render(<ScrollArea bottomFadeSize={160}>内容</ScrollArea>)
+    const element = view.container.firstElementChild as HTMLElement
+    expect(mask(element)).toBe(buildScrollMask('to bottom', false, true, 48, 160))
+    element.scrollTop = 596
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe(buildScrollMask('to bottom', true, false))
+    contentHeight = 200; element.scrollTop = 0
+    fireEvent.scroll(element); flushFrames()
+    expect(mask(element)).toBe('none')
+  })
+  it('选中项定位避开自定义的下沿渐隐', () => {
+    const { view, viewport } = (() => {
+      height = 400; contentHeight = 1000
+      const view = render(<ScrollArea><button aria-pressed="true">会话</button></ScrollArea>)
+      const viewport = view.container.firstElementChild as HTMLElement
+      const target = viewport.firstElementChild as HTMLElement
+      viewport.scrollTop = 100
+      vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 100, 400))
+      vi.spyOn(target, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 260, 100, 64))
+      return { view, viewport }
+    })()
+    view.rerender(<ScrollArea bottomFadeSize={160} revealSelector="[aria-pressed='true']"><button aria-pressed="true">会话</button></ScrollArea>)
+    expect(viewport.scrollTop).toBe(184)
+  })
   it('底部悬浮操作只加高下沿 mask，出现和消失均保留视口与滚动位置', () => {
     height = 300; contentHeight = 900; contentWidth = 300
     const view = render(<ScrollArea>内容</ScrollArea>)
