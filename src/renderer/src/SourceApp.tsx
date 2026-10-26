@@ -11,6 +11,7 @@ import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
 import { ScrollArea } from './components/ScrollArea'
 import { ScrollToBottom } from './components/ScrollToBottom'
+import { ConversationEnd } from './components/ConversationEnd'
 import { SourceIcon } from './components/SourceIcon'
 import { useCurrentTime } from './components/SessionTime'
 import { SourceSessionCard } from './components/SourceSessionCard'
@@ -534,7 +535,7 @@ export function SourceApp() {
                   {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
                   <SourceMessage message={message} source={content.session.source} fragment={!!(content.window?.textOffset || content.window?.next?.textOffset)} />
                 </div>
-              </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}{content.session.messages.length > 0 && !content.window?.hasMore && <div className="conversation-end"><span />对话到这里，思考可以继续<span /></div>}</div></ScrollArea>
+              </article>)}{content.presentation && <SourceActivity presentation={content.presentation} />}</div>{content.session.messages.length > 0 && !content.window?.hasMore && <ConversationEnd />}</ScrollArea>
               <ScrollToBottom viewport={messagesViewport} contentKey={content} />
               </div>
             </>}

@@ -663,14 +663,42 @@ describe('Staithe 中性主题与图标契约', () => {
       expect(muted, surface).toBeLessThan(contrast(color(css, 'text-primary'), background))
     }
   })
-  it('档案末尾文字和短线共用淡化至 60% 的 tertiary，不改变间距或全局颜色', () => {
+  it('记录末尾不再保留提示文字或两侧装饰线样式', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
-    const marker = /\.conversation-end\s*\{([^}]*)\}/.exec(styles)![1]
-    expect(marker).toContain('color: color-mix(in srgb, var(--ds-text-tertiary) 60%, transparent);')
-    expect(marker).toContain('gap: 12px;')
-    expect(marker).toContain('margin: 32px 0 0;')
-    expect(marker).not.toContain('--ds-text-tertiary:')
-    expect(styles).toMatch(/\.conversation-end span\s*\{[^}]*width: 32px;[^}]*border-top: 1px solid currentColor;/)
+    expect(/^\.conversation-end\s*\{/m.test(styles)).toBe(false)
+    expect(/\.conversation-ending > \.conversation-end\s*\{/.test(styles)).toBe(false)
+    expect(/\.conversation-end::(?:before|after)/.test(styles)).toBe(false)
+  })
+  it('底部保持紧凑，完整松林向上溢出作为正文背后的背景，不裁切树梢', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const ending = /\.conversation-ending\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(ending).toContain('position: relative;')
+    expect(ending).toContain('height: clamp(200px, 22vw, 260px);')
+    expect(ending).toContain('width: calc(100% + 48px);')
+    expect(ending).toContain('margin: 24px -24px -24px;')
+    expect(ending).toContain('place-items: start center;')
+    expect(ending).toContain('padding: 20px 0 0;')
+    expect(ending).toContain('overflow: visible;')
+    expect(ending).toContain('isolation: isolate;')
+    expect(ending).not.toMatch(/min-height:|gap:/)
+    const content = /\.messages > \.message-column\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(content).toContain('position: relative;')
+    expect(content).toContain('z-index: 1;')
+    const illustration = /\.conversation-end-illustration\s*\{([^}]*)\}/.exec(styles)?.[1]
+    expect(illustration).toContain('width: 100%;')
+    expect(illustration).toContain('position: absolute;')
+    expect(illustration).toContain('left: 0;')
+    expect(illustration).toContain('bottom: 0;')
+    expect(illustration).toContain('height: auto;')
+    expect(illustration).toContain('aspect-ratio: 5 / 2;')
+    expect(illustration).toContain('z-index: -1;')
+    expect(illustration).not.toMatch(/object-fit: cover|height: 100%|inset: 0/)
+    expect(illustration).toContain('opacity: 0.28;')
+    expect(illustration).toContain('mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent), linear-gradient(to bottom, transparent, black 14%, black 78%, transparent);')
+    expect(illustration).toContain('mask-composite: intersect;')
+    expect(illustration).toContain('pointer-events: none;')
+    expect(illustration).not.toMatch(/animation:|transition:|mix-blend-mode:|max-width: 320px/)
+    expect(styles).toMatch(/@media \(prefers-color-scheme: dark\)\s*\{\s*\.conversation-end-illustration\s*\{[^}]*filter: invert\(1\);[^}]*opacity: 0.22;/)
   })
   it('会话来源选中不加粗，仅保留背景与文字颜色反馈', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')

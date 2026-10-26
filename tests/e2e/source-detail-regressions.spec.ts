@@ -110,7 +110,7 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail.locator('article')).toHaveCount(1)
     await expect(detail).toContainText('第 1 条合成消息')
     await expect(detail.getByText('展开当前片段', { exact: true })).toBeVisible()
-    await expect(page.locator('.conversation-end')).toHaveCount(0)
+    await expect(page.locator('.conversation-ending')).toHaveCount(0)
     await page.getByRole('button', { name: '下一段', exact: true }).click()
     await expect(page.getByRole('navigation', { name: '正文分段导航' })).toContainText('第 16385 个字符')
     await expect(detail).not.toContainText('第 1 条合成消息')

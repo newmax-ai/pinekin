@@ -1273,9 +1273,10 @@ test('长标题与长会话不会挤占阅读空间，首尾内边距完整且�
   await expect(messages).toHaveCSS('padding-bottom', '24px')
   await expect(messages.getByRole('article').first()).toBeInViewport()
   await messages.evaluate(element => { element.scrollTop = element.scrollHeight })
-  await expect(page.locator('.conversation-end')).toBeInViewport()
-  const viewport = (await messages.boundingBox())!, end = (await page.locator('.conversation-end').boundingBox())!
-  expect(viewport.y + viewport.height - end.y - end.height).toBeCloseTo(24, 0)
+  await expect(page.locator('.conversation-ending')).toBeInViewport()
+  await expect(messages).not.toContainText('档案记录到此')
+  const viewport = (await messages.boundingBox())!, end = (await page.locator('.conversation-ending').boundingBox())!
+  expect(viewport.y + viewport.height - end.y - end.height).toBeCloseTo(0, 0)
   await page.getByRole('button', { name: new RegExp(demoSessions[1].title) }).click()
   await page.getByRole('button', { name: imported.title }).click()
   expect(await messages.evaluate(element => element.scrollTop)).toBe(0)

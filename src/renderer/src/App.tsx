@@ -11,6 +11,7 @@ import { SessionPane } from './components/SessionPane'
 import { FadeText } from './components/FadeText'
 import { ScrollArea } from './components/ScrollArea'
 import { ScrollToBottom } from './components/ScrollToBottom'
+import { ConversationEnd } from './components/ConversationEnd'
 import localStorageIllustration from './assets/pinekin-local-storage.svg'
 import { SourceApp } from './SourceApp'
 import { EmptyState, resolveArchiveEmptyState, type EmptyStateAction, type EmptyStateKind } from './components/EmptyState'
@@ -260,7 +261,7 @@ export function ArchiveApp({ onBack, openingId }: { onBack?: () => void; opening
                 {(message.role === 'system' || message.role === 'tool') && <div className="record-label"><DesignIcon name="code" size={14} />{roles[message.role]}</div>}
                 <MessageContent content={message.content} />
               </div>
-            </article>) : <EmptyState kind="messages" />}{selected.messages.length > 0 && <div className="conversation-end"><span />档案到这里，思考可以继续<span /></div>}</div></ScrollArea>
+            </article>) : <EmptyState kind="messages" />}</div>{selected.messages.length > 0 && <ConversationEnd />}</ScrollArea>
             <ScrollToBottom viewport={messagesViewport} contentKey={selected} />
             </div>
             <footer className="detail-footer"><DsButton variant="ghost" disabled={busy} onClick={() => copy(makeDeepLink(selected.id), '已复制本地链接；跨设备需先导入会话包')}><DesignIcon name="link" />复制本地链接</DsButton></footer>

@@ -138,7 +138,7 @@ describe('来源空占位接入', () => {
       await waitFor(() => expect(window.staithe.sources.read).toHaveBeenCalledTimes(2))
     }
     if (state === 'unsupported') expect(window.staithe.sources.read).not.toHaveBeenCalled()
-    if (state === 'empty') expect(detail().textContent).not.toContain('对话到这里')
+    if (state === 'empty') expect(detail().querySelector('.conversation-ending')).toBeNull()
   })
   it('没有连接时直接展示可添加列表，不再绕行空管理弹窗', async () => {
     render(<SourceApp />); await sourceReady()

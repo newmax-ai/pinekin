@@ -221,6 +221,7 @@ h1, h2, h3, strong { font-weight: 500; }
 @keyframes source-update-exit { from { opacity: 1; transform: translateX(-50%) translateY(0); } to { opacity: 0; transform: translateX(-50%) translateY(-4px); } }
 .messages { flex: 1; min-height: 0; overflow: auto; padding: 24px; scrollbar-gutter: stable; }
 .message-column { width: 100%; max-width: 744px; margin: 0 auto; }
+.messages > .message-column { position: relative; z-index: 1; }
 .message { display: flex; min-width: 0; }
 .message + .message { margin-top: 24px; }
 .message + .message.user { margin-top: 32px; }
@@ -238,8 +239,12 @@ h1, h2, h3, strong { font-weight: 500; }
 .code-block { border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-200); margin: 12px 0; overflow: hidden; }
 .code-label { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; color: var(--ds-text-tertiary); border-bottom: 1px solid var(--ds-divider); font-size: var(--ds-text-xs); }
 .code-block pre { margin: 0; padding: 14px; overflow: auto; font: var(--ds-text-sm)/1.8 var(--ds-font-mono); tab-size: 2; }
-.conversation-end { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 32px 0 0; color: color-mix(in srgb, var(--ds-text-tertiary) 60%, transparent); font-size: var(--ds-text-xs); }
-.conversation-end span { width: 32px; border-top: 1px solid currentColor; }
+.conversation-ending { position: relative; display: grid; place-items: start center; width: calc(100% + 48px); height: clamp(200px, 22vw, 260px); margin: 24px -24px -24px; padding: 20px 0 0; overflow: visible; isolation: isolate; }
+/* 保留完整画幅与底边位置；树梢可向上延伸到正文背后，不增加底部占高。 */
+.conversation-end-illustration { position: absolute; left: 0; bottom: 0; z-index: -1; display: block; width: 100%; height: auto; aspect-ratio: 5 / 2; opacity: 0.28; mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent), linear-gradient(to bottom, transparent, black 14%, black 78%, transparent); mask-composite: intersect; pointer-events: none; user-select: none; }
+@media (prefers-color-scheme: dark) {
+  .conversation-end-illustration { filter: invert(1); opacity: 0.22; }
+}
 .detail-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding: 12px 24px; gap: 12px; }
 /* 空占位只替换空区内容，沿用三栏、字体与表面；同屏插画与主行动由阅读区承载。 */
 .empty-state { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 10px; width: 100%; min-width: 0; padding: 28px 16px; text-align: center; color: var(--ds-text-tertiary); font-weight: 400; line-height: 1.7; overflow-wrap: anywhere; }
