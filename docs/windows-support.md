@@ -88,6 +88,8 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 [第八轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40291694352) 两个平台都在单测阶段失败，原因是 `tests/source-infinite-scroll.test.tsx` 间歇失败（Windows 2 项、macOS 1 项，用例不同，生产代码未改动）。推断原因：滚动加载观察器在 `useEffect` 中注册，测试等到“50 / 130 条已加载”文案后立即触发相交，高负载 runner 上该被动副作用可能尚未运行，触发落空。此推断未能在本机复现，只作判断依据。测试改为需要触发加载时先等待观察器注册；预期不加载的断言（暂停、出错、加载中、已全部加载）保持不等待，仍验证不会请求。须以后续云端多轮结果确认。
 
+[第九轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40292411881) 两个平台全部步骤通过。Windows 桌面 E2E 为 95 通过、11 跳过、0 失败、0 flaky，用时约 7.2 分钟；首次生成并上传 x64 NSIS 测试安装包 `Pinekin Setup 0.1.0.exe`（118,420,739 字节，SHA-256 `d9793fd4…97683`，静态识别为 Nullsoft 安装程序）。该包未签名，也未在 Windows 上安装或运行；安装、启动、升级保留配置、卸载与协议关联仍待验收。滚动加载测试只在这一轮通过，不能据此确认间歇失败已根治，仍需多轮观察。
+
 ## 没有本地 Windows 电脑时
 
 1. 在当前开发机修复可复现缺陷并完成最小回归、类型检查、覆盖率和构建；模拟 Windows 的测试不算原生验收。
