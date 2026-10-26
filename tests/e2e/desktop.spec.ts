@@ -802,7 +802,14 @@ test('导航保留 small relaxed，弹窗关闭组件统一默认尺寸，正文
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await page.mouse.move(700, 300)
-    for (const button of await page.locator('.ds-button-icon').all()) {
+    // 滚动到底部属于阅读区浮动操作，仅在正文超出一屏时出现（Windows 原生边框与双行页头使内容区更矮）。
+    const scrollToBottom = page.locator('.scroll-to-bottom')
+    if (await scrollToBottom.count()) {
+      await expect(scrollToBottom).not.toHaveClass(/ds-button-small|ds-button-icon-relaxed/)
+      await expect(scrollToBottom).toHaveCSS('width', '36px')
+      await expect(scrollToBottom).toHaveCSS('height', '36px')
+    }
+    for (const button of await page.locator('.ds-button-icon:not(.scroll-to-bottom)').all()) {
       await expect(button).toHaveClass(/ds-button-small/)
       await expect(button).toHaveClass(/ds-button-icon-relaxed/)
       await expect(button).toHaveCSS('height', '28px')
