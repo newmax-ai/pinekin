@@ -16,7 +16,7 @@ describe('Windows 构建入口', () => {
     }
   })
   it('提供经过生产构建的 NSIS x64 安装包命令', () => {
-    expect(pkg.scripts['dist:win']).toBe('npm run build && electron-builder --win nsis --x64')
+    expect(pkg.scripts['dist:win']).toBe('npm run build && electron-builder --win nsis --x64 --publish never')
     expect(pkg.build.win).toMatchObject({ icon: 'resources/pinekin.ico', target: 'nsis' })
   })
   it('Engine 通过当前 Node 执行 TypeScript CLI，不执行 Unix shim', () => {
@@ -40,7 +40,7 @@ describe('Windows 构建入口', () => {
     const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
     expect(workflow).toContain('windows-latest')
     expect(workflow).toContain('node scripts/build-engine.mjs')
-    expect(workflow).toContain('npm exec electron-builder -- --win nsis --x64')
+    expect(workflow).toContain('npm exec electron-builder -- --win nsis --x64 --publish never')
     expect(workflow).toContain('npm run test:coverage')
     expect(workflow).toContain('npm run test:e2e')
   })

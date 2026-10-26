@@ -82,7 +82,9 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 上述调整随 `a01e3d8` 推送。[第六轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40201985081) 中 macOS 全部步骤通过；Windows E2E 为 94 通过、1 失败、11 跳过、0 flaky，用时约 7.5 分钟。窄栏文案、会话栏、弹窗基线、平台焦点与健康日志读取均已通过；此前连接弹窗、搜索和阅读操作停在“等待元素稳定”的超时本轮均未出现。单轮未复现不代表根因已确认，后续仍以多轮结果和失败附件判断，不据此修改后台窗口或动画策略。
 
-唯一失败是导航按钮规格测试遍历了全部 `.ds-button-icon`，把阅读区的「滚动到底部」浮动按钮也当作导航按钮。该按钮只在正文超出一屏时出现；Windows 原生边框与双行页头使内容区更矮，因此只在 Windows 出现。测试改为导航规格排除该浮动按钮，按钮出现时单独核对其 36px 尺寸且不使用 small relaxed 规格，不修改产品按钮。此修正尚待下一轮云端运行；Windows NSIS 打包仍未执行。
+唯一失败是导航按钮规格测试遍历了全部 `.ds-button-icon`，把阅读区的「滚动到底部」浮动按钮也当作导航按钮。该按钮只在正文超出一屏时出现；Windows 原生边框与双行页头使内容区更矮，因此只在 Windows 出现。测试改为导航规格排除该浮动按钮，按钮出现时单独核对其 36px 尺寸且不使用 small relaxed 规格，不修改产品按钮。该修正随 `289ee08` 推送。
+
+[第七轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40290352986) 中 macOS 全部通过，Windows 单测、构建、桌面 E2E 与 `npm audit` 均通过，首次执行 NSIS 打包：安装包与 blockmap 已生成，但 electron-builder 在 CI 环境下隐式触发发布，因缺少 `GH_TOKEN` 退出码为 1，上传步骤被跳过。`dist:win` 与 CI 打包命令现显式使用 `--publish never`，只产出测试安装包、不发布。此修正尚待下一轮云端运行，需确认安装包随附件上传成功；安装、升级、卸载生命周期仍未验收。
 
 ## 没有本地 Windows 电脑时
 
