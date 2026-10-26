@@ -178,6 +178,6 @@ E2E 只使用合成数据和隔离的 userData，替换文件选择框与系统�
 
 ## 许可
 
-Pinekin 采用 [MIT 许可证](LICENSE)，版权声明为 `Copyright (c) 2026 newmax-ai`。第三方依赖和素材遵循各自的许可证及归属声明；README 中提到的客户端名称属于相应权利人，不表示品牌背书。
+Pinekin 采用 [MIT 许可证](LICENSE)，版权声明为 `Copyright (c) 2026 newmax-ai`。第三方依赖和素材遵循各自的许可证及归属声明，其中文字 Logo 字体子集来自 Fraunces（SIL OFL 1.1，见 `src/renderer/src/assets/fonts/OFL.txt`）；README 中提到的客户端名称属于相应权利人，不表示品牌背书。
 
 Pinekin 是项目采用的品牌名，不代表已完成商标、域名或排他性审查。

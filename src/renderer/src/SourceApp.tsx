@@ -454,7 +454,7 @@ export function SourceApp() {
     {separateNavigation && <div className="window-toolbar">{window.staithe.platform === 'darwin' && <div className="window-controls-space" aria-hidden="true" />}{toolbar}</div>}
     <div className="app-body">
       <Sidebar open={sidebarOpen}>
-        <div className="brand"><span className="brand-logo">pinekin<span className="brand-dot">.</span></span>
+        <div className="brand"><span className="brand-logo">pinekin</span>
           <DsButton variant="ghost" size="small" iconOnly iconRelaxed className="search-trigger" aria-label="搜索" aria-haspopup="dialog" aria-expanded={searchOpen} aria-keyshortcuts="Meta+K Control+K"
             data-active={searchOpen} disabled={!loaded || busy} onClick={openSearch}><DesignIcon name="search" /></DsButton>
         </div>

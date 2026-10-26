@@ -34,6 +34,23 @@ function contrast(a: string, b: string) {
 }
 
 describe('Staithe 中性主题与图标契约', () => {
+  it('文字 Logo 使用本地打包的品牌字体子集，去掉末尾圆点且不发起在线字体请求', async () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    const face = /@font-face\s*\{[^}]*font-family:\s*'Pinekin Wordmark'[^}]*\}/.exec(styles)?.[0]
+    expect(face).toContain("url('./assets/fonts/pinekin-wordmark.woff2') format('woff2')")
+    expect(face).toContain('font-display: swap')
+    expect(styles).toMatch(/\.brand-logo \{[^}]*font-family: 'Pinekin Wordmark', var\(--ds-font-ui\);/)
+    expect(styles).not.toMatch(/\.brand-dot|https?:\/\/[^)'"]*\.(?:woff2?|ttf|otf)/)
+    for (const file of ['src/renderer/src/App.tsx', 'src/renderer/src/SourceApp.tsx']) {
+      expect(readFileSync(resolve(file), 'utf8')).toContain('<span className="brand-logo">pinekin</span>')
+    }
+    expect(readFileSync(resolve('src/renderer/src/assets/fonts/OFL.txt'), 'utf8')).toContain('SIL Open Font License, Version 1.1')
+    // CSP 只允许同源字体，小字体也不能被 Vite 内联成 data: URL。
+    const { default: config } = await import('../electron.vite.config')
+    const limit = (config as { renderer: { build: { assetsInlineLimit: (file: string, content: Buffer) => boolean | undefined } } }).renderer.build.assetsInlineLimit
+    expect(limit('/x/assets/fonts/pinekin-wordmark.woff2', Buffer.alloc(1488))).toBe(false)
+    expect(limit('/x/assets/icon.svg', Buffer.alloc(100))).toBeUndefined()
+  })
   it('来源和档案详情仅将下沿渐隐加高至 160px，不启用常驻遮挡', () => {
     for (const file of ['src/renderer/src/App.tsx', 'src/renderer/src/SourceApp.tsx']) {
       const source = readFileSync(resolve(file), 'utf8')

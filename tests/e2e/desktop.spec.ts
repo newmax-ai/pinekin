@@ -76,7 +76,7 @@ async function launch(legacyEnv = false, link?: string, legacyAppData = false) {
   if (process.env.CI) await app.context().tracing.start({ screenshots: true, snapshots: true })
   page = await app.firstWindow()
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
-  await expect(page.locator('.sidebar .brand-logo')).toHaveText('pinekin.')
+  await expect(page.locator('.sidebar .brand-logo')).toHaveText('pinekin')
   await expect(page).toHaveTitle('Pinekin · 换个地方，继续思考')
   expect(await app.evaluate(({ app }) => app.getName())).toBe('Pinekin')
   expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(legacyAppData ? join(directory, '@newmax-ai/ember') : directory)
@@ -1285,7 +1285,12 @@ test('长标题与长会话不会挤占阅读空间，首尾内边距完整且�
 test('桌面启动、全文搜索、来源筛选与视觉检查', async () => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await expect(page.locator('.brand-logo svg, .brand-logo img, .brand-mark, .source-dot, .sidebar-version')).toHaveCount(0)
+  await expect(page.locator('.brand-logo svg, .brand-logo img, .brand-mark, .brand-dot, .source-dot, .sidebar-version')).toHaveCount(0)
+  // 品牌字体须作为同源文件通过 CSP 加载，而不是静默回退到系统字体。
+  expect(await page.evaluate(async () => {
+    await document.fonts.ready
+    return [...document.fonts].filter(face => face.family.replace(/["']/g, '') === 'Pinekin Wordmark').map(face => face.status)
+  })).toEqual(['loaded'])
   await expect(page.locator('.sidebar .brand .lucide-search')).toHaveCount(1)
   await expect(page.locator('.sidebar-toggle .design-icon:not(.lucide)')).toHaveCount(1)
   await expect(page.locator('.design-icon:not(.lucide):not(.sidebar-toggle .design-icon)')).toHaveCount(0)

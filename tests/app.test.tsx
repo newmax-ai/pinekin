@@ -97,7 +97,7 @@ describe('档案界面', () => {
     const nav = screen.getByRole('complementary', { name: '档案导航' })
     const brand = nav.querySelector('.brand')!
     const button = within(brand as HTMLElement).getByRole('button', { name: '搜索' })
-    expect(brand.querySelector('.brand-logo')?.textContent).toBe('pinekin.')
+    expect(brand.querySelector('.brand-logo')?.textContent).toBe('pinekin')
     expect(button.textContent).toBe('')
     expect(button.querySelector('svg.lucide-search')).not.toBeNull()
     expect(button.getAttribute('aria-haspopup')).toBe('dialog')
@@ -476,10 +476,10 @@ describe('档案界面', () => {
     expect(screen.queryByRole('separator', { name: '调整侧栏宽度' })).toBeNull()
     expect(screen.getByRole('separator', { name: '调整会话栏宽度' })).toBeTruthy()
   })
-  it('品牌只显示文字，来源用本地客户端图标而非圆点', async () => {
+  it('品牌只显示文字且不带末尾圆点，来源用本地客户端图标而非圆点', async () => {
     await open()
     const brand = document.querySelector('.brand-logo')!
-    expect(brand.textContent).toBe('pinekin.')
+    expect(brand.textContent).toBe('pinekin')
     expect(brand.querySelector('svg, img, .brand-mark')).toBeNull()
     const nav = screen.getByRole('complementary', { name: '档案导航' })
     for (const [source, label] of [['newmax', 'NewMax'], ['claude-code', 'Claude Code'], ['codex', 'Codex'], ['cindy', 'Cindy'], ['deepseek', 'DeepSeek']] as const) {

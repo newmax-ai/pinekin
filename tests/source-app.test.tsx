@@ -70,7 +70,7 @@ describe('来源逻辑沿用原有设计', () => {
     expect(navigation.closest(platform === 'linux' ? '.topbar' : '.window-toolbar')).not.toBeNull()
     expect(document.querySelectorAll('.window-controls-space')).toHaveLength(platform === 'darwin' ? 1 : 0)
     const brand = document.querySelector('.brand') as HTMLElement
-    expect(brand.querySelector('.brand-logo')?.textContent).toBe('pinekin.')
+    expect(brand.querySelector('.brand-logo')?.textContent).toBe('pinekin')
     expect(within(brand).getByRole('button', { name: '搜索' })).toBeTruthy()
     expect(brand.nextElementSibling?.classList.contains('sidebar-section')).toBe(true)
     expect(document.querySelector('.sidebar-section')?.firstElementChild?.textContent).toBe('连接 App')

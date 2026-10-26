@@ -1,6 +1,9 @@
 @import './tokens.css';
 @import './corners.css';
 
+/* 文字 Logo 品牌字体：Fraunces（OFL 1.1，见 assets/fonts/OFL.txt）固定 wght 600 / opsz 36 / SOFT 100，仅含 pinekin 字形。 */
+@font-face { font-family: 'Pinekin Wordmark'; src: url('./assets/fonts/pinekin-wordmark.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+
 * { box-sizing: border-box; }
 :root { font-family: var(--ds-font-ui); font-size: var(--ds-text-base); color: var(--ds-text-primary); background: var(--ds-surface-100); font-synthesis: none; }
 /* 桌面 UI 文案不参与选择；仅阅读内容和编辑区域保留文本选择。 */
@@ -63,8 +66,7 @@ h1, h2, h3, strong { font-weight: 500; }
 .sidebar-resize-handle:hover::after, .sidebar-resize-handle:focus-visible::after, .sidebar[data-resizing='true'] .sidebar-resize-handle::after { opacity: 1; }
 .sidebar-resize-handle:focus-visible { outline: 2px solid var(--ds-brand-primary); outline-offset: -2px; }
 .brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 64px; padding: 0 12px 0 24px; flex-shrink: 0; }
-.brand-logo { font-size: var(--ds-text-title); font-weight: 600; letter-spacing: -0.7px; white-space: nowrap; }
-.brand-dot { color: var(--ds-accent); }
+.brand-logo { font-family: 'Pinekin Wordmark', var(--ds-font-ui); font-size: var(--ds-text-title); font-weight: 600; letter-spacing: -0.2px; white-space: nowrap; }
 .search-trigger[data-active='true'] { color: var(--ds-brand-primary); }
 .sidebar-section { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; }
 .nav-label { display: flex; align-items: center; justify-content: space-between; font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); margin: 0 12px 10px; }

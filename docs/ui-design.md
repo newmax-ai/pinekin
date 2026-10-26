@@ -1,5 +1,12 @@
 # 桌面会话工作台与设计系统
 
+## 文字 Logo 品牌字体（2026-10-26，当前）
+
+- 侧栏文字 Logo 由系统字体加蓝色末尾圆点改为纯文字 `pinekin`，移除 `.brand-dot` 节点与样式。字体使用 Fraunces（SIL OFL 1.1，许可证见 `src/renderer/src/assets/fonts/OFL.txt`），以 `wght 600 / opsz 36 / SOFT 100 / WONK 0` 固定为静态实例，柔和衬线与松林插画气质一致；字号仍为 DS `text-title` 20px，字距改为 -0.2px。
+- `assets/fonts/pinekin-wordmark.woff2` 仅含 `p i n e k` 五个字形（约 1.5KB），只供 Logo 使用，界面其他文字仍为系统字体；不发起在线字体请求。`@font-face` 使用 `font-display: swap`，加载失败回退 `--ds-font-ui`。
+- CSP 只允许同源资源，Vite 默认会把小于 4KB 的资源内联为 `data:` URL 并被字体策略拦截；`electron.vite.config.ts` 因此让 `.woff2` 始终输出为同源文件，其他资源沿用默认内联阈值，不放宽 CSP。
+- 组件与样式测试锁定纯文字 Logo、本地字体声明、许可证与不内联字体；桌面 E2E 断言 `Pinekin Wordmark` 在打包后的 Electron 中实际为 `loaded` 状态。
+
 ## 对话详情底部渐隐加高（2026-10-25，当前）
 
 - 来源会话与本地档案详情通过 `ScrollArea.bottomFadeSize={160}` 将下沿渐隐由 48px 加高至 160px，沿用原有平滑采样曲线，减少底部居中箭头周围的文字干扰；上沿和横轴仍为 48px，侧栏、列表及弹窗默认不变。
@@ -411,8 +418,8 @@ Pinekin 通过本地 `corners.css` 与既有 token 适配，不引入 NewMax Tai
 
 - `tokens.css` 保存必要 `--ds-*` token，`styles.css` 只引用语义颜色；不整体复制宿主全局 CSS。
 - `components/ui.tsx` 是 Staithe 的轻量 `DsButton` / `DsDialog` / `DesignIcon` 实现，不是 NewMax 组件包链接。没有跨仓库 import、软链接、Zustand store 或 `window.api`。
-- 当前品牌已改为 Pinekin，只显示文字 `pinekin.`，不显示前置图形。黑白松貂现已用于应用包与开发模式 Dock 图标，侧栏仍不添加图形；资产与验证见 [应用图标](app-icon.md)。以下历史迭代仍保留当时的 Staithe 名称。通用图标通过 `DesignIcon` 适配器使用 Lucide React，不再保留手绘图标或 NewMax SVG path 快照；客户端来源使用本地品牌素材，详见下节。
-- 不复制 NewMax 品牌字体子集或字体文件，不增加在线字体请求。采用系统字体，字号沿用 DS 的 11 / 12 / 13 / 14 / 20px；这不是字体完全一致的像素复刻。
+- 当前品牌已改为 Pinekin，只显示文字 `pinekin`（无末尾圆点），不显示前置图形。黑白松貂现已用于应用包与开发模式 Dock 图标，侧栏仍不添加图形；资产与验证见 [应用图标](app-icon.md)。以下历史迭代仍保留当时的 Staithe 名称。通用图标通过 `DesignIcon` 适配器使用 Lucide React，不再保留手绘图标或 NewMax SVG path 快照；客户端来源使用本地品牌素材，详见下节。
+- 不复制 NewMax 品牌字体子集或字体文件，不增加在线字体请求。除文字 Logo 使用本地打包的 Fraunces 子集外，界面采用系统字体，字号沿用 DS 的 11 / 12 / 13 / 14 / 20px；这不是字体完全一致的像素复刻。
 - 暂无主题设置页，浅/深色直接跟随系统 `prefers-color-scheme`。
 - 过渡只用于颜色/透明度，不依赖动画结束推进业务状态；`prefers-reduced-motion` 在初始与运行中均通过 CSS 关闭过渡。
 - Dialog 保留原生 `<dialog>` 与 `showModal()` 的焦点圈定，不引入宿主拖拽与动效依赖；关闭恢复到触发按钮。文件选择前记录触发节点，避免按钮禁用后焦点丢失。
