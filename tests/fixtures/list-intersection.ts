@@ -17,6 +17,11 @@ export function installListIntersectionObserver() {
   })
 }
 
+/** 列表观察器仅在列表可加载（已就绪、未忙碌、无错误）时才会注册。 */
+export function hasSessionListObserver() {
+  return [...observers].some(observer => observer.root instanceof HTMLElement && observer.root.matches('.session-list') && !!observer.target)
+}
+
 export function intersectSessionList(isIntersecting = true) {
   for (const observer of [...observers]) {
     if (!(observer.root instanceof HTMLElement) || !observer.root.matches('.session-list') || !observer.target) continue

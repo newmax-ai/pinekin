@@ -86,6 +86,8 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 [第七轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40290352986) 中 macOS 全部通过，Windows 单测、构建、桌面 E2E 与 `npm audit` 均通过，首次执行 NSIS 打包：安装包与 blockmap 已生成，但 electron-builder 在 CI 环境下隐式触发发布，因缺少 `GH_TOKEN` 退出码为 1，上传步骤被跳过。`dist:win` 与 CI 打包命令现显式使用 `--publish never`，只产出测试安装包、不发布。此修正尚待下一轮云端运行，需确认安装包随附件上传成功；安装、升级、卸载生命周期仍未验收。
 
+[第八轮 CI](https://github.com/newmax-ai/pinekin/actions/runs/40291694352) 两个平台都在单测阶段失败，原因是 `tests/source-infinite-scroll.test.tsx` 间歇失败（Windows 2 项、macOS 1 项，用例不同，生产代码未改动）。推断原因：滚动加载观察器在 `useEffect` 中注册，测试等到“50 / 130 条已加载”文案后立即触发相交，高负载 runner 上该被动副作用可能尚未运行，触发落空。此推断未能在本机复现，只作判断依据。测试改为需要触发加载时先等待观察器注册；预期不加载的断言（暂停、出错、加载中、已全部加载）保持不等待，仍验证不会请求。须以后续云端多轮结果确认。
+
 ## 没有本地 Windows 电脑时
 
 1. 在当前开发机修复可复现缺陷并完成最小回归、类型检查、覆盖率和构建；模拟 Windows 的测试不算原生验收。

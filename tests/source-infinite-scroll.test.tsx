@@ -4,13 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SourceApp } from '../src/renderer/src/SourceApp'
 import type { SourceConnection, SourceEntry, SourcePage } from '../src/core/sources'
 import { mockSourcesAPI } from './fixtures/source-api'
-import { installListIntersectionObserver, intersectSessionList } from './fixtures/list-intersection'
+import { hasSessionListObserver, installListIntersectionObserver, intersectSessionList } from './fixtures/list-intersection'
 
 const connection: SourceConnection = { id: '11111111-1111-4111-8111-111111111111', source: 'claude-code', label: '合成目录', status: 'ready', discovered: 130, total: 130, issues: 0, ignoredLinks: 0 }
 const rows: SourceEntry[] = Array.from({ length: 130 }, (_, i) => ({ id: i.toString(16).padStart(64, '0'), connectionId: connection.id, source: connection.source, title: `合成会话 ${i}`, project: '.', updatedAt: '2026-10-21T00:00:00Z', availability: 'unread' }))
 function page(offset = 0): SourcePage { return { items: rows.slice(offset, offset + 50), total: rows.length, offset, hasMore: offset + 50 < rows.length, connections: [connection], version: 1, snapshot: 'stable' } }
 async function ready() { await screen.findByText('50 / 130 条已加载') }
-async function reachEnd() { await act(async () => intersectSessionList()) }
+// 文案出现不代表观察器已注册（loaded、checking 等状态可能稍晚就绪），需要触发加载时先等待。
+async function listObserver() { await waitFor(() => expect(hasSessionListObserver()).toBe(true)) }
+async function reachEnd() { await listObserver(); await act(async () => intersectSessionList()) }
+// 预期不会触发加载（暂停、出错、加载中或已全部加载）时不等待观察器。
+async function reachEndIdle() { await act(async () => intersectSessionList()) }
 
 beforeEach(() => {
   installListIntersectionObserver()
@@ -39,7 +43,7 @@ describe('主会话列表滚动加载', () => {
     await reachEnd()
     await screen.findByText('130 / 130 条已加载')
     expect(document.querySelector('.session-list-load')).toBeNull()
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(3)
   })
 
@@ -47,9 +51,9 @@ describe('主会话列表滚动加载', () => {
     let finish!: (value: SourcePage) => void
     vi.mocked(window.staithe.sources.page).mockResolvedValueOnce(page()).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     render(<SourceApp />); await ready()
-    act(() => { intersectSessionList(); intersectSessionList(); intersectSessionList() })
+    await listObserver(); act(() => { intersectSessionList(); intersectSessionList(); intersectSessionList() })
     await screen.findByLabelText('正在加载更多会话')
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(2)
     await act(async () => finish(page(50)))
     await screen.findByText('100 / 130 条已加载')
@@ -60,7 +64,7 @@ describe('主会话列表滚动加载', () => {
     render(<SourceApp />); await ready(); await reachEnd()
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', expect.stringContaining('合成分页失败'))
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
-    await reachEnd(); await reachEnd()
+    await reachEndIdle(); await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: '重试加载会话' }))
     await screen.findByText('100 / 130 条已加载')
@@ -73,7 +77,7 @@ describe('主会话列表滚动加载', () => {
     await screen.findByRole('button', { name: '重试加载会话' })
     expect(screen.getByRole('alert').textContent).toContain('分页未取得新会话')
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(2)
   })
 
@@ -82,7 +86,7 @@ describe('主会话列表滚动加载', () => {
     render(<SourceApp />); await ready(); await reachEnd()
     await screen.findByRole('button', { name: '列表有更新，点击查看' })
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(2)
   })
 
@@ -98,7 +102,7 @@ describe('主会话列表滚动加载', () => {
     await screen.findByText('50 / 130 条已加载')
     await reachEnd()
     await act(async () => finishOld(page(50)))
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(4)
     expect(document.querySelectorAll('.session-card')).toHaveLength(50)
     await act(async () => finishNew({ ...page(50), snapshot: 'new-source' }))
@@ -109,7 +113,7 @@ describe('主会话列表滚动加载', () => {
   it('连接弹窗开启时不在后台加载列表，关闭后恢复', async () => {
     render(<SourceApp />); await ready()
     fireEvent.click(screen.getByRole('button', { name: '连接 App' }))
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledOnce()
     fireEvent.click(screen.getByRole('button', { name: '关闭连接面板' }))
     await reachEnd()
@@ -122,7 +126,7 @@ describe('主会话列表滚动加载', () => {
     const view = render(<SourceApp />); await ready(); await reachEnd()
     view.unmount()
     await act(async () => finish(page(50)))
-    await reachEnd()
+    await reachEndIdle()
     expect(window.staithe.sources.page).toHaveBeenCalledTimes(2)
   })
 })
