@@ -12,6 +12,8 @@ import { createCindyDatabase } from '../fixtures/cindy-database'
 import { sourceNames, type BrowsableSource } from '../../src/core/sources'
 
 const macTest = process.platform === 'darwin' ? test : test.skip
+const supportsDatabaseSources = process.platform === 'darwin' || process.platform === 'win32'
+const databaseTest = supportsDatabaseSources ? test : test.skip
 let app: ElectronApplication, page: Page, root: string, data: string, source: string
 async function launch(newmaxDataDirectory?: string, claudeConfigDirectory?: string) {
   const bootstrap = join(root, 'start.cjs')
@@ -608,7 +610,7 @@ test('多选列表保留原关闭规格，初始不聚焦关闭按钮，键盘�
     await page.evaluate(() => { (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents = [] })
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
+    await expect(dialog.getByRole('switch', { name: supportsDatabaseSources ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
     await expect(page.getByRole('tooltip')).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as { dialogFocusEvents: string[] }).dialogFocusEvents)).not.toContain('关闭连接面板')
     await expect(dialog.locator('.notice')).toHaveCount(0)
@@ -644,7 +646,7 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     await expect(page.locator('.sidebar-section .nav-item')).toHaveText(['连接 App', '所有会话'])
     await page.getByRole('button', { name: '连接 App', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '连接来源 App' })
-    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
+    await expect(dialog.getByRole('switch', { name: supportsDatabaseSources ? '连接 NewMax' : '连接 Claude Code', exact: true })).toBeFocused()
     const list = dialog.getByRole('list', { name: '来源 App' })
     await expect(list.getByRole('switch')).toHaveCount(7)
     const box = (await dialog.boundingBox())!, viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))
@@ -654,9 +656,9 @@ test('App 多选列表在浅深主题与窄窗口不溢出，Space 勾选、Ente
     expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     expect(await page.evaluate(async () => (await window.staithe.sources.connections()).length)).toBe(0)
     await page.keyboard.press('Tab')
-    await expect(dialog.getByRole('switch', { name: process.platform === 'darwin' ? '连接 Claude Code' : '连接 Codex', exact: true })).toBeFocused()
-    // Windows 跳过禁用的 NewMax，从 Claude 开始；仍验证 Tab / Shift+Tab 顺序。
-    if (process.platform !== 'darwin') await page.keyboard.press('Shift+Tab')
+    await expect(dialog.getByRole('switch', { name: supportsDatabaseSources ? '连接 Claude Code' : '连接 Codex', exact: true })).toBeFocused()
+    // 不支持的平台跳过禁用的 NewMax，从 Claude 开始；仍验证 Tab / Shift+Tab 顺序。
+    if (!supportsDatabaseSources) await page.keyboard.press('Shift+Tab')
     const control = page.getByRole('switch', { name: '连接 Claude Code', exact: true })
     await expect(control).toBeFocused()
     await page.keyboard.press('Space')
@@ -715,7 +717,7 @@ macTest('NewMax 开发副本共享数据库链接可直接连接，固定真实�
   } finally { writer.close() }
 })
 
-macTest('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框，来源及副文件无写入', async () => {
+databaseTest('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择框，来源及副文件无写入', async () => {
   const newmaxRoot = join(root, '.newmax'), cindyRoot = join(root, 'appData', 'Cindy')
   await mkdir(newmaxRoot); await mkdir(cindyRoot)
   const newmax = new DatabaseSync(join(newmaxRoot, 'newmax.db')), cindy = new DatabaseSync(join(cindyRoot, 'cindy-synthetic.db'))
@@ -746,14 +748,14 @@ macTest('NewMax 与 Cindy 活跃 WAL 一次多选自动添加，零系统选择�
   } finally { newmax.close(); cindy.close() }
 })
 
-const windowsTest = process.platform === 'win32' ? test : test.skip
-windowsTest('Windows 明确禁用未验证数据库连接，通用日志连接仍可用且不打开选择框', async () => {
+const linuxTest = process.platform === 'linux' ? test : test.skip
+linuxTest('Linux 明确禁用数据库连接，通用日志连接仍可用且不打开选择框', async () => {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '连接来源 App' })
   for (const name of ['NewMax', 'Cindy']) {
     const card = dialog.getByRole('region', { name: `${name} 来源`, exact: true })
     await expect(card.getByRole('switch')).toBeDisabled()
-    await expect(card).toContainText('Windows 暂不支持安全数据库直读')
+    await expect(card).toContainText('当前平台 暂不支持安全数据库直读')
     await expect(card.getByRole('button', { name: '使用自定义位置…' })).toHaveCount(0)
   }
   await selectSource('claude-code')
@@ -767,7 +769,7 @@ windowsTest('Windows 明确禁用未验证数据库连接，通用日志连接�
   await expect(page.getByRole('region', { name: '会话消息' })).toBeVisible()
 })
 
-macTest('批量添加一项数据库失败不影响另一项，错误逐项显示且不冒充连接成功', async () => {
+databaseTest('批量添加一项数据库失败不影响另一项，错误逐项显示且不冒充连接成功', async () => {
   const cindyRoot = join(root, 'appData', 'Cindy'); await mkdir(cindyRoot)
   await writeFile(join(cindyRoot, 'cindy-broken.db'), 'not sqlite')
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
@@ -1162,7 +1164,7 @@ test('损坏日志保留且失败有原因，刷新发现增删，断开撤销�
   expect(JSON.parse(await readFile(join(data, 'connections.json'), 'utf8')).connections).toEqual([])
 })
 
-macTest('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍可读且不创建副文件', async () => {
+databaseTest('自定义 NewMax SQLite 只读访问，切换为已关闭 WAL 后刷新仍可读且不创建副文件', async () => {
   await app.close()
   source = join(root, 'custom-newmax.db')
   const db = new DatabaseSync(source); seedNewMax(db); db.close()

@@ -18,3 +18,6 @@ playwright-report/
 
 # Pinekin Engine 构建产物（宿主按清单内置，不提交）
 dist/
+
+# 固定源码构建的 SQLite 原生读取器（二进制不提交）
+/resources/native/

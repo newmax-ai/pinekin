@@ -2,8 +2,8 @@ import { execFile } from 'node:child_process'
 import { constants, type Stats } from 'node:fs'
 import { lstat, open, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { setTimeout } from 'node:timers/promises'
 import { createHash } from 'node:crypto'
@@ -40,7 +40,7 @@ function object(fields: string[]) { return `json_object(${fields.flatMap(field =
 /** 只接受固定会话投影，不接收调用方 SQL，也不复制整库或读取设置／认证表。 */
 export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy', rowId?: string, input?: SourceReadCursor): Promise<DatabaseProjection> {
   const cursor = sourceReadCursorSchema.parse(input ?? {})
-  if (process.platform !== 'darwin') throw new Error('此平台的无副作用数据库读取尚未验证')
+  if (process.platform !== 'darwin' && process.platform !== 'win32') throw new Error('此平台的无副作用数据库读取尚未验证')
   if (source !== 'newmax' && source !== 'cindy') throw new Error('数据库来源未支持')
   if (rowId !== undefined && (!rowId.trim() || rowId.length > 512)) throw new Error('数据库会话 ID 无效')
   // 仅重试明确的瞬态变化；每次重新校验路径、结构并读取完整事务，不复用失败投影。
@@ -76,7 +76,7 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
     const columnCheck = Object.entries(required).map(([name, columns]) =>
       `(SELECT COUNT(*) FROM pragma_table_info('${name}') WHERE name IN (${columns.map(column => `'${column}'`).join(',')}))=${columns.length}`).join(' AND ')
     const guard = (condition: string) => `SELECT json_object('kind','schema-guard','valid',CASE WHEN ${condition} THEN 1 ELSE json('PINEKIN_SCHEMA_MISMATCH') END);`
-    const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',(SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name))) FROM sqlite_schema WHERE name IN (${names});`
+    const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',json((SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name)))) FROM sqlite_schema WHERE name IN (${names});`
     let query: string
     if (rowId === undefined) {
       query = source === 'cindy' ? cindyDirectoryQuery()
@@ -99,14 +99,27 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
     }
     // sqlite3 的 -bail 只会中止 stdin 脚本；同一命令行 SQL 参数内出错仍会继续后面的语句。
     // 守卫各占一个完整输入行，保证失败后不会准备正文查询。
-    const sql = `PRAGMA temp_store=MEMORY;\nPRAGMA query_only=ON;\nPRAGMA trusted_schema=OFF;\nBEGIN;\n${schema}\n${query}\nCOMMIT;\n`
-    const uri = `${pathToFileURL(path).href}?mode=ro${immutable ? '&immutable=1' : ''}`
+    // Windows 组件在安装 SQL authorizer 前固定配置 PRAGMA，不允许输入脚本重新设置。
+    const windows = process.platform === 'win32'
+    const setup = windows ? '' : 'PRAGMA temp_store=MEMORY;\nPRAGMA query_only=ON;\nPRAGMA trusted_schema=OFF;\n'
+    const sql = `${setup}BEGIN;\n${schema}\n${query}\nCOMMIT;\n`
+    const uri = `${pathToFileURL(path).href}?mode=ro${windows ? '&readonly_shm=1' : ''}${immutable ? '&immutable=1' : ''}`
     let stdout: string
     try {
-      const pending = execute('/usr/bin/sandbox-exec', [
+      // 桌面生产组件在 asar 外，开发组件在固定资源目录，不搜索 PATH、cwd 或来源目录。
+      const runtime = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean }
+      const helper = runtime.resourcesPath && !runtime.defaultApp
+        ? join(runtime.resourcesPath, 'native', 'pinekin-sqlite.exe')
+        : fileURLToPath(new URL(`../../resources/native/win32-${process.arch}/pinekin-sqlite.exe`, import.meta.url))
+      const command = windows ? helper : '/usr/bin/sandbox-exec'
+      const args = windows ? [path, uri] : [
         '-D', `HOME=${homedir()}`, '-D', `SOURCE_PARENT=${dirname(path)}`, '-D', `SOURCE=${path}`, '-D', `WAL=${path}-wal`, '-D', `SHM=${path}-shm`, '-p', profile,
         '/usr/bin/sqlite3', '-init', '/dev/null', '-batch', '-bail', '-readonly', '-noheader', '-list', '-cmd', '.timeout 2000', uri,
-      ], { encoding: 'utf8', cwd: '/usr', env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent', LC_ALL: 'C' }, timeout: 30_000, maxBuffer: 64 * 1024 * 1024 })
+      ]
+      const env = windows ? { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR }
+        : { PATH: '/usr/bin:/bin', HOME: '/nonexistent', LC_ALL: 'C' }
+      const pending = execute(command, args, { encoding: 'utf8', cwd: windows ? dirname(helper) : '/usr', env,
+        windowsHide: true, timeout: 30_000, maxBuffer: 64 * 1024 * 1024 })
       // 子进程提前拒绝时可能关闭 stdin；错误由 execFile 的退出状态与 stderr 统一报告。
       pending.child.stdin?.on('error', () => {})
       pending.child.stdin?.end(sql)

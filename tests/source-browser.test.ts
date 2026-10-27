@@ -118,7 +118,7 @@ describe('来源直读：发现与正文读取分离', () => {
     const connection = await browser.connect('newmax', path)
     const page = await settle(browser, connection.id)
     expect(page.connections[0]).toMatchObject({ status: 'error', total: null })
-    expect(page.connections[0].error).toMatch(process.platform === 'darwin' ? /结构/ : /此平台的无副作用数据库读取尚未验证/)
+    expect(page.connections[0].error).toMatch(process.platform === 'darwin' || process.platform === 'win32' ? /结构/ : /此平台的无副作用数据库读取尚未验证/)
     expect(await readFile(path)).toEqual(before)
   })
   it('搜索覆盖未加载页的标题和项目，不暗中建立全文副本', async () => {

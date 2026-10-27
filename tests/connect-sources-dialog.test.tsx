@@ -37,9 +37,61 @@ function card(source: BrowsableSource) { return screen.getByRole('region', { nam
 async function idle(source: BrowsableSource) { await waitFor(() => expect((screen.getByRole('switch', { name: `连接 ${sourceNames[source]}` }) as HTMLButtonElement).disabled).toBe(false)) }
 
 describe('平台来源能力', () => {
-  it.each(['win32', 'linux'])('%s 提前禁用数据库来源，不扫描或弹出位置选择', async platform => {
+  it.each(['darwin', 'win32'])('%s 的 NewMax 和 Cindy 与日志来源一样可以自动连接', async platform => {
     window.staithe = { ...window.staithe, platform }
     mount()
+    expect(document.activeElement).toBe(within(card('newmax')).getByRole('switch'))
+    expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
+    for (const source of ['newmax', 'cindy'] as const) {
+      const control = within(card(source)).getByRole('switch') as HTMLButtonElement
+      expect(control.disabled).toBe(false)
+      expect(card(source).textContent).not.toMatch(/暂不支持|完全已验证/)
+      toggle(source); await idle(source)
+      expect(window.staithe.sources.autoConnect).toHaveBeenLastCalledWith(source)
+      expect(control.getAttribute('aria-checked')).toBe('true')
+      expect(within(card(source)).getByText('0 条会话')).toBeTruthy()
+    }
+    expect(window.staithe.sources.connect).not.toHaveBeenCalled()
+  })
+  it.each(['darwin', 'win32'])('%s 自动查找无结果后 NewMax 和 Cindy 可使用自定义位置', async platform => {
+    window.staithe = { ...window.staithe, platform }
+    vi.mocked(window.staithe.sources.autoConnect).mockResolvedValue({ connections: [], warnings: [], notices: ['未找到本机会话'] })
+    mount()
+    for (const source of ['newmax', 'cindy'] as const) {
+      toggle(source); await idle(source)
+      vi.mocked(window.staithe.sources.connect).mockResolvedValueOnce(connection(source))
+      const manual = within(card(source)).getByRole('button', { name: '使用自定义位置…' }) as HTMLButtonElement
+      expect(manual.disabled).toBe(false)
+      fireEvent.click(manual); await idle(source)
+      expect(window.staithe.sources.connect).toHaveBeenLastCalledWith(source)
+      expect(within(card(source)).getByRole('switch').getAttribute('aria-checked')).toBe('true')
+      expect(within(card(source)).queryByRole('alert')).toBeNull()
+    }
+  })
+  it.each(['原生 SQLite 只读组件缺失', 'WAL 副文件不可安全读取'])('Windows 保留主线程错误：%s，不冒充连接成功且仍可手动重试', async reason => {
+    window.staithe = { ...window.staithe, platform: 'win32' }
+    vi.mocked(window.staithe.sources.autoConnect).mockRejectedValue(new Error(reason))
+    vi.mocked(window.staithe.sources.connect).mockRejectedValue(new Error(reason))
+    const { onDismiss } = mount()
+    for (const source of ['newmax', 'cindy'] as const) {
+      toggle(source); await idle(source)
+      const region = card(source)
+      expect(within(region).getByRole('alert').textContent).toContain(reason)
+      expect(within(region).getByRole('switch').getAttribute('aria-checked')).toBe('false')
+      fireEvent.click(within(region).getByRole('button', { name: '使用自定义位置…' })); await idle(source)
+      expect(window.staithe.sources.connect).toHaveBeenLastCalledWith(source)
+      expect(within(region).getByRole('alert').textContent).toContain(reason)
+      expect(within(region).getByRole('switch').getAttribute('aria-checked')).toBe('false')
+      expect(region.textContent).not.toMatch(/完全已验证|0 条会话/)
+    }
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(connected).not.toHaveBeenCalled()
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+  it('Linux 提前禁用数据库来源，不扫描或弹出位置选择', async () => {
+    window.staithe = { ...window.staithe, platform: 'linux' }
+    mount()
+    expect(document.activeElement).toBe(within(card('claude-code')).getByRole('switch'))
     for (const source of ['newmax', 'cindy'] as const) {
       expect(within(card(source)).getByText(/暂不支持安全数据库直读/)).toBeTruthy()
       expect((within(card(source)).getByRole('switch') as HTMLButtonElement).disabled).toBe(true)
@@ -51,16 +103,24 @@ describe('平台来源能力', () => {
     toggle('codex'); await idle('codex')
     expect(window.staithe.sources.autoConnect).toHaveBeenCalledExactlyOnceWith('codex')
   })
-  it('Windows 已保存的不支持来源仍能撤销连接，不能重新开启', async () => {
-    window.staithe = { ...window.staithe, platform: 'win32' }
-    const { disconnect } = mount([connection('newmax')])
-    const control = within(card('newmax')).getByRole('switch') as HTMLButtonElement
-    expect(control.disabled).toBe(false)
-    toggle('newmax')
-    await waitFor(() => expect(disconnect).toHaveBeenCalledExactlyOnceWith([connection('newmax')]))
-    await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('false'))
-    expect(control.disabled).toBe(true)
-    expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
+  it.each(['darwin', 'win32', 'linux'])('%s 已有数据库连接均能断开，只有不支持的平台阻止重新开启', async platform => {
+    window.staithe = { ...window.staithe, platform }
+    const { disconnect } = mount([connection('newmax'), connection('cindy')])
+    for (const source of ['newmax', 'cindy'] as const) {
+      const control = within(card(source)).getByRole('switch') as HTMLButtonElement
+      expect(control.disabled).toBe(false)
+      toggle(source)
+      await waitFor(() => expect(disconnect).toHaveBeenLastCalledWith([connection(source)]))
+      await waitFor(() => expect(control.getAttribute('aria-checked')).toBe('false'))
+      expect(control.disabled).toBe(platform === 'linux')
+      toggle(source)
+      if (platform === 'linux') expect(window.staithe.sources.autoConnect).not.toHaveBeenCalled()
+      else {
+        await idle(source)
+        expect(window.staithe.sources.autoConnect).toHaveBeenLastCalledWith(source)
+        expect(control.getAttribute('aria-checked')).toBe('true')
+      }
+    }
   })
 })
 
@@ -342,7 +402,8 @@ describe('App 连接开关', () => {
     fireEvent.click(screen.getByRole('button', { name: '完成' }))
     expect(connected).toHaveBeenCalledWith(['newmax', 'codex'], [])
   })
-  it('位置已保存但读取失败时开关仍开启，明确显示失败且保留手动入口', async () => {
+  it.each(['darwin', 'win32'])('%s 位置已保存但读取失败时开关仍开启，明确显示失败且保留手动入口', async platform => {
+    window.staithe = { ...window.staithe, platform }
     vi.mocked(window.staithe.sources.autoConnect).mockResolvedValue({ connections: [{ ...connection('cindy'), status: 'error', total: null, error: '数据库结构未支持' }], warnings: [] })
     mount(); toggle('cindy'); await idle('cindy')
     expect(screen.getByRole('switch', { name: '连接 Cindy' }).getAttribute('aria-checked')).toBe('true')

@@ -45,13 +45,13 @@ function seedMessage(db: DatabaseSync, id: string) {
   db.prepare('INSERT INTO messages VALUES(?,?,?,?,?,?,?)').run(0, message.id, id, message.role, message.content, 2000, JSON.stringify(message))
 }
 
-it.each(['newmax', 'cindy'] as const)('Windows 拒绝 %s 直读，不打开数据库或启动外部进程', async source => {
+it.each(['newmax', 'cindy'] as const)('Linux 拒绝 %s 直读，不打开数据库或启动外部进程', async source => {
   const { root, path } = await setup()
   await writeFile(path, 'synthetic source; must remain untouched')
   const before = await snapshot(root)
   const open = vi.spyOn(filesystem, 'open').mockClear(), lstat = vi.spyOn(filesystem, 'lstat').mockClear()
   trace.executions = 0
-  vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'linux' } }))
   try {
     await expect(readSourceDatabase(path, source)).rejects.toThrow('此平台的无副作用数据库读取尚未验证')
     expect(open).not.toHaveBeenCalled(); expect(lstat).not.toHaveBeenCalled(); expect(trace.executions).toBe(0)

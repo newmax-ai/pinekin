@@ -11,6 +11,11 @@
     "node": ">=22.15.0"
   },
   "scripts": {
+    "build:sqlite-reader": "node scripts/build-sqlite-reader.mjs",
+    "predev": "npm run build:sqlite-reader",
+    "prebuild": "npm run build:sqlite-reader",
+    "pretest": "npm run build:sqlite-reader",
+    "pretest:coverage": "npm run build:sqlite-reader",
     "dev": "node scripts/desktop.mjs dev",
     "build": "npm run typecheck && electron-vite build",
     "preview": "node scripts/desktop.mjs preview",
@@ -91,7 +96,13 @@
     },
     "win": {
       "icon": "resources/pinekin.ico",
-      "target": "nsis"
+      "target": "nsis",
+      "extraResources": [
+        {
+          "from": "resources/native/win32-${arch}/pinekin-sqlite.exe",
+          "to": "native/pinekin-sqlite.exe"
+        }
+      ]
     },
     "nsis": {
       "installerIcon": "resources/pinekin.ico",

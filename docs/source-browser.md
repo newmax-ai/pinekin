@@ -372,8 +372,8 @@ NewMax 的 `electron/libs/devInstanceRole.ts:5–10、63–70` 明确支持开�
 1. 数据读取层不跟随符号链接；NewMax 自动定位层可按上文规则解析已知共享入口，并只将校验后的真实路径交给读取层。授权根规范化后固定保存，访问前再次核验范围。
 2. 普通日志打开前后对照 dev/ino，交付前再验证路径身份；正文中途变化则拒绝。合成竞态测试确认打开到外部不同 inode 时，在 `read` 前即拒绝。
 3. 不能仅依赖 SQLite `readOnly` 来宣称无写入：WAL/SHM 仍存在副文件维护风险。
-4. `source-sqlite.ts` 目前仅在 macOS 验证：通过 `/usr/bin/sandbox-exec` 强制禁止全部文件写入与网络，调用固定 `/usr/bin/sqlite3`，使用 `mode=ro`、`query_only=ON`、`trusted_schema=OFF` 和单一事务取得一致投影。用户目录、挂载卷及来源同目录默认禁止读数据，只给授权 DB/WAL/SHM 开例外。CLI 的初始化文件固定 `/dev/null`，不继承宿主凭据环境，不执行来源 SQL／工具指令。
-5. 活跃 WAL 由 SQLite 读取已提交内容；未提交事务不进入结果。仅当 WAL/SHM 均不存在时使用 `immutable=1`，结束后再次确认无副文件、主文件未改变；活跃模式核验主文件与副文件身份。回滚事务日志、符号链接、不可用的安全读取组件及其他平台均 fail closed。不复制整库，不 checkpoint 或删除副文件；**不要要求用户手动删除 WAL/SHM**。
+4. `source-sqlite.ts` 的 macOS 分支通过 `/usr/bin/sandbox-exec` 强制禁止全部文件写入与网络，调用固定 `/usr/bin/sqlite3`，使用 `mode=ro`、`query_only=ON`、`trusted_schema=OFF` 和单一事务取得一致投影。用户目录、挂载卷及来源同目录默认禁止读数据，只给授权 DB/WAL/SHM 开例外。CLI 的初始化文件固定 `/dev/null`，不继承宿主凭据环境，不执行来源 SQL／工具指令。Windows 分支新增内置 SQLite 3.54.1 读取器：固定路径启动、不查 PATH，VFS 仅打开授权 DB/WAL/SHM；Win32 句柄限制为 `GENERIC_READ` / `OPEN_EXISTING`、映射限制为 `PAGE_READONLY`，并拒绝写入、截断与删除。保留 SQLite WAL 锁，不以复制库或忽略 WAL 替代；SQL authorizer 限制表访问、禁用 ATTACH 和写入，编译时不包含动态扩展与 shell。该 Windows 实现尚待原生构建与交互验收，不能把 macOS 上的同构协议测试算作 Windows 通过。
+5. 活跃 WAL 由 SQLite 读取已提交内容；未提交事务不进入结果。仅当 WAL/SHM 均不存在时使用 `immutable=1`，结束后再次确认无副文件、主文件未改变；活跃模式核验主文件与副文件身份。回滚事务日志、符号链接、不可用的安全读取组件及未支持平台均 fail closed；Windows 还拒绝重解析路径、UNC 与映射网络盘。缺少或未初始化的 SHM 无法安全读取时明确失败，不创建副文件或返回忽略 WAL 的旧快照。不复制整库，不 checkpoint 或删除副文件；**不要要求用户手动删除 WAL/SHM**。
 6. SQL 只投影白名单表列；正文查询前在同一事务内限制普通非隐私、非分叉 App 会话。2026-10-19 起将旧 5 MiB／10,000 条总预算替换为每次 100 条、每条 16,384 个码点的阅读窗口，并明确续读游标。会话 ID 采用 UTF-8 十六进制值，不拼入 SQL 语法；窗口偏移必须通过安全整数校验。独立进程 30 秒超时、64 MiB 输出预算仍保留。正文含 NUL 时明确报当前分段方式未支持并保留条目，不利用 SQLite 在空字符处截断的行为伪装读取成功。
 7. 数据库 ID 必须是非空、有限长度字符串且唯一；重复 ID 停止扫描，不能静默 Map 覆盖后报完整总数。没有放宽 NewMax 列／JSON 一致性、Cindy 正文或目标接续门禁。
 

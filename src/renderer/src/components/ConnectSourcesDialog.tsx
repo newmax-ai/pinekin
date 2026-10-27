@@ -9,8 +9,8 @@ import { DesignIcon, DsButton, DsDialog, DsDialogHeader } from './ui'
 const sources = browsableSources
 function unsupportedReason(source: BrowsableSource) {
   const platform = window.staithe.platform
-  return platform && platform !== 'darwin' && (source === 'newmax' || source === 'cindy')
-    ? `${platform === 'win32' ? 'Windows' : '当前平台'} 暂不支持安全数据库直读；更换位置无法启用此能力。` : undefined
+  return platform && platform !== 'darwin' && platform !== 'win32' && (source === 'newmax' || source === 'cindy')
+    ? '当前平台 暂不支持安全数据库直读；更换位置无法启用此能力。' : undefined
 }
 const statusNames = { idle: '待刷新', scanning: '加载中', ready: '统计未完成', partial: '部分可读', cancelled: '已暂停', error: '读取失败' }
 interface Props {

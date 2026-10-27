@@ -1,16 +1,29 @@
 # Windows 适配与验收
 
-更新：2026-10-25。
+更新：2026-10-27。
 
 ## 首版范围
 
-Windows 首版以 **连接日志来源 → 浏览／搜索 → 阅读 → 保存完整接续文件** 为目标。目前 Windows 原生 CI 的依赖安装、单测／覆盖率、生产构建与 Engine 构建已通过；桌面 E2E 尚未完整通过，NSIS 安装包与交互验收未完成，不能标为正式可发布。
+Windows 首版以 **连接来源 → 浏览／搜索 → 阅读 → 保存完整接续文件** 为目标。既有日志来源的 Windows CI 与测试安装包已有通过记录，见下方历史；2026-10-27 新增的 NewMax／Cindy 活跃数据库读取尚未进入 Windows 原生验证。安装与真实桌面交互验收仍未完成，不能标为正式可发布。
 
 - 日志来源：Claude Code、Codex、DeepSeek Harness、WorkBuddy、Qwen Code，继续遵守各自版本与内容边界。
 - 主按钮「保存接续文件」：通过现有令牌接口重新读取完整可读历史，以系统保存框选择 `.md` 文件；取消不显示成功，不静默复制正文或路径。
-- NewMax／Cindy：非 macOS 暂不支持安全数据库直读，卡片提前解释平台限制，禁用新连接及自定义位置入口。已有连接仍能断开，避免留下无法撤销的授权。
+- NewMax／Cindy：Windows 开放自动连接和自定义位置，使用内置只读 SQLite 组件读取运行中的已提交 WAL；保留普通会话、表结构与正文窗口门禁。组件缺失或副文件无法安全读取时明确失败，不回退到普通 readonly 或忽略 WAL。Linux 仍禁用新连接，已有连接均可断开。本批 Windows 原生验证待完成。
 - 原生历史迁移：Windows 没有注册目标；能力检查确认没有已接入目标后隐藏高级迁移和目标设置入口。日志格式可读不代表客户端可恢复或可写入。
 - 文件剪贴板：仍未实现 Windows 原生格式；不移除主进程平台拒绝逻辑，不把路径文本当作附件。
+
+## 运行中数据库连接（2026-10-27）
+
+- NewMax 默认 `%USERPROFILE%\\.newmax\\newmax.db`，支持既有 `NEWMAX_USER_DATA_DIR`；Cindy 仅枚举 Electron `appData` 下 `Cindy`／`CindyGlobal` 的 `cindy-*.db`。只在授权连接后访问，不扫描其他目录。
+- `native/sqlite-reader.c` 使用固定 SQLite 3.54.1 与官方 SHA3 扩展；没有 shell 点命令、启动配置、外部扩展加载或任意文件读写扩展。主进程仍生成固定 SQL，会话 ID 十六进制编码，普通表与字段验证在正文查询前完成；另外由 authorizer 拒绝非白名单表、ATTACH、写入和不安全 PRAGMA。
+- 不仅设置 `readOnly`：Windows VFS 的每次文件打开由守卫收紧为只读现有文件，映射只读；SQLite 尝试的 `OPEN_ALWAYS` 被改为 `OPEN_EXISTING`，不允许生成 SHM。写入、截断、删除入口均拒绝。SQLite 原生 WAL 锁与事务保留，只返回已提交投影，不复制整库、不 checkpoint、不恢复或清除日志。
+- 路径只准授权 DB／WAL／SHM，句柄打开后核对最终路径并拒绝重解析文件；UNC、设备路径及映射网络盘不支持。仍须在 Windows 验证中文路径、大小写、长路径、权限与 junction。
+- DB/WAL/SHM 身份与静态库变化检查继续生效；仅无副文件时使用 immutable。缺失／未初始化 SHM、热回滚日志或只读锁不可用时明确失败，不用旧快照冒充当前数据。
+- `scripts/build-sqlite-reader.mjs` 固定官方源码包与 SHA-256，首次下载、后续校验缓存；需要 Windows x64 Visual Studio C++ Build Tools。`predev`／`pretest`／`pretest:coverage`／`prebuild` 先构建组件。NSIS 通过 `extraResources` 放到 `resources/native/pinekin-sqlite.exe`（asar 外）。这是桌面来源浏览能力；当前 Engine 仅提供其已支持的日志来源，本批不扩展 Engine 或修改 NewMax 主仓库。
+- 生产运行不下载、不依赖系统 sqlite3／PowerShell，不继承宿主凭据环境；组件缺失立即报错，不寻找其他执行文件。
+- 合成回归覆盖活跃 WAL、未提交事务不可见、DB/WAL/SHM 不变、关闭后的静态 WAL、缺少 SHM、视图越权、写入／ATTACH／扩展拒绝、长正文续读、组件缺失。macOS 使用同构 Unix 只读 VFS 做协议测试，**不等于 Win32 系统调用、Windows 构建或客户端已验收**。Windows 专属 junction 用例在 macOS 跳过，需在原生 CI 执行。
+- 桌面 E2E 已把活跃 NewMax+Cindy 多选、自定义数据库与失败提示用例开放到 Windows。本机未启动额外 Electron、未重启主 dev、未读取真实会话。本批尚未进行 Windows 原生 CI，不引用旧 CI 作为新组件通过证据。
+- 本批 macOS 最终验证：9 个定向测试文件共 154 项通过、1 项 Windows junction 用例跳过；全量 132 个文件、1998 项通过、1 项跳过，行覆盖率 98.51%、分支覆盖率 89.56%。类型检查、生产构建通过；Engine 构建通过且未扩展引擎范围；106 项 E2E 仅完成收集，未启动执行。上述数字不是 Windows 编译、安装包或真实连接的验收结果。
 
 ## 保存安全修复
 
@@ -136,5 +149,5 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 ## 后续独立工作
 
 1. Windows 原生文件剪贴板及接收端附件验收。
-2. Windows 无副作用 SQLite 读取方案，包含活跃 WAL、隔离与副文件不变验证；不能以普通 readonly 连接替代 macOS 沙箱保障。
+2. 对本批 Windows 只读 SQLite 组件完成原生 CI、NSIS 资源核对及运行中客户端验收；包含活跃 WAL、锁竞争、目录重解析、权限不足与副文件不变验证。
 3. Windows 原生迁移适配，必须先具备版本探测、预演、备份、冲突处理、回读与回滚；不得通过直接写目标数据库绕过。

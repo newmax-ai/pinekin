@@ -35,7 +35,7 @@ flowchart LR
 - **七类来源**：NewMax、Cindy、Claude Code、Codex、DeepSeek Harness、WorkBuddy、Qwen Code，在侧栏统一浏览与搜索。
 - **长会话也能读**：列表只读元数据，点开才解析正文；长会话分段加载，不按总大小或消息条数拒读。详情提供底部居中的向下箭头与 160px 下沿渐隐，减少浮层附近的文字干扰；到底后移除下沿渐隐，保留完整末尾。记录末尾以铺满阅读区底部的松林远山线稿收尾，透明背景与四边渐隐融入界面，小貂缩小并以淡色轮廓融入原木与草坡，不再居中摆放固定宽小图；仅标记当前记录边界，不表示来源回答已经完成。
 - **本地优先**：只读取你授权的固定位置，不搜遍磁盘，不上传云端。
-- **只读安全**：SQLite 在系统沙箱中以只读事务访问；历史 Markdown 经白名单渲染，不执行任何历史命令或 HTML。
+- **只读安全**：macOS SQLite 走系统沙箱；Windows 新增内置只读 VFS 组件，原生验收待完成。历史 Markdown 经白名单渲染，不执行任何历史命令或 HTML。
 - **状态如实**：不支持、损坏或超限的会话会标注原因；部分可读不冒充完整，复制成功也不等于目标已接收。
 
 ## 快速开始
@@ -46,7 +46,7 @@ flowchart LR
 4. 切到目标 App，把文件粘贴、拖入或上传为附件，继续对话。
 
 > [!NOTE]
-> 文件复制目前只在 macOS 实现；Windows／Linux 主按钮直接保存完整文件，更多菜单也保留保存入口。NewMax／Cindy 数据库直读在非 macOS 连接面板提前标明不支持，不提供无效的位置选择。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
+> 文件复制目前只在 macOS 实现；Windows／Linux 主按钮直接保存完整文件，更多菜单也保留保存入口。NewMax／Cindy 在 Windows 开放连接与自定义位置，通过内置组件读取运行中的 WAL 数据库；本批 Windows 原生构建与交互尚待验证，Linux 仍禁用数据库连接。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
 
 ### 接续方式
 
@@ -85,7 +85,7 @@ Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSe
 - **不留存正文**：浏览时正文只在内存中；普通使用仅持久化 `connections.json` 中的连接位置。
 - **接续文件是明文**：复制时会在 `userData/clipboard-handoffs/` 保存 `.md` 副本（文件 `0600`、目录 `0700`），以保证之后仍可粘贴；它和系统剪贴板都不是加密存储。
 - **安全保存**：完整接续文件与当前聊天文本共用临时文件写入、关闭后逐字节回读验证再发布，不直接截断旧文件；检查时拒绝最终符号链接。清理只删除身份匹配的本次临时文件和空目录，不递归删除，身份变化时保留并警告。新建要求文件系统支持硬链接，否则明确失败。临时明文残留、并发路径替换及 Windows 实机边界见 [保存安全说明](docs/context-handoff.md#资源与隐私)。
-- **只读数据库**：SQLite 直读目前仅在 macOS 验证，通过 `sandbox-exec` 禁止写入与网络，使用固定白名单 SQL。**请不要手动删除 WAL 等副文件。**
+- **只读数据库**：macOS 通过 `sandbox-exec` 禁止写入与网络；Windows 新增固定版本原生组件，在文件打开与内存映射层强制只读，禁止创建／删除副文件。两者都使用固定白名单 SQL，不复制整库；Windows 原生验收尚未完成。**请不要手动删除 WAL 等副文件。**
 - **不执行内容**：不沿日志中的路径或附件读取其他文件，不执行历史命令，HTML 以源码文字显示。
 
 完整的存储位置、配额与回滚规则见 [通用接续文件](docs/context-handoff.md) 和 [架构与能力边界](docs/architecture.md)。
@@ -95,11 +95,11 @@ Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSe
 | 能力 | macOS | Linux | Windows |
 | --- | :---: | :---: | :---: |
 | 日志类来源浏览（Claude Code、Codex 等） | ✅ | 未实机验收 | 未实机验收 |
-| SQLite 来源直读（NewMax、Cindy） | ✅ | 暂不支持 | 暂不支持 |
+| SQLite 来源直读（NewMax、Cindy） | ✅ | 暂不支持 | 已接入，待原生验收 |
 | 复制接续文件到剪贴板 | ✅ | 用保存代替 | 用保存代替 |
 | 原生历史迁移（高级） | Codex／NewMax | NewMax | 暂不支持 |
 
-Windows 首版边界为日志类来源浏览、阅读和保存完整接续文件；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。
+Windows 在日志来源浏览、阅读和保存完整接续文件之外，新增 NewMax／Cindy 活跃数据库读取实现，尚待本批原生验证；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。
 
 ## 已知限制
 
@@ -113,7 +113,7 @@ Windows 首版边界为日志类来源浏览、阅读和保存完整接续文件
 
 ## 开发与验证
 
-需要 Node.js 22.15+（建议 24.22）和 npm。
+需要 Node.js 22.15+（建议 24.22）和 npm。SQLite 组件构建还需要 macOS Command Line Tools（仅合成协议测试）或 Windows x64 Visual Studio C++ Build Tools。首次测试／开发／构建会下载并核对固定版本 SQLite 官方源码，后续复用校验通过的缓存；应用运行时不下载，也不要求用户安装 SQLite。
 
 ```bash
 npm ci
