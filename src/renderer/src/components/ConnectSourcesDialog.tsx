@@ -38,7 +38,7 @@ export function ConnectSourcesDialog({ connections, returnFocus, onConnected, on
     setWarnings(previous => ({ ...previous, [source]: result.warnings }))
     setNotices(previous => ({ ...previous, [source]: result.notices ?? (!result.connections.length && !result.warnings.length ? ['未找到本机会话，可能尚未安装或尚未创建会话，也可使用自定义位置。'] : []) }))
     onChanged(result.connections)
-    if (result.connections.some(item => item.status === 'ready' || item.status === 'partial')) setAdded(previous => [...new Set([...previous, source])])
+    if (result.connections.some(item => item.status === 'ready' || item.status === 'partial' || item.status === 'scanning')) setAdded(previous => [...new Set([...previous, source])])
   }
   async function change(source: BrowsableSource, mode: 'connect' | 'disconnect' | 'manual') {
     if (busy || running.current || (mode !== 'disconnect' && unsupportedReason(source))) return
@@ -65,7 +65,7 @@ export function ConnectSourcesDialog({ connections, returnFocus, onConnected, on
     }
   }
   function finish() {
-    const readable = sources.filter(source => added.includes(source) && connections.some(item => item.source === source && (item.status === 'ready' || item.status === 'partial')))
+    const readable = sources.filter(source => added.includes(source) && connections.some(item => item.source === source && (item.status === 'ready' || item.status === 'partial' || item.status === 'scanning')))
     if (readable.length) onConnected(readable, sources.flatMap(source => [...new Set([...(warnings[source] ?? []), ...connections.filter(item => item.source === source).flatMap(item => item.error ? [item.error] : [])])].map(message => `${sourceNames[source]}：${message}`)))
     else onDismiss()
   }

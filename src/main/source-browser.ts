@@ -34,9 +34,16 @@ type SavedConnection = z.infer<typeof configSchema>['connections'][number]
 type Entry = { summary: SourceEntry; path: string; rowId?: string }
 const visibleEntry = (entry: Entry) => entry.summary.availability !== 'unsupported'
 const visibleCount = (entries: Map<string, Entry>) => [...entries.values()].filter(visibleEntry).length
+/** 已发现但尚未解析的日志文件。pending 按修改时间升序保存，最新的在末尾。 */
+type LogCandidate = { name: string; path: string; mtimeMs: number }
 type State = { saved: SavedConnection; view: SourceConnection; entries: Map<string, Entry>; generation: number; task?: Promise<void>
-  initialized?: boolean; databaseStamp?: string; nextCheck?: number; failures?: number }
+  initialized?: boolean; databaseStamp?: string; nextCheck?: number; failures?: number; scanMs?: number
+  pending?: LogCandidate[]; lazyPaths?: Set<string>; filling?: Promise<void> }
 const metadataBytes = 64 * 1024
+// 超大日志目录只先解析最近一批，其余在翻页时按需读取；遍历时只取修改时间，并发有限以免占满磁盘。
+const LOG_INITIAL_BATCH = 200
+const LOG_PAGE_BATCH = 50
+const STAT_CONCURRENCY = 32
 function revision(value: unknown) { return createHash('sha256').update(JSON.stringify(value)).digest('hex') }
 function fileRevision(stat: Stats) { return revision([stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]) }
 function sameEntries(left: Map<string, Entry>, right: Map<string, Entry>) {
@@ -129,8 +136,11 @@ export class SourceBrowser {
   private loaded?: Promise<void>
   private version = 0
   private mutations: Promise<unknown> = Promise.resolve()
+  private older: Promise<unknown> = Promise.resolve()
+  private readonly initialBatch: number
   constructor(private readonly dataDirectory: string,
-    private readonly locationContext: Pick<SourceLocationContext, 'home' | 'env'> = { home: homedir(), env: process.env }) {}
+    private readonly locationContext: Pick<SourceLocationContext, 'home' | 'env'> = { home: homedir(), env: process.env },
+    options: { initialBatch?: number } = {}) { this.initialBatch = options.initialBatch ?? LOG_INITIAL_BATCH }
   private locationError(saved: Pick<SavedConnection, 'source' | 'path'>) {
     if (saved.source === 'workbuddy' && (basename(saved.path) === 'cloud' || saved.path.split(sep).some((part, index, parts) => part === 'cloud' && parts[index - 1] === 'projects'))) return 'WorkBuddy 云会话缓存尚未支持；请选择本地 projects 或普通项目目录'
     return saved.source === 'claude-code' ? claudeLocationError(saved.path, this.locationContext) : undefined
@@ -255,8 +265,12 @@ export class SourceBrowser {
     state.view.refreshing = true
     const active = () => state.generation === generation && this.states.get(state.saved.id) === state
     state.task = (async () => {
+      const started = Date.now()
       try {
         await setImmediate()
+        if (!active()) return
+        // 翻页读取旧文件时不并行重建目录，等其写入完成后再把它们当作已加载缓存。
+        await state.filling
         if (!active()) return
         this.assertLocation(state.saved)
         await checkedPath(state.saved.path, state.saved.path)
@@ -273,9 +287,11 @@ export class SourceBrowser {
         if (draft.view.issues) for (const [id, entry] of previous) if (!draft.entries.has(id)) draft.entries.set(id, entry)
         if (!sameEntries(previous, draft.entries)) this.version += 1
         state.entries = draft.entries; state.databaseStamp = draft.databaseStamp; state.initialized = true
+        state.pending = draft.pending
         const count = visibleCount(state.entries)
+        // 仍有未解析的旧文件时总数是估计值（含稍后可能被过滤的辅助记录）。
         state.view = { ...draft.view, status: draft.view.issues ? 'partial' : 'ready', refreshing: false,
-          discovered: count, total: draft.view.issues ? null : count }
+          discovered: count, total: draft.view.issues ? null : count + (state.pending?.length ?? 0) }
         state.failures = draft.view.issues ? (state.failures ?? 0) + 1 : 0
       } catch (error) {
         if (!active()) return
@@ -283,7 +299,12 @@ export class SourceBrowser {
         state.view.status = 'error'; state.view.error = failure(error); state.view.refreshing = false
         state.failures = (state.failures ?? 0) + 1
       } finally {
-        if (active()) state.nextCheck = Date.now() + (state.failures ? Math.min(300_000, 30_000 * 2 ** Math.min(state.failures - 1, 4)) : 15_000)
+        if (active()) {
+          state.scanMs = Date.now() - started
+          // 巨大目录的遍历本身很耗时，检查间隔至少是上次耗时的 10 倍，避免后台持续占用磁盘。
+          const interval = state.failures ? Math.min(300_000, 30_000 * 2 ** Math.min(state.failures - 1, 4)) : 15_000
+          state.nextCheck = Date.now() + Math.max(interval, Math.min(600_000, state.scanMs * 10))
+        }
       }
     })()
   }
@@ -293,11 +314,12 @@ export class SourceBrowser {
     state.view.discovered += Number(details.availability !== 'unsupported') - Number(previous !== undefined && visibleEntry(previous))
     state.entries.set(id, { path, rowId, summary: { ...details, id, connectionId: state.saved.id, source: state.saved.source } })
   }
-  private async scanLogs(state: State, active: () => boolean, previous: Map<string, Entry>) {
-    const cached = new Map([...previous.values()].map(entry => [entry.path, entry]))
-    const root = state.saved.path, queue = [root]
+  /** 只遍历目录并取修改时间，不读文件内容；返回待解析候选，调用方按时间倒序决定读取哪些。 */
+  private async walkLogs(state: State, root: string, active: () => boolean): Promise<LogCandidate[] | undefined> {
+    const candidates: LogCandidate[] = [], queue = [root]
     while (queue.length && active()) {
       const directory = queue.shift()!
+      const files: { name: string; path: string }[] = []
       try {
         await checkedPath(directory, root)
         for await (const entry of await opendir(directory)) {
@@ -314,68 +336,101 @@ export class SourceBrowser {
           if (!entry.isFile() || !/\.jsonl(?:\.(?:zst|zstd))?$/.test(entry.name)) continue
           if (state.saved.source === 'qwen-code' && (basename(directory) !== 'chats' || !entry.name.endsWith('.jsonl'))) continue
           if (state.saved.source === 'workbuddy' && (!entry.name.endsWith('.jsonl') || directory === root && basename(root) === 'projects')) continue
-          const project = relative(root, dirname(path)) || '.'
-          const details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'> = { title: entry.name, project, updatedAt: date(0), availability: 'unread' }
-          try {
-            const stat = await checkedPath(path, root)
-            details.revision = fileRevision(stat)
-            if (state.saved.source === 'workbuddy') details.revision = workbuddyRevision(details.revision, (await readWorkbuddyMetadata(path, root, active)).revision)
-            const old = cached.get(path)
-            if (old?.summary.revision === details.revision && old.summary.availability !== 'unreadable') {
-              if (!active()) return
-              state.entries.set(old.summary.id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old))
-              continue
-            }
-            details.updatedAt = date(stat.mtimeMs)
-            if (state.saved.source === 'qwen-code' || state.saved.source === 'workbuddy') {
-              const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
-              details.title = support.title; details.sourceSessionId = support.sourceSessionId; details.kind = support.kind
-            }
-            if (state.saved.source === 'claude-code' && !entry.name.endsWith('.jsonl')) {
-              details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
-            }
-            if (project.split(sep).includes('subagents')) details.kind = 'subagent'
-            const promptTitle = ['claude-code', 'codex', 'deepseek'].includes(state.saved.source)
-            if ((state.saved.source === 'deepseek' || state.saved.source === 'codex') && /\.jsonl\.(?:zst|zstd)$/.test(entry.name)) {
-              // 流式检查完整压缩流，只保留元数据；总展开量不再决定会话可见性。
-              const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
-              if (support.title) details.title = support.title
-              if (support.sourceSessionId) details.sourceSessionId = support.sourceSessionId
-              if (support.kind) details.kind = support.kind
-              if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
-            }
-            if (state.saved.source !== 'qwen-code' && state.saved.source !== 'workbuddy' && entry.name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
-              const head = await readBounded(path, root, metadataBytes, true)
-              const tail = (state.saved.source === 'claude-code' || state.saved.source === 'deepseek') && stat.size > metadataBytes
-                ? await readBounded(path, root, metadataBytes, true, true) : undefined
-              let preview = head
-              let origin = this.readMetadata(head, details, state.saved.source, tail, stat.size <= metadataBytes)
-              // 标题或 Claude 客户端来源缺失时扩展连续头部；不能因先找到标题就漏掉长 SDK 首条记录。
-              const needsOrigin = state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined
-              if (promptTitle && (details.title === entry.name || needsOrigin) && stat.size > metadataBytes) {
-                const extended = await readBounded(path, root, 1024 * 1024, true)
-                origin = this.readMetadata(extended, details, state.saved.source, tail, stat.size <= 1024 * 1024)
-                preview = extended
-              }
-              // 辅助前缀也必须读到 EOF 才能过滤，不能因 CLI 归属已明确就漏过长终端日志。
-              if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' &&
-                (stat.size > MAX_BYTES || origin === undefined && stat.size > 1024 * 1024 ||
-                  stat.size > preview.length && isClaudeAuxiliaryLog(preview.toString('utf8')))) {
-                const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
-                if (support.kind) details.kind = support.kind
-                if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
-              }
-            }
-          } catch (error) { details.availability = error instanceof UnsupportedContent ? 'unsupported' : 'unreadable'; details.reason = failure(error) }
-          if (!active()) return
-          this.add(state, relative(root, path), details, path)
+          files.push({ name: entry.name, path })
         }
       } catch (error) {
         if (!active()) return
         if (directory === root) throw error
         state.view.issues += 1; state.view.error = '部分子目录不可访问；已发现数不代表完整总数'
       }
+      for (let index = 0; index < files.length; index += STAT_CONCURRENCY) {
+        if (!active()) return
+        const batch = files.slice(index, index + STAT_CONCURRENCY)
+        // 取不到时间的文件按最旧处理，稍后读取时再如实报告不可读。
+        const times = await Promise.all(batch.map(file => lstat(file.path).then(stat => stat.mtimeMs, () => 0)))
+        batch.forEach((file, offset) => candidates.push({ name: file.name, path: file.path, mtimeMs: times[offset] }))
+      }
     }
+    return active() ? candidates : undefined
+  }
+  private async scanLogs(state: State, active: () => boolean, previous: Map<string, Entry>) {
+    const cached = new Map([...previous.values()].map(entry => [entry.path, entry]))
+    const root = state.saved.path
+    const candidates = await this.walkLogs(state, root, active)
+    if (!candidates) return
+    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    // 最近一批与此前已加载的文件都重新核对；更旧的留待翻页时再读，超大目录不必一次读完。
+    const pending: LogCandidate[] = []
+    for (const [index, candidate] of candidates.entries()) {
+      if (index >= this.initialBatch && !cached.has(candidate.path)) { pending.push(candidate); continue }
+      if (!await this.scanLogFile(state, root, candidate, cached, active)) return
+    }
+    // 最旧的在前、最新的在末尾，翻页时从末尾 O(1) 取出。
+    state.pending = pending.reverse()
+    if (state.lazyPaths) {
+      const present = new Set([...state.entries.values()].map(entry => entry.path))
+      for (const path of state.lazyPaths) if (!present.has(path)) state.lazyPaths.delete(path)
+    }
+  }
+  /** 读取单个日志文件的元数据并加入目录；来源失效返回 false。 */
+  private async scanLogFile(state: State, root: string, candidate: LogCandidate, cached: Map<string, Entry>, active: () => boolean): Promise<boolean> {
+    const { path, name } = candidate
+    const project = relative(root, dirname(path)) || '.'
+    const details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'> = { title: name, project, updatedAt: date(0), availability: 'unread' }
+    try {
+      const stat = await checkedPath(path, root)
+      details.revision = fileRevision(stat)
+      if (state.saved.source === 'workbuddy') details.revision = workbuddyRevision(details.revision, (await readWorkbuddyMetadata(path, root, active)).revision)
+      const old = cached.get(path)
+      if (old?.summary.revision === details.revision && old.summary.availability !== 'unreadable') {
+        if (!active()) return false
+        state.entries.set(old.summary.id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old))
+        return true
+      }
+      details.updatedAt = date(stat.mtimeMs)
+      if (state.saved.source === 'qwen-code' || state.saved.source === 'workbuddy') {
+        const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+        details.title = support.title; details.sourceSessionId = support.sourceSessionId; details.kind = support.kind
+      }
+      if (state.saved.source === 'claude-code' && !name.endsWith('.jsonl')) {
+        details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
+      }
+      if (project.split(sep).includes('subagents')) details.kind = 'subagent'
+      const promptTitle = ['claude-code', 'codex', 'deepseek'].includes(state.saved.source)
+      if ((state.saved.source === 'deepseek' || state.saved.source === 'codex') && /\.jsonl\.(?:zst|zstd)$/.test(name)) {
+        // 流式检查完整压缩流，只保留元数据；总展开量不再决定会话可见性。
+        const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+        if (support.title) details.title = support.title
+        if (support.sourceSessionId) details.sourceSessionId = support.sourceSessionId
+        if (support.kind) details.kind = support.kind
+        if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
+      }
+      if (state.saved.source !== 'qwen-code' && state.saved.source !== 'workbuddy' && name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
+        const head = await readBounded(path, root, metadataBytes, true)
+        const tail = (state.saved.source === 'claude-code' || state.saved.source === 'deepseek') && stat.size > metadataBytes
+          ? await readBounded(path, root, metadataBytes, true, true) : undefined
+        let preview = head
+        let origin = this.readMetadata(head, details, state.saved.source, tail, stat.size <= metadataBytes)
+        // 标题或 Claude 客户端来源缺失时扩展连续头部；不能因先找到标题就漏掉长 SDK 首条记录。
+        const needsOrigin = state.saved.source === 'claude-code' && details.availability !== 'unsupported' && origin === undefined
+        if (promptTitle && (details.title === name || needsOrigin) && stat.size > metadataBytes) {
+          const extended = await readBounded(path, root, 1024 * 1024, true)
+          origin = this.readMetadata(extended, details, state.saved.source, tail, stat.size <= 1024 * 1024)
+          preview = extended
+        }
+        // 辅助前缀也必须读到 EOF 才能过滤，不能因 CLI 归属已明确就漏过长终端日志。
+        if (state.saved.source === 'claude-code' && details.availability !== 'unsupported' &&
+          (stat.size > MAX_BYTES || origin === undefined && stat.size > 1024 * 1024 ||
+            stat.size > preview.length && isClaudeAuxiliaryLog(preview.toString('utf8')))) {
+          const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
+          if (support.kind) details.kind = support.kind
+          if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
+        }
+      }
+    } catch (error) { details.availability = error instanceof UnsupportedContent ? 'unsupported' : 'unreadable'; details.reason = failure(error) }
+    if (!active()) return false
+    this.add(state, relative(root, path), details, path)
+    return true
   }
   private readMetadata(head: Buffer, details: Omit<SourceEntry, 'id' | 'source' | 'connectionId'>, source: BrowsableSource, tail?: Buffer, completeHead = false) {
     // Claude 标题按优先级选择；首问和原始客户端来源只从连续头部获取，不能用尾部续聊入口覆盖。
@@ -490,21 +545,78 @@ export class SourceBrowser {
         offset: window.offset, textOffset: window.textOffset, fragments, next: window.next, warnings: content.warnings }
     }, assertAllowed)
   }
+  /** 仍有待读旧文件的连接中最新的那个修改时间；比它更旧的已加载条目暂不展示，保证列表是完整的最近一段。 */
+  private horizon(selected: State[]) {
+    let result = -Infinity
+    for (const state of selected) if (state.pending?.length) result = Math.max(result, Math.floor(state.pending[state.pending.length - 1].mtimeMs))
+    return result
+  }
+  private visibleLoaded(selected: State[]) {
+    const horizon = this.horizon(selected)
+    let count = 0
+    for (const state of selected) for (const entry of state.entries.values()) if (visibleEntry(entry) && Date.parse(entry.summary.updatedAt) > horizon) count += 1
+    return count
+  }
+  /** 翻页需要更多条目时，按修改时间从新到旧解析待读文件；合并多个连接，串行执行并与目录重建互斥。 */
+  private loadOlder(selected: State[], enough: () => boolean) {
+    const run = this.older.then(async () => {
+      while (!enough()) {
+        const loadable = selected.filter(state => state.pending?.length && this.states.get(state.saved.id) === state)
+        if (!loadable.length) return
+        const busy = loadable.filter(state => state.view.refreshing)
+        if (busy.length) { await Promise.all(busy.map(state => state.task)); continue }
+        let release!: () => void
+        const gate = new Promise<void>(resolve => { release = resolve })
+        for (const state of loadable) state.filling = gate
+        try {
+          const batch: [State, LogCandidate][] = []
+          for (let count = 0; count < LOG_PAGE_BATCH; count++) {
+            let best: State | undefined
+            for (const state of loadable) {
+              const pending = state.pending!
+              if (pending.length && (!best || pending[pending.length - 1].mtimeMs > best.pending![best.pending!.length - 1].mtimeMs)) best = state
+            }
+            if (!best) break
+            batch.push([best, best.pending!.pop()!])
+          }
+          for (const [state, candidate] of batch) {
+            if (!await this.scanLogFile(state, state.saved.path, candidate, new Map(), () => this.states.get(state.saved.id) === state)) continue
+            // 按页加载的条目不计入快照，列表因翻页增长不会被误判为来源发生了变化。
+            ;(state.lazyPaths ??= new Set()).add(candidate.path)
+          }
+          for (const state of loadable) {
+            state.view.discovered = visibleCount(state.entries)
+            if (state.view.total !== null) state.view.total = state.view.discovered + state.pending!.length
+          }
+        } finally {
+          release()
+          for (const state of loadable) if (state.filling === gate) state.filling = undefined
+        }
+      }
+    })
+    this.older = run.catch(() => {})
+    return run
+  }
   async page(input: SourceQuery): Promise<SourcePage> {
     const query = sourceQuerySchema.parse(input)
     await this.load()
     const search = query.query.trim().toLocaleLowerCase()
-    const entries = [...this.states.values()].filter(state => (!query.connectionId || state.saved.id === query.connectionId) && (!query.source || state.saved.source === query.source))
-      .flatMap(state => [...state.entries.values()]).filter(visibleEntry)
+    const selected = [...this.states.values()].filter(state => (!query.connectionId || state.saved.id === query.connectionId) && (!query.source || state.saved.source === query.source))
+    // 搜索只覆盖已加载的会话；浏览列表时才继续读取更旧的文件。
+    if (!search) await this.loadOlder(selected, () => this.visibleLoaded(selected) >= query.offset + query.limit)
+    const horizon = search ? -Infinity : this.horizon(selected)
+    const order = (a: SourceEntry, b: SourceEntry) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)
+    const loaded = selected.flatMap(state => [...state.entries.values()].filter(visibleEntry)
       .filter(({ summary: entry, path, rowId }) => [entry.title, entry.project, entry.sourceSessionId ?? '', rowId === undefined ? basename(path) : ''].join('\n').toLocaleLowerCase().includes(search))
-      .map(entry => entry.summary)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+      .map(entry => ({ summary: entry.summary, lazy: !!state.lazyPaths?.has(entry.path) }))).sort((a, b) => order(a.summary, b.summary))
+    const entries = loaded.filter(item => Date.parse(item.summary.updatedAt) > horizon).map(item => item.summary)
     // 覆盖整个筛选结果（包括未加载页），不把正文读取产生的已读状态当作来源更新。
-    // 只散列已有内存元数据，不触发文件读取或正文查询；与本页保持同一同步快照。
+    // 只散列已有内存元数据，不触发文件读取或正文查询；与本页保持同一同步快照。按页加载的旧条目不参与，保持翻页前后一致。
     const snapshot = createHash('sha256')
-    for (const entry of entries) snapshot.update(JSON.stringify([entry.id, entry.revision, entry.title, entry.project, entry.updatedAt, entry.kind]))
-    return { items: entries.slice(query.offset, query.offset + query.limit).map(entry => ({ ...entry })), total: entries.length,
-      offset: query.offset, hasMore: query.offset + query.limit < entries.length,
+    for (const { summary: entry, lazy } of loaded) if (!lazy) snapshot.update(JSON.stringify([entry.id, entry.revision, entry.title, entry.project, entry.updatedAt, entry.kind]))
+    const unloaded = search ? 0 : selected.reduce((sum, state) => sum + (state.pending?.length ?? 0), 0)
+    return { items: entries.slice(query.offset, query.offset + query.limit).map(entry => ({ ...entry })), total: entries.length + unloaded,
+      offset: query.offset, hasMore: query.offset + query.limit < entries.length || unloaded > 0,
       connections: [...this.states.values()].map(state => ({ ...state.view })), version: this.version, snapshot: snapshot.digest('hex') }
   }
   async read(rawId: string, input?: SourceReadCursor): Promise<SourceContent> {
@@ -542,7 +654,7 @@ export class SourceBrowser {
         entry.summary.availability = error instanceof UnsupportedContent ? 'unsupported' : 'unreadable'; entry.summary.reason = failure(error)
         if (error instanceof UnsupportedContent) {
           state.view.discovered = visibleCount(state.entries)
-          if (state.view.status === 'ready') state.view.total = state.view.discovered
+          if (state.view.status === 'ready') state.view.total = state.view.discovered + (state.pending?.length ?? 0)
           this.version += 1
         }
       }

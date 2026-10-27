@@ -141,6 +141,16 @@ describe('App 连接开关', () => {
     expect(window.staithe.sources.connect).not.toHaveBeenCalled()
     expect(window.staithe.sources.disconnect).not.toHaveBeenCalled()
   })
+  it('首次扫描尚未结束时返回扫描中的连接，完成后仍进入来源列表继续显示', async () => {
+    vi.mocked(window.staithe.sources.autoConnect).mockResolvedValueOnce({
+      connections: [{ ...connection('claude-code'), status: 'scanning', total: null, discovered: 120 }], warnings: [],
+    })
+    mount()
+    toggle('claude-code'); await idle('claude-code')
+    expect(within(card('claude-code')).getByText('已发现 120 条 · 统计未完成')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    expect(connected).toHaveBeenCalledWith(['claude-code'], [])
+  })
   it.each(['success', 'notice', 'error'] as const)('%s 前后操作状态只替换当前卡片的数量行，不增加列表顶部占位', async outcome => {
     let settle!: (result: SourceConnectResult) => void, fail!: (reason: Error) => void
     vi.mocked(window.staithe.sources.autoConnect).mockReturnValueOnce(new Promise((resolve, reject) => { settle = resolve; fail = reject }))

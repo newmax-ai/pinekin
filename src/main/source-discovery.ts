@@ -88,9 +88,26 @@ async function checkedNewMaxLocation(path: string, context: SourceLocationContex
   return canonical
 }
 
+/** 超大目录（数十万文件）首次扫描可能持续数分钟；连接只等待这段时间，其余在后台继续并逐步出现在列表。 */
+export const FIRST_SCAN_WAIT_MS = 8_000
+
+/** 在共享预算内等待首次扫描；超时返回 false，扫描任务本身不取消。 */
+export async function waitForFirstScan(browser: SourceBrowser, ids: string[], budgetMs = FIRST_SCAN_WAIT_MS,
+  assertAuthorized: () => void = () => {}): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), budgetMs) })
+  try {
+    for (const id of ids) {
+      assertAuthorized()
+      if (!(await Promise.race([browser.waitForScan(id).then(() => true as const), expired]))) return false
+    }
+    return true
+  } finally { clearTimeout(timer) }
+}
+
 /** 仅由用户点击连接触发。多个默认位置全部处理；单点失败不隐藏其他结果。 */
 export async function autoConnectSource(browser: SourceBrowser, rawSource: BrowsableSource, context: SourceLocationContext,
-  assertAuthorized: () => void = () => {}): Promise<SourceConnectResult> {
+  assertAuthorized: () => void = () => {}, scanWaitMs = FIRST_SCAN_WAIT_MS): Promise<SourceConnectResult> {
   const source = sourceSchema.parse(rawSource)
   const roots = [...new Set(sourceCandidates(source, context))]
   const result: SourceConnectResult = { connections: [], warnings: [] }
@@ -141,8 +158,8 @@ export async function autoConnectSource(browser: SourceBrowser, rawSource: Brows
     const currentIds = new Set((await browser.connections()).map(connection => connection.id))
     result.connections = result.connections.filter(connection => currentIds.has(connection.id))
   }
-  // 添加位置不等于读取成功。等待首次扫描，批量界面才能逐项报告真实结果。
-  for (const connection of result.connections) { assertAuthorized(); await browser.waitForScan(connection.id) }
+  // 添加位置不等于读取成功。有限等待首次扫描以便报告真实结果；超时的连接保持扫描中状态，不阻塞界面。
+  await waitForFirstScan(browser, result.connections.map(connection => connection.id), scanWaitMs, assertAuthorized)
   assertAuthorized()
   const latest = await browser.connections()
   result.connections = result.connections.map(connection => latest.find(item => item.id === connection.id) ?? connection)

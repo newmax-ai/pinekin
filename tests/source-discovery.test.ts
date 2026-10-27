@@ -124,6 +124,16 @@ describe('自动定位与只读连接', () => {
       join(domestic, 'cindy-one.db'), join(domestic, 'cindy-two.db'), join(global, 'cindy-three.db'),
     ].sort())
   })
+  it('首次扫描超过等待预算时先返回连接，扫描仍在后台继续，不无限等待', async () => {
+    const { browser, context } = await setup()
+    const projects = await directory(join(context.home, '.claude', 'projects', 'synthetic'))
+    await writeFile(join(projects, 'one.jsonl'), claudeFixture())
+    // 模拟超大目录：等待首次扫描的 Promise 一直不返回。
+    vi.spyOn(browser, 'waitForScan').mockReturnValue(new Promise(() => {}))
+    const result = await autoConnectSource(browser, 'claude-code', context, () => {}, 20)
+    expect(result.connections).toHaveLength(1); expect(result.warnings).toEqual([])
+    await vi.waitFor(async () => expect((await browser.connections())[0].status).toBe('ready'))
+  })
   it('Cindy 根目录链接被拒绝，NewMax 仅检查源码确认的固定数据库路径', async () => {
     const { browser, context, root } = await setup()
     await symlink(await directory(join(root, 'outside')), join(context.appData, 'Cindy'))

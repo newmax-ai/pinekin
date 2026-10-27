@@ -26,7 +26,7 @@ import { getBackgroundTestMode, getTestWindowOptions, getWindowChrome, presentWi
 import { MAX_BYTES, idSchema, makeBundle, makeHandoff, parseDeepLink } from '../core/session'
 import { getAppIconFilename, setDevelopmentDockIcon } from './app-icon'
 import { SourceBrowser } from './source-browser'
-import { autoConnectSource } from './source-discovery'
+import { autoConnectSource, waitForFirstScan } from './source-discovery'
 import { connectionIdSchema, entryIdSchema, sourceCheckSchema, sourceQuerySchema, sourceReadCursorSchema, sourceSchema } from '../core/sources'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -219,7 +219,7 @@ else {
         if (result.canceled || !result.filePaths[0]) return null
         const connection = await sourceBrowser.connect(source, result.filePaths[0])
         if (connection.status !== 'scanning') await sourceBrowser.refresh(connection.id)
-        await sourceBrowser.waitForScan(connection.id)
+        await waitForFirstScan(sourceBrowser, [connection.id])
         assertSender(event)
         return (await sourceBrowser.connections()).find(item => item.id === connection.id) ?? connection
       } finally { choosingSource = false }

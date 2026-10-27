@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, utimes } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +60,93 @@ describe('来源直读：发现与正文读取分离', () => {
     expect(body.warnings.length).toBeGreaterThan(0)
     expect(await readdir(data)).toEqual(['connections.json'])
     expect(await readFile(join(data, 'connections.json'), 'utf8')).not.toMatch(/正文|messages|合成问题|sessionId/)
+  })
+  describe('大目录只读取最近一批，其余按页加载', () => {
+    // 文件 file-N 的修改时间随 N 递增，N 越大越新；只靠修改时间排序，不读正文。
+    async function seed(input: string, names: string[], base = 1_700_000_000) {
+      await mkdir(input, { recursive: true })
+      for (const [index, name] of names.entries()) {
+        const path = join(input, `${name}.jsonl`)
+        await writeFile(path, claudeFixture()); await utimes(path, base + index * 60, base + index * 60)
+      }
+    }
+    const names = Array.from({ length: 10 }, (_, index) => `file-${String(index).padStart(2, '0')}`)
+    it('首次扫描只解析最近 initialBatch 个文件，总数为估计值，hasMore 保持为真', async () => {
+      const { input, data } = await setup()
+      await seed(input, names)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 3 })
+      const connection = await browser.connect('claude-code', input)
+      await browser.waitForScan(connection.id)
+      const page = await browser.page({ connectionId: connection.id, offset: 0, limit: 3 })
+      expect(page.items).toHaveLength(3)
+      expect(page.hasMore).toBe(true); expect(page.total).toBe(10)
+      expect((await browser.connections())[0]).toMatchObject({ status: 'ready', discovered: 3, total: 10 })
+    })
+    it('翻页时按需读取更旧的文件，按时间倒序且不重复，读完后 hasMore 为假', async () => {
+      const { input, data } = await setup()
+      await seed(input, names)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 3 })
+      const connection = await browser.connect('claude-code', input)
+      await browser.waitForScan(connection.id)
+      const first = await browser.page({ connectionId: connection.id, offset: 0, limit: 4 })
+      const second = await browser.page({ connectionId: connection.id, offset: 4, limit: 4 })
+      const third = await browser.page({ connectionId: connection.id, offset: 8, limit: 4 })
+      const all = [...first.items, ...second.items, ...third.items]
+      expect(all).toHaveLength(10); expect(new Set(all.map(item => item.id)).size).toBe(10)
+      expect(all.map(item => item.updatedAt)).toEqual([...all.map(item => item.updatedAt)].sort().reverse())
+      expect(first.hasMore).toBe(true); expect(third.hasMore).toBe(false); expect(third.total).toBe(10)
+      expect((await browser.connections())[0]).toMatchObject({ discovered: 10, total: 10 })
+    })
+    it('搜索只覆盖已加载的会话；加载到之后才能搜到', async () => {
+      const { input, data } = await setup()
+      await seed(input, names)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 3 })
+      const connection = await browser.connect('claude-code', input)
+      await browser.waitForScan(connection.id)
+      const search = () => browser.page({ connectionId: connection.id, query: 'file-00', offset: 0, limit: 10 })
+      expect((await search()).items).toHaveLength(0)
+      await browser.page({ connectionId: connection.id, offset: 0, limit: 10 })
+      expect((await search()).items).toHaveLength(1)
+    })
+    it('按页加载不改变列表快照，避免界面误报来源已变化', async () => {
+      const { input, data } = await setup()
+      await seed(input, names)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 3 })
+      const connection = await browser.connect('claude-code', input)
+      await browser.waitForScan(connection.id)
+      const first = await browser.page({ connectionId: connection.id, offset: 0, limit: 3 })
+      const second = await browser.page({ connectionId: connection.id, offset: 3, limit: 3 })
+      expect(second.snapshot).toBe(first.snapshot)
+      // 真正出现新文件时快照必须变化。
+      await seed(input, ['file-new'], 1_800_000_000)
+      await browser.refresh(connection.id); await browser.waitForScan(connection.id)
+      expect((await browser.page({ connectionId: connection.id, offset: 0, limit: 3 })).snapshot).not.toBe(first.snapshot)
+    })
+    it('重新检查保留已加载的旧会话，不回退到只剩最近一批', async () => {
+      const { input, data } = await setup()
+      await seed(input, names)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 3 })
+      const connection = await browser.connect('claude-code', input)
+      await browser.waitForScan(connection.id)
+      await browser.page({ connectionId: connection.id, offset: 0, limit: 6 })
+      await browser.check({ mode: 'manual' })
+      const page = await browser.page({ connectionId: connection.id, offset: 0, limit: 6 })
+      expect(page.items).toHaveLength(6); expect(page.hasMore).toBe(true)
+    })
+    it('多个连接合并展示时只显示各自都已加载完整的最近区间，加载后无缺口', async () => {
+      const { root, data } = await setup()
+      const a = join(root, 'a'), b = join(root, 'b')
+      // a 的文件全部比 b 新；各只先读 2 个。
+      await seed(a, ['a1', 'a2', 'a3', 'a4'], 1_800_000_000)
+      await seed(b, ['b1', 'b2', 'b3', 'b4'], 1_700_000_000)
+      const browser = new SourceBrowser(data, undefined, { initialBatch: 2 })
+      const first = await browser.connect('claude-code', a), second = await browser.connect('claude-code', b)
+      await browser.waitForScan(first.id); await browser.waitForScan(second.id)
+      const page = await browser.page({ offset: 0, limit: 4 })
+      expect(page.items.map(item => item.connectionId)).toEqual([first.id, first.id, first.id, first.id])
+      const rest = await browser.page({ offset: 4, limit: 4 })
+      expect(rest.items).toHaveLength(4); expect(rest.hasMore).toBe(false)
+    })
   })
   it('不按总大小过滤日志，保留可读子会话与可重试的损坏记录', async () => {
     const { input, browser } = await setup()

@@ -348,6 +348,18 @@ describe('来源逻辑沿用原有设计', () => {
     fireEvent.click(screen.getByRole('button', { name: '前进' }))
     await screen.findByRole('region', { name: '会话消息' })
   })
+  it.each([[5000, true], [200, false]])('搜索范围提示：总数 %i、已加载 200 时是否标注仅已加载会话 = %s', async (total, partial) => {
+    const connections = [{ ...connection, discovered: 200, total }]
+    vi.mocked(window.staithe.sources.page).mockImplementation(async () => ({ ...page, connections }))
+    render(<App />)
+    await screen.findByRole('button', { name: /来源会话 my-project/ })
+    openSearch()
+    // 等搜索弹层自己的首次读取完成后再判断，避免读到加载前的占位文案。
+    await waitFor(() => expect(document.querySelector('.search-context')?.textContent).toMatch(/条已加载/))
+    const note = document.querySelector('.search-context')!.textContent!
+    expect(note.includes('仅搜索已加载的会话')).toBe(partial)
+    expect(note).toContain('仅搜索元数据')
+  })
   it('输入、清空、无结果及关闭搜索只更新弹层，保留主列表、计数、滚动和当前正文', async () => {
     const second = { ...entry, id: 'b'.repeat(64), title: '另一段会话' }
     vi.mocked(window.staithe.sources.page).mockImplementation(async options => options?.query

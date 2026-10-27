@@ -33,6 +33,8 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
   const relevant = page.connections.filter(item => source === 'all' || item.source === source)
   const scanning = relevant.some(item => item.status === 'scanning')
   const discovered = relevant.reduce((sum, item) => sum + item.discovered, 0)
+  // 总数是估计值且大于已读取数时，说明还有旧会话尚未读取，搜索不会覆盖它们。
+  const unloaded = relevant.some(item => item.total !== null && item.total > item.discovered)
   const count = error ? '读取失败' : !loaded ? '正在读取…' : !relevant.length ? '未连接'
     : relevant.every(item => item.status === 'ready') ? `${page.items.length} / ${page.total} 条已加载`
       : relevant.some(item => item.status === 'scanning') ? `发现 ${discovered} 条，加载中`
@@ -111,7 +113,7 @@ export function SourceSearchDialog({ source, query, revision, onQueryChange, inp
       {query && <DsButton variant="ghost" size="small" className="search-clear" aria-label="清空搜索" onClick={clear}>清空</DsButton>}
       <DsDialogClose aria-label="关闭搜索" onClick={onDismiss} />
     </div></div>
-    <ScrollArea className="dialog-content search-content"><p className="search-context">当前来源内 · {!error && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={count} /></span> : count} · 仅搜索元数据</p>
+    <ScrollArea className="dialog-content search-content"><p className="search-context">当前来源内 · {!error && (!loaded || scanning) ? <span className="source-loading-count">{scanning && `发现 ${discovered} 条`}<LoadingMark label={count} /></span> : count} · 仅搜索元数据{unloaded && '，仅搜索已加载的会话；向下翻页可加载更早的'}</p>
       <ScrollArea ref={viewport} className="search-results" aria-busy={!loaded || scanning}>{page.items.map(entry => <button key={entry.id} className="search-result" aria-label={`打开会话：${entry.title}`} onClick={() => onSelect(entry)}>
         <SourceIcon source={entry.source} /><span><strong>{entry.title}</strong><small><FadeText text={`${sourceNames[entry.source]}${entry.project ? ` · ${entry.project}` : ''}`} /></small></span><DesignIcon name="chevron" size={14} />
       </button>)}</ScrollArea>
