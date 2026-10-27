@@ -103,7 +103,7 @@ test('来源阅读区分任务、工具和问答，折叠页面上下文，兼�
     await expect(detail.getByText(/页面隐藏标记/)).toHaveCount(0)
     await detail.getByText('页面上下文', { exact: true }).click()
     await expect(detail.getByText(/页面隐藏标记/)).toBeVisible()
-    await expect(detail.locator('script, a, img, iframe')).toHaveCount(0)
+    await expect(detail.locator('script, a, img:not(.conversation-end-illustration), iframe')).toHaveCount(0)
     await expect(detail.getByText('合成工具结果标记', { exact: true })).toHaveCount(0)
     await expect(detail.getByText('调用 · synthetic_browser', { exact: true })).toBeVisible()
     await detail.getByText('结果 · synthetic_browser', { exact: true }).click()

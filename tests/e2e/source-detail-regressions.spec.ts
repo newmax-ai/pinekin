@@ -83,7 +83,8 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await expect(detail.locator('table tbody tr')).toHaveCount(1)
     await expect(detail.locator('blockquote')).toHaveText('引用说明')
     await expect(detail.locator('.code-block code')).toHaveText('const value = 1')
-    await expect(detail.locator('a,img,script,iframe,[href],[src]')).toHaveCount(0)
+    // 排除应用自带的装饰插画（空 alt、aria-hidden），历史内容渲染出的任何图片、链接与脚本仍须为 0。
+    await expect(detail.locator('a,img:not(.conversation-end-illustration),script,iframe,[href],[src]:not(.conversation-end-illustration)')).toHaveCount(0)
     expect(await page.evaluate(() => 'untrustedExecuted' in window)).toBe(false)
     await expect(page.locator('.session-card').filter({ hasText: 'recommended_plugins' })).toHaveCount(0)
     await page.locator('.session-card').filter({ hasText: codexActualRequest }).click()
@@ -96,7 +97,7 @@ test('压缩 DeepSeek 首次标题、Codex 子会话、Cindy 普通正文与安�
     await detail.getByText('附件与上下文', { exact: true }).click()
     await expect(detail).toContainText('Files mentioned by the user:')
     await expect(detail).toContainText('未映射内容块')
-    await expect(detail.locator('h1,h2,h3,a,img,script,iframe,[src],[href]')).toHaveCount(0)
+    await expect(detail.locator('h1,h2,h3,a,img:not(.conversation-end-illustration),script,iframe,[src]:not(.conversation-end-illustration),[href]')).toHaveCount(0)
     await expect(detail.getByText('子会话的实际答复', { exact: true })).toBeVisible()
     // 仅数据库部分需要 macOS；DeepSeek/Codex 的实际日志和安全 Markdown 在 Windows 仍验证。
     if (withSqlite) {
