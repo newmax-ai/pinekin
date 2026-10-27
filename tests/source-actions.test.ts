@@ -3,12 +3,12 @@ import { SourceActions } from '../src/main/source-actions'
 import type { SourceEntry } from '../src/core/sources'
 
 const entry: SourceEntry = { id: 'a'.repeat(64), connectionId: '11111111-1111-4111-8111-111111111111', source: 'newmax', sourceSessionId: 'conv-123_abc', title: '合成会话', project: '', updatedAt: '2026-10-19T00:00:00Z', availability: 'readable' }
-function setup(value = entry) {
+function setup(value = entry, platform?: NodeJS.Platform) {
   const getEntry = vi.fn().mockResolvedValue(value)
   const handler = vi.fn().mockResolvedValue('NewMax')
   const openExternal = vi.fn().mockResolvedValue(undefined)
   const assertAllowed = vi.fn()
-  return { service: new SourceActions({ getEntry, handler, openExternal }), getEntry, handler, openExternal, assertAllowed }
+  return { service: new SourceActions({ getEntry, handler, openExternal, platform }), getEntry, handler, openExternal, assertAllowed }
 }
 
 describe('原 App 打开与目标能力门禁', () => {
@@ -31,6 +31,15 @@ describe('原 App 打开与目标能力门禁', () => {
     expect(openExternal).toHaveBeenCalledExactlyOnceWith(`codex://threads/${id}`)
     const invalid = setup({ ...entry, source: 'codex', sourceSessionId: 'not-uuid' })
     expect((await invalid.service.inspect(entry.id)).original.available).toBe(false)
+  })
+  it.each(['newmax', 'codex'] as const)('Windows 上 %s 原会话打开方式未验证，标为不可用且不检查协议或打开', async source => {
+    const { service, handler, openExternal } = setup({ ...entry, source, sourceSessionId: '0199e6ba-0000-7000-8000-000000000001' }, 'win32')
+    const state = (await service.inspect(entry.id)).original
+    expect(state.available).toBe(false)
+    expect(state.reason).toContain('Windows')
+    await expect(service.openOriginal(entry.id)).rejects.toThrow('Windows')
+    expect(handler).not.toHaveBeenCalled()
+    expect(openExternal).not.toHaveBeenCalled()
   })
   it.each(['claude-code', 'cindy', 'deepseek'] as const)('%s 未核验打开方式时不可伪造支持', async source => {
     const { service, handler, openExternal } = setup({ ...entry, source })

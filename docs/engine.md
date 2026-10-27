@@ -16,7 +16,7 @@ Pinekin Engine 是 Pinekin「跨客户端会话互通」能力的核心：发现
 | 导出 | 说明 |
 |------|------|
 | `ENGINE_VERSION` | 引擎版本；解析规则变化时递增，宿主据此作废增量状态 |
-| `engineSources()` | 能力清单：每个来源分别声明 `discover`、`structured`、`workingDirectory`、`scope`、`verifiedPlatforms`，不互相外推 |
+| `engineSources()` | 能力清单：每个来源分别声明 `discover`、`structured`、`workingDirectory`、`scope`、`verifiedPlatforms`，不互相外推；`verifiedPlatforms` 仅指已有合成样本契约测试的平台，不含 `win32`，桌面端 Windows 口径见 [Windows 支持](windows-support.md) |
 | `defaultLocations(source, context?)` | 来源的默认日志目录 |
 | `listSessions(source, options?)` | 异步枚举 `SessionRef`：稳定身份（`source` + `sessionId`）、修订号（大小与修改时间指纹）、绝对工作目录、主会话／子会话 |
 | `readTranscript(ref, options?)` | 读出 `Transcript`：文本、思考、工具调用、工具结果、附件说明，每条消息带稳定 ID 与时间戳 |

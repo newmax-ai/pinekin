@@ -6,6 +6,7 @@ interface Dependencies {
   handler(url: string): Promise<string>
   openExternal(url: string): Promise<void>
   targets?(): Promise<SourceActionCapabilities['targets']>
+  platform?: NodeJS.Platform
 }
 function originalRoute(entry: SourceEntry): { url?: string; state: SourceActionAvailability } {
   const app = sourceNames[entry.source]
@@ -25,6 +26,8 @@ export class SourceActions {
   private async inspectOriginal(entry: SourceEntry) {
     const route = originalRoute(entry)
     if (!route.url) return route
+    // Windows 尚无应用身份校验，名字匹配不能证明协议由官方客户端处理，也未验证会选中正确会话。
+    if (this.deps.platform === 'win32') return { state: { ...route.state, available: false, reason: 'Windows 上的原会话打开方式尚未验证，请在原 App 中查找。' } }
     try {
       const handler = await this.deps.handler(route.url)
       const expected = entry.source === 'codex' ? /^codex$/i : /^newmax(?:\s+ai)?$/i

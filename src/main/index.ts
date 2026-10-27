@@ -176,6 +176,7 @@ else {
       handler: applicationHandler,
       openExternal: url => shell.openExternal(url),
       targets: () => nativeTargets.list(),
+      platform: process.platform,
     })
     let choosingSource = false
     ipcMain.handle('pinekin:source-actions-inspect', (event, id: unknown) => { assertSender(event); return sourceActions.inspect(entryIdSchema.parse(id)) })

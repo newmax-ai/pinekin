@@ -9,6 +9,7 @@ import { codexFixture, codexThreadId } from '../fixtures/codex'
 type State = { opened: string[]; launched: string[]; copied: string[]; files: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number }
 const isMac = process.platform === 'darwin'
 const macTest = isMac ? test : test.skip
+const nonMacTest = isMac ? test.skip : test
 const handoffButton = isMac ? '复制接续文件' : '保存接续文件'
 let app: ElectronApplication, page: Page, root: string, dbPath: string, output: string
 async function connect(name: 'NewMax' | 'Codex' = isMac ? 'NewMax' : 'Codex') {
@@ -191,6 +192,46 @@ macTest('默认一次点击复制通用 Markdown 文件，经真实 preload 和�
     ])
   })
   expect(rejected).toEqual([true, true, true, true])
+})
+
+nonMacTest('非 macOS 一次点击保存通用 Markdown 文件，不写任何剪贴板、不打开目标，且不提供未验证的原会话入口', async () => {
+  const source = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(source)
+  await connect('Codex')
+  const saveButton = page.getByRole('button', { name: '保存接续文件', exact: true })
+  const size = await saveButton.boundingBox()
+  await saveButton.click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const toast = page.locator('.source-messages-region > [data-toast]')
+  await expect(toast).toHaveText('文件已保存')
+  // 保存不是复制：按钮文案和尺寸保持不变，不出现「已复制」。
+  await expect(page.getByRole('button', { name: '已复制', exact: true })).toHaveCount(0)
+  await expect(saveButton).toBeEnabled()
+  expect(await saveButton.boundingBox()).toEqual(size)
+  const text = await readFile(output, 'utf8')
+  expect(text).toContain('合成 Codex 问题'); expect(text).toContain('这是合成答复。')
+  expect(text).toContain('不是原生会话恢复'); expect(text).not.toContain('目标：')
+  const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
+  expect(state.saveCalls).toBe(1)
+  expect(state.copied).toEqual([]); expect(state.files).toEqual([])
+  expect(state.opened).toEqual([]); expect(state.launched).toEqual([])
+  expect(await readFile(source)).toEqual(before)
+  await expect(readFile(join(root, 'pinekin', 'codex-target.json'))).rejects.toThrow()
+  await more()
+  await expect(page.getByRole('menuitem', { name: '查看原会话' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '原生历史迁移（高级）' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const rejected = await page.evaluate(async () => {
+    const api = window.staithe.sourceActions!
+    return Promise.all([
+      api.prepareHandoffFile!('file:///etc/passwd').then(() => false, () => true),
+      api.prepareHandoffFile!('b'.repeat(64)).then(() => false, () => true),
+      api.deliverHandoffFile!('/arbitrary/path', 'export').then(() => false, () => true),
+      api.deliverHandoffFile!('/arbitrary/path', 'copy-file').then(() => false, () => true),
+      api.openOriginal('b'.repeat(64)).then(() => false, () => true),
+    ])
+  })
+  expect(rejected).toEqual([true, true, true, true, true])
+  expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.opened)).toEqual([])
 })
 
 test('接续文件在等待与失败时不改变按钮位置，不弹目标选择', async () => {
