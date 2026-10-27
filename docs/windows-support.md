@@ -107,6 +107,10 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 本批 CI 测试运行生产构建中的应用，不运行 NSIS 安装／升级／卸载生命周期；安装成功和安装后启动必须另外验收。
 
+### 安装界面图标清晰度
+
+测试用户反馈 NSIS 安装进度界面的图标像素偏低。推断原因：未配置 `installerHeaderIcon` 时，electron-builder 单击安装界面调用 `SpiderBanner::Show /MODERN` 不带 `/ICON`，使用默认小图标并放大。现已显式配置 `installerIcon`、`installerHeaderIcon`、`uninstallerIcon` 指向多尺寸 `resources/pinekin.ico`。此原因为源码层面的推断，未在 Windows 上复现；NSIS 安装器本身不是 DPI 感知程序，高缩放下窗口文字和图标仍可能被系统放大。同时给 `pinekin.ico` 补充 20／24／40／96px 图层（现为 16／20／24／32／40／48／64／96／128／256px），减少 125%／150%／250% 等缩放下由相邻尺寸二次缩放造成的模糊；仅重新生成 ICO，ICNS 与 Mac 图标未改动。须用新一轮 CI 生成的安装包，在 100%／150%／200% 缩放下核对，若仍模糊再考虑自定义安装界面。
+
 ### 正式签名选型须确认的事项
 
 以下来自一篇第三方经验分享（Tw93 的 Windows 原生客户端实践，仅供参考，未逐项核实；其技术栈为 WinUI 3 + Velopack，与 Pinekin 的 Electron + NSIS 不同，不照搬打包流程）：

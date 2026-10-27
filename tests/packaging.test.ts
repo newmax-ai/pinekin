@@ -19,6 +19,14 @@ describe('Windows 构建入口', () => {
     expect(pkg.scripts['dist:win']).toBe('npm run build && electron-builder --win nsis --x64 --publish never')
     expect(pkg.build.win).toMatchObject({ icon: 'resources/pinekin.ico', target: 'nsis' })
   })
+  it('NSIS 安装界面显式使用多尺寸 ICO，不回退到默认的低分辨率头部图标', () => {
+    // 未配置 installerHeaderIcon 时 electron-builder 的单击安装界面不会向 SpiderBanner 传入图标，显示会模糊。
+    expect(pkg.build.nsis).toMatchObject({
+      installerIcon: 'resources/pinekin.ico',
+      installerHeaderIcon: 'resources/pinekin.ico',
+      uninstallerIcon: 'resources/pinekin.ico'
+    })
+  })
   it('Engine 通过当前 Node 执行 TypeScript CLI，不执行 Unix shim', () => {
     const script = readFileSync(new URL('../scripts/build-engine.mjs', import.meta.url), 'utf8')
     expect(script).toContain('execFileSync(process.execPath, [')

@@ -23,7 +23,7 @@
 | `resources/pinekin.png` | 1024×1024、16-bit RGBA PNG，与用户定稿逐字节一致；非 Mac 运行时与 Linux 图标 |
 | `resources/pinekin-macos.png` | 1024×1024、8-bit RGBA Mac 母图，824px 底板、100px 留边与外阴影；开发 Dock 使用 |
 | `resources/pinekin.icns` | 基于 Mac 母图的应用包图标，包含 16 / 32 / 128 / 256 / 512 逻辑像素及各自 @2x 表示 |
-| `resources/pinekin.ico` | Windows 多图层图标，16 / 32 / 48 / 64 / 128 / 256px |
+| `resources/pinekin.ico` | Windows 多图层图标，16 / 20 / 24 / 32 / 40 / 48 / 64 / 96 / 128 / 256px |
 | `design/brand/pinekin-icon-sizes.png` | 原始定稿的 16 / 32 / 64 / 128px 对比图，不代表 Mac 留白适配后的尺寸 |
 | `design/brand/pinekin-macos-comparison.png` | 同为 96px 画布的适配前后对比，由资产渲染，并非实际 Dock 截图 |
 | `scripts/generate-app-icons.mjs` | 从用户定稿生成通用 PNG、Mac PNG、ICNS 与 ICO |

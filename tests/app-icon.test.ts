@@ -77,7 +77,8 @@ describe('Pinekin 应用图标', () => {
       expect(length).toBeGreaterThan(0)
       expect(offset + length).toBeLessThanOrEqual(ico.length)
     }
-    expect(sizes).toEqual(expect.arrayContaining([16, 32, 48, 64, 128, 256]))
+    // 20 / 24 / 40 / 96 对应 125%、150%、250% 等缩放下的常用系统取图尺寸，避免由相邻尺寸二次缩放而模糊。
+    expect(sizes).toEqual(expect.arrayContaining([16, 20, 24, 32, 40, 48, 64, 96, 128, 256]))
   })
   it('正常 macOS 开发启动设置 Dock 图标', () => {
     const dock = { setIcon: vi.fn() }

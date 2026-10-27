@@ -93,6 +93,11 @@
       "icon": "resources/pinekin.ico",
       "target": "nsis"
     },
+    "nsis": {
+      "installerIcon": "resources/pinekin.ico",
+      "installerHeaderIcon": "resources/pinekin.ico",
+      "uninstallerIcon": "resources/pinekin.ico"
+    },
     "linux": {
       "icon": "resources/pinekin.png",
       "target": "AppImage",

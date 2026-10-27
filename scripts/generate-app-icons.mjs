@@ -54,7 +54,7 @@ try {
     }
   }
   run('iconutil', ['-c', 'icns', iconset, '-o', join(output, 'pinekin.icns')])
-  run('magick', [master, '-depth', '8', '-define', 'icon:auto-resize=256,128,64,48,32,16', join(output, 'pinekin.ico')])
+  run('magick', [master, '-depth', '8', '-define', 'icon:auto-resize=256,128,96,64,48,40,32,24,20,16', join(output, 'pinekin.ico')])
   console.log('已保留用户定稿，并生成 macOS 专用 PNG / ICNS 和 Windows ICO。')
 } finally {
   // 当前目录始终为项目目录；临时清理失败不覆盖已经完成的资产生成结果。
