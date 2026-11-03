@@ -94,7 +94,7 @@ describe('会话操作以接续文件为主，原会话查看与文本导出为�
     await act(async () => finish(available))
     expect(screen.queryByRole('menuitem', { name: '原生历史迁移（高级）' })).toBeNull()
     expect(screen.queryByRole('menuitem', { name: '接续目标设置' })).toBeNull()
-    expect(screen.getByRole('button', { name: '保存接续文件' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '复制接续文件' })).toBeTruthy()
     expect(api.continueInCodex).not.toHaveBeenCalled()
   })
   it('过滤后无目标时隐藏迁移及设置入口，不提示连接来源即可获得迁移能力', async () => {

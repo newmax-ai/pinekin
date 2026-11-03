@@ -20,7 +20,19 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
 
 describe('按平台交付完整接续文件', () => {
-  it.each(['win32', 'linux'])('%s 主按钮保存完整文件，不调用文件剪贴板', async platform => {
+  it('Windows 主按钮复制真实文件，菜单仍可保存完整文件', async () => {
+    window.staithe = { ...window.staithe, platform: 'win32' }
+    render(<SourceActions entryId={id} content={{ warnings: [], session: { id, title: '合成', source: 'codex', updatedAt: '2026-10-20T00:00:00Z', demo: false, tags: [], messages: [{ role: 'user', content: '当前片段' }] } }} />)
+    expect(screen.queryByRole('button', { name: '保存接续文件' })).toBeNull()
+    copy()
+    await waitFor(() => expect(api().deliverHandoffFile).toHaveBeenCalledExactlyOnceWith(token, 'copy-file'))
+    expect((await screen.findByRole('status')).textContent).toBe('文件已复制')
+    expect(window.staithe.copy).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '更多会话操作' }))
+    expect(screen.getByRole('menuitem', { name: '保存完整接续文件' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: '原生历史迁移（高级）' })).toBeNull()
+  })
+  it.each(['linux'])('%s 主按钮保存完整文件，不调用文件剪贴板', async platform => {
     window.staithe = { ...window.staithe, platform }
     vi.mocked(api().deliverHandoffFile!).mockResolvedValue({ status: 'exported' })
     render(<SourceActions entryId={id} />)
@@ -32,8 +44,8 @@ describe('按平台交付完整接续文件', () => {
     expect(screen.getByRole('status').textContent).toBe('文件已保存')
     expect(window.staithe.copy).not.toHaveBeenCalled()
   })
-  it.each(['cancelled', 'error'] as const)('Windows 保存 %s 后允许重试，不虚报成功', async outcome => {
-    window.staithe = { ...window.staithe, platform: 'win32' }
+  it.each(['cancelled', 'error'] as const)('Linux 保存 %s 后允许重试，不虚报成功', async outcome => {
+    window.staithe = { ...window.staithe, platform: 'linux' }
     if (outcome === 'error') vi.mocked(api().deliverHandoffFile!).mockRejectedValueOnce(new Error('无法保存文件'))
     else vi.mocked(api().deliverHandoffFile!).mockResolvedValueOnce({ status: 'cancelled' })
     render(<SourceActions entryId={id} />)

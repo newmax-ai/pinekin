@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { chmod, lstat, mkdir, open, readdir, unlink } from 'node:fs/promises'
 import { extname, isAbsolute, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { writeWindowsFileClipboard } from './windows-file-clipboard'
 import { HANDOFF_FILE_BYTES } from '../core/handoff'
 
 // 剪贴板引用的文件必须保持可读，不随窗口关闭或新一次复制自动删除。
@@ -18,9 +19,11 @@ export function fileClipboardData(path: string, platform: string): Record<string
 
 /** root 只由主进程 userData 决定；成功副本持久保留，失败只删除本次新建文件。 */
 export async function copyHandoffFile(text: string, root: string,
-  writeClipboard: (data: Record<string, string>) => Promise<void>, assertAllowed: () => Promise<void>, platform = process.platform) {
+  writeClipboard: (data: Record<string, string>) => Promise<void>, assertAllowed: () => Promise<void>, platform = process.platform,
+  writeWindowsFile: (path: string) => Promise<void> = writeWindowsFileClipboard) {
   const path = join(root, `pinekin-handoff-${randomUUID()}.md`)
-  const data = fileClipboardData(path, platform)
+  // Windows 的文件剪贴板（CF_HDROP）不经 Electron 命名格式桥，data 仅用于 macOS。
+  const data = platform === 'win32' ? undefined : fileClipboardData(path, platform)
   const size = Buffer.byteLength(text)
   if (size > HANDOFF_FILE_BYTES) throw new Error('接续文件超过 Pinekin 64 MiB 文件预算，未复制。')
   await assertAllowed()
@@ -42,7 +45,7 @@ export async function copyHandoffFile(text: string, root: string,
   try {
     try { await file.writeFile(text, 'utf8'); await file.sync() } finally { await file.close() }
     await assertAllowed()
-    await writeClipboard(data)
+    if (data) await writeClipboard(data); else await writeWindowsFile(path)
     published = true
   } finally { if (!published) await unlink(path).catch(() => {}) }
 }

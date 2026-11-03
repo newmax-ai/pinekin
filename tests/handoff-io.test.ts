@@ -16,7 +16,30 @@ describe('复制真实 Markdown 文件，不复制正文或路径文本', () => 
     expect(fileClipboardData(path, 'darwin')).toEqual({ [fileType]: pathToFileURL(path).href })
     expect(fileClipboardData(path, 'darwin')).not.toHaveProperty('text/plain')
     expect(() => fileClipboardData('relative.md', 'darwin')).toThrow()
+    // Windows 的 CF_HDROP 不能经 Electron 的命名格式桥写入，改由 windows-file-clipboard 处理。
     for (const platform of ['win32', 'linux']) expect(() => fileClipboardData(path, platform)).toThrow('保存完整接续文件')
+  })
+  it('Windows 先写完整私有文件，再把该文件路径交给文件剪贴板，不走命名格式桥', async () => {
+    const root = join(await directory(), 'copies'), write = vi.fn(), writeFile = vi.fn(async (path: string) => {
+      expect(await readFile(path, 'utf8')).toBe('正文')
+    })
+    await copyHandoffFile('正文', root, write, async () => {}, 'win32', writeFile)
+    expect(write).not.toHaveBeenCalled()
+    expect(writeFile).toHaveBeenCalledOnce()
+    expect(writeFile.mock.calls[0][0]).toMatch(/pinekin-handoff-[\w-]+\.md$/)
+    expect(await readdir(root)).toHaveLength(1)
+  })
+  it('Windows 文件剪贴板失败或撤权时清理本次文件', async () => {
+    const root = await directory(), keep = join(root, 'keep.md')
+    await writeFile(keep, '保留')
+    const failing = vi.fn().mockRejectedValue(new Error('无法写入文件剪贴板'))
+    await expect(copyHandoffFile('正文', root, vi.fn(), async () => {}, 'win32', failing)).rejects.toThrow('无法写入文件剪贴板')
+    expect(await readdir(root)).toEqual(['keep.md'])
+    let checks = 0
+    const never = vi.fn()
+    await expect(copyHandoffFile('正文', root, vi.fn(), async () => { if (++checks === 2) throw new Error('已撤权') }, 'win32', never)).rejects.toThrow('已撤权')
+    expect(never).not.toHaveBeenCalled()
+    expect(await readdir(root)).toEqual(['keep.md'])
   })
   it('先写完整私有文件再提交文件剪贴板，成功后不删除文件', async () => {
     const root = join(await directory(), 'copies'), content = '# 通用接续\n' + '长文本🙂'.repeat(220_000)

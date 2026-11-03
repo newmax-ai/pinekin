@@ -6,11 +6,13 @@ import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { codexFixture, codexThreadId } from '../fixtures/codex'
 
-type State = { opened: string[]; launched: string[]; copied: string[]; files: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number }
+type State = { opened: string[]; launched: string[]; copied: string[]; files: string[]; events: string[]; handler: boolean; saveCalls: number; openCalls: number; windowsClipboard: { shell: string; script: string; path: string }[] }
 const isMac = process.platform === 'darwin'
+const isWindows = process.platform === 'win32'
 const macTest = isMac ? test : test.skip
-const nonMacTest = isMac ? test.skip : test
-const handoffButton = isMac ? '复制接续文件' : '保存接续文件'
+const windowsTest = isWindows ? test : test.skip
+const linuxTest = isMac || isWindows ? test.skip : test
+const handoffButton = isMac || isWindows ? '复制接续文件' : '保存接续文件'
 let app: ElectronApplication, page: Page, root: string, dbPath: string, output: string
 async function connect(name: 'NewMax' | 'Codex' = isMac ? 'NewMax' : 'Codex') {
   await page.getByRole('button', { name: '连接 App', exact: true }).click()
@@ -54,7 +56,15 @@ test.beforeEach(async () => {
   const bootstrap = join(root, 'start.cjs')
   await writeFile(bootstrap, `const { app, dialog, clipboard, shell, nativeImage } = require('electron');
     app.setPath('home', ${JSON.stringify(root)}); app.setPath('appData', ${JSON.stringify(join(root, 'appData'))});
-    globalThis.actionTest = { opened: [], launched: [], copied: [], files: [], events: [], handler: true, saveCalls: 0, openCalls: 0 };
+    globalThis.actionTest = { opened: [], launched: [], copied: [], files: [], events: [], handler: true, saveCalls: 0, openCalls: 0, windowsClipboard: [] };
+    if (process.platform === 'win32') {
+      // Windows 文件剪贴板由系统 PowerShell 写入；替身只记录调用，不触碰真实系统剪贴板。
+      require('node:child_process').execFile = (shell, args, options, callback) => {
+        globalThis.actionTest.windowsClipboard.push({ shell, script: args[3], path: options.env.PINEKIN_CLIPBOARD_FILE });
+        callback(null, { stdout: '', stderr: '' });
+      };
+      require('node:module').syncBuiltinESMExports();
+    }
     app.getApplicationNameForProtocol = url => globalThis.actionTest.handler ? (url.startsWith('codex:') ? 'ChatGPT' : 'Electron') : '';
     app.getApplicationInfoForProtocol = async url => { if (!globalThis.actionTest.handler) throw new Error('合成协议已失效'); return { name: url.startsWith('codex:') ? 'ChatGPT' : 'Electron', path: url.startsWith('codex:') ? ${JSON.stringify(bundle)} : ${JSON.stringify(newmaxBundle)}, icon: nativeImage.createEmpty() }; };
     shell.openExternal = async url => { globalThis.actionTest.opened.push(url); };
@@ -119,7 +129,7 @@ test('读取说明收进更多菜单，正常阅读不显示报告，关闭后�
 test('通用日志可保存完整接续文件与导出文本，不访问文件剪贴板或原生目标', async () => {
   const path = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(path)
   await connect('Codex')
-  if (isMac) { await more(); await page.getByRole('menuitem', { name: '保存完整接续文件' }).click() }
+  if (isMac || isWindows) { await more(); await page.getByRole('menuitem', { name: '保存完整接续文件' }).click() }
   else await page.getByRole('button', { name: '保存接续文件', exact: true }).click()
   await expect(page.locator('.source-actions-feedback')).toContainText('文件已保存')
   const handoff = await readFile(output, 'utf8')
@@ -197,7 +207,53 @@ macTest('默认一次点击复制通用 Markdown 文件，经真实 preload 和�
   expect(rejected).toEqual([true, true, true, true])
 })
 
-nonMacTest('非 macOS 一次点击保存通用 Markdown 文件，不写任何剪贴板、不打开目标，且不提供未验证的原会话入口', async () => {
+windowsTest('Windows 一次点击把完整 Markdown 文件交给文件剪贴板，不写文字、不打开目标，且不提供未验证的原会话入口', async () => {
+  const source = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(source)
+  await connect('Codex')
+  const copyButton = page.getByRole('button', { name: '复制接续文件', exact: true })
+  const size = await copyButton.boundingBox()
+  await copyButton.click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const copied = page.getByRole('button', { name: '已复制', exact: true })
+  await expect(copied).toBeVisible()
+  expect(await copied.boundingBox()).toEqual(size)
+  const toast = page.locator('.source-messages-region > [data-toast]')
+  await expect(toast).toHaveText('文件已复制')
+  const state = await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest)
+  expect(state.copied).toEqual([]); expect(state.files).toEqual([])
+  expect(state.opened).toEqual([]); expect(state.launched).toEqual([])
+  expect(state.saveCalls).toBe(0)
+  expect(state.windowsClipboard).toHaveLength(1)
+  const [call] = state.windowsClipboard
+  expect(call.shell).toMatch(/\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/i)
+  expect(call.script).toBe('Set-Clipboard -LiteralPath $env:PINEKIN_CLIPBOARD_FILE')
+  const text = await readFile(call.path, 'utf8')
+  expect(text).toContain('合成 Codex 问题'); expect(text).toContain('这是合成答复。')
+  expect(text).toContain('不是原生会话恢复'); expect(text).not.toContain('目标：')
+  await page.getByRole('button', { name: '关闭操作提示' }).click()
+  await more(); await page.getByRole('menuitem', { name: '保存完整接续文件' }).click()
+  await expect(toast).toHaveText('文件已保存')
+  expect(await readFile(output, 'utf8')).toContain('这是合成答复。')
+  expect(await readFile(call.path, 'utf8')).toBe(text)
+  expect(await readFile(source)).toEqual(before)
+  await expect(readFile(join(root, 'pinekin', 'codex-target.json'))).rejects.toThrow()
+  await more()
+  await expect(page.getByRole('menuitem', { name: '查看原会话' })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: '原生历史迁移（高级）' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const rejected = await page.evaluate(async () => {
+    const api = window.staithe.sourceActions!
+    return Promise.all([
+      api.prepareHandoffFile!('file:///etc/passwd').then(() => false, () => true),
+      api.deliverHandoffFile!('/arbitrary/path', 'copy-file').then(() => false, () => true),
+      api.openOriginal('b'.repeat(64)).then(() => false, () => true),
+    ])
+  })
+  expect(rejected).toEqual([true, true, true])
+  expect(await app.evaluate(() => (globalThis as unknown as { actionTest: State }).actionTest.windowsClipboard)).toHaveLength(1)
+})
+
+linuxTest('Linux 一次点击保存通用 Markdown 文件，不写任何剪贴板、不打开目标，且不提供未验证的原会话入口', async () => {
   const source = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(source)
   await connect('Codex')
   const saveButton = page.getByRole('button', { name: '保存接续文件', exact: true })

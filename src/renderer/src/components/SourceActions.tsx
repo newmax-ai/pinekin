@@ -36,12 +36,13 @@ export function SourceActions({ entryId, content, disabled = false, snapshotNoti
   const menu = useRef<HTMLDivElement>(null)
   const alive = useRef(true), fileEpoch = useRef(0), fileToken = useRef<string | undefined>(undefined)
   const api = window.staithe.sourceActions
-  // 旧 preload 未提供平台时保留原有 macOS 行为；已知非 macOS 平台走文件保存。
-  const saveHandoff = !!window.staithe.platform && window.staithe.platform !== 'darwin'
+  // 旧 preload 未提供平台时保留原有 macOS 行为；macOS 与 Windows 复制真实文件，其余平台走文件保存。
+  const nonMac = !!window.staithe.platform && window.staithe.platform !== 'darwin'
+  const saveHandoff = nonMac && window.staithe.platform !== 'win32'
   const handoffLabel = saveHandoff ? '保存接续文件' : '复制接续文件'
   const capability = capabilities?.id === entryId ? capabilities : undefined
   const showNativeTargets = capability?.value ? capability.value.targets.some(target => target.implemented
-    ?? (target.available === true || target.id === 'codex' || target.id === 'newmax')) : !saveHandoff && !capability?.error
+    ?? (target.available === true || target.id === 'codex' || target.id === 'newmax')) : !nonMac && !capability?.error
   const transcript = useMemo(() => content ? buildSourceTranscript(content, snapshotNotice) : undefined, [content, snapshotNotice])
   const busy = busyId === entryId
   const hasMessages = !!content?.session.messages.length
