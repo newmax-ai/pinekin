@@ -96,7 +96,7 @@ Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSe
 | --- | :---: | :---: | :---: |
 | 日志类来源浏览（Claude Code、Codex 等） | ✅ | 未实机验收 | 未实机验收 |
 | SQLite 来源直读（NewMax、Cindy） | ✅ | 暂不支持 | 已接入，待原生验收 |
-| 复制接续文件到剪贴板 | ✅ | 用保存代替 | ✅（待接收端验收） |
+| 复制接续文件到剪贴板 | ✅ | 用保存代替 | ✅ |
 | 原生历史迁移（高级） | Codex／NewMax | NewMax | 暂不支持 |
 
 Windows 在日志来源浏览、阅读和保存完整接续文件之外，新增 NewMax／Cindy 活跃数据库读取实现，尚待本批原生验证；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。

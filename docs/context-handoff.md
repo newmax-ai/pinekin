@@ -51,7 +51,7 @@ macOS 默认路径为 **选择来源会话 → 点击「复制接续文件」→
 
 - 本次实现 macOS 文件复制：使用安装的 Electron 44 `ClipboardItem`／`clipboard.write()`，通过 `electron application/osclipboard;format="public.file-url"` 写原生文件 URL。
 - URL 由 Node `pathToFileURL()` 编码空格、Unicode、`#`、`%` 等，不写 `text/plain`，也不把路径当成用户要复制的正文。
-- Windows 文件剪贴板：Electron 命名格式桥写不出预定义的 CF_HDROP，主进程在私有副本落盘并复核授权后，调用系统自带 Windows PowerShell 的 `Set-Clipboard -LiteralPath` 写入；路径只经环境变量传入，脚本为固定常量，不走 PATH，不写文字剪贴板。失败提示改用「更多 → 保存完整接续文件」，失败时删除本次副本。接收端附件粘贴尚未验收。
+- Windows 文件剪贴板：Electron 命名格式桥写不出预定义的 CF_HDROP，主进程在私有副本落盘并复核授权后，调用系统自带 Windows PowerShell 的 `Set-Clipboard -LiteralPath` 写入；路径只经环境变量传入，脚本为固定常量，不走 PATH，不写文字剪贴板。失败提示改用「更多 → 保存完整接续文件」，失败时删除本次副本。虚拟机内已验证粘贴到目标 App 输入框会出现 `pinekin-handoff-*.md` 附件；模型是否读取并正确接续尚未验收。
 - Linux 文件剪贴板暂未实现：主按钮直接走「保存接续文件」，更多菜单也保留保存入口；底层若收到 `copy-file` 仍明确拒绝，不猜测平台格式。取消保存不显示成功；成功仅表示文件已保存。
 - 接收端必须支持文件粘贴和 Markdown 附件。目标接收能力、解析范围和模型上下文仍需分别验证；文件复制成功不是目标接续成功。
 - 原来的 `resolveHandoffLaunch`、默认目标能力枚举和复制并打开分支已移除。高级原生目标注册表不受影响。
