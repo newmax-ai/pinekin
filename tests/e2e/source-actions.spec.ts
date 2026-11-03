@@ -86,7 +86,10 @@ test('读取说明收进更多菜单，正常阅读不显示报告，关闭后�
   const messages = page.getByRole('region', { name: '会话消息' })
   const trigger = page.getByRole('button', { name: '更多会话操作' })
   await expect(detail.locator('.archive-report')).toHaveCount(0)
-  await expect(detail.getByRole('status', { name: '内容完整性提示' })).toHaveCount(0)
+  // 非 macOS 连接 Codex 夹具，其final_answer 消息阶段会按设计触发「回答可能不完整」提示。
+  const integrity = detail.getByRole('status', { name: '内容完整性提示' })
+  if (isMac) await expect(integrity).toHaveCount(0)
+  else { await expect(integrity).toHaveCount(1); await expect(integrity).toContainText('回答可能不完整') }
   const scrollTop = await messages.evaluate(element => element.scrollTop)
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
