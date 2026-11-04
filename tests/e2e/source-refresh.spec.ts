@@ -81,7 +81,7 @@ test('连接管理暂停自动检查，在途检查不锁住弹窗，关闭后�
   await expect(dialog.getByRole('button', { name: '关闭连接面板', exact: true })).toBeEnabled()
   for (const control of await dialog.getByRole('switch').all()) {
     const label = await control.getAttribute('aria-label')
-    if (process.platform !== 'darwin' && (label === '连接 NewMax' || label === '连接 Cindy')) await expect(control).toBeDisabled()
+    if (process.platform === 'linux' && (label === '连接 NewMax' || label === '连接 Cindy')) await expect(control).toBeDisabled()
     else await expect(control).toBeEnabled()
   }
   await app.evaluate(() => (globalThis as unknown as { finishDialogCheck: () => void }).finishDialogCheck())
