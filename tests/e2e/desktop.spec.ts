@@ -961,31 +961,45 @@ test('页头搜索、浏览历史与侧栏展开收起保持布局和键盘可�
 })
 
 test('侧栏 spring 保持固定画布、工作区联动与开关位置，系统减少动画可中途生效', async () => {
+  // Motion 在模块加载时捕获 requestAnimationFrame，必须在安装时钟后重载隔离页面。
+  const clockStart = Date.UTC(2026, 0, 1)
+  await page.clock.install({ time: clockStart })
+  await page.reload()
+  await openArchives()
   await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.clock.pauseAt(clockStart + 60_000)
+  await page.clock.runFor(32)
   const sidebar = page.locator('.sidebar')
   const canvas = page.locator('.sidebar-content')
   const toggle = page.locator('.sidebar-toggle')
   const toggleBox = await toggle.boundingBox()
   await expect(sidebar).toHaveCSS('width', '240px')
   await expect(toggle.locator('svg')).not.toHaveClass(/lucide/)
+  const expectIntermediateFrame = async () => {
+    // runFor 逐帧执行而非跳过动画；冻结后读取，不会因宿主调度延迟错过中间帧。
+    await page.clock.runFor(100)
+    const width = await sidebar.evaluate(element => element.getBoundingClientRect().width)
+    expect(width).toBeGreaterThan(0)
+    expect(width).toBeLessThan(240)
+  }
   await toggle.click()
-  await page.waitForFunction(() => {
-    const width = document.querySelector('.sidebar')!.getBoundingClientRect().width
-    return width > 0 && width < 240
-  })
+  await expectIntermediateFrame()
   await expect(canvas).toHaveCSS('width', '240px')
   await expect(canvas).toHaveCSS('transform', 'none')
   await expect(sidebar).toHaveAttribute('inert', '')
+  await page.clock.runFor(1000)
   await expect(sidebar).toHaveCSS('width', '0px')
   await expect(sidebar).toBeHidden()
   expect((await page.locator('.workspace-card').boundingBox())!.x).toBe(8)
   expect(await toggle.boundingBox()).toEqual(toggleBox)
   await toggle.click()
-  await page.waitForFunction(() => {
-    const width = document.querySelector('.sidebar')!.getBoundingClientRect().width
-    return width > 0 && width < 240
-  })
+  await expectIntermediateFrame()
   await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(sidebar).toHaveCSS('width', '240px')
+  await expect(sidebar).toBeVisible()
+  await expect(canvas).toHaveCSS('opacity', '1')
+  // 中断后旧动画继续获得帧也不能覆盖立即到位的状态。
+  await page.clock.runFor(1000)
   await expect(sidebar).toHaveCSS('width', '240px')
   await expect(sidebar).toBeVisible()
   await expect(canvas).toHaveCSS('opacity', '1')
