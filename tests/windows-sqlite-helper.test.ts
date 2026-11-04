@@ -23,8 +23,16 @@ async function setup() {
 async function snapshot(root: string) {
   return Promise.all((await readdir(root)).sort().map(async name => {
     const info = await stat(join(root, name))
-    return { name, mtime: info.mtimeMs, size: info.size, hash: createHash('sha256').update(await readFile(join(root, name))).digest('hex') }
+    return { name, mtime: info.mtimeMs, size: info.size, hash: await contentHash(join(root, name)) }
   }))
+}
+/** Windows 上写连接仍打开时，SQLite 对 -shm 持有字节范围锁，读取会 EBUSY；此时只比较名称、大小与修改时间。 */
+async function contentHash(path: string) {
+  try { return createHash('sha256').update(await readFile(path)).digest('hex') }
+  catch (error) {
+    if (path.endsWith('-shm') && (error as NodeJS.ErrnoException).code === 'EBUSY') return 'locked'
+    throw error
+  }
 }
 async function query(path: string, sql: string, immutable = false) {
   const pending = execute(binary, [path, `${pathToFileURL(path).href}?mode=ro&readonly_shm=1${immutable ? '&immutable=1' : ''}`],
