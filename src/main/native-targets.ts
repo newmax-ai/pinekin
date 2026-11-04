@@ -15,6 +15,11 @@ export interface NativeTargetAdapter {
   chooseProject(id: string, projectId: string | undefined, assertAllowed: () => void): Promise<CodexProjectPreview | null>
   continue(id: string, destination: NativeContinueDestination, assertAllowed: () => void): Promise<NativeTransferResult>
 }
+/** macOS 注册 Codex 与 NewMax；Linux、Windows 仅注册 NewMax 正式协议（Codex 隔离验证只有 macOS 实现）；其他平台不注册。 */
+export function nativeAdaptersForPlatform(platform: NodeJS.Platform, adapters: { codex: NativeTargetAdapter; newmax: NativeTargetAdapter }): NativeTargetAdapter[] {
+  if (platform === 'darwin') return [adapters.codex, adapters.newmax]
+  return platform === 'linux' || platform === 'win32' ? [adapters.newmax] : []
+}
 const missingEvidence: Record<BrowsableSource, string> = {
   newmax: '尚未接通外部会话创建与回读接口；原会话深链不能导入历史。',
   'claude-code': '尚未验证外部历史的安全创建、隔离回读与指定会话启动；恢复既有会话不等于导入。',

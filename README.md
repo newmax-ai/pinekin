@@ -46,7 +46,7 @@ flowchart LR
 4. 切到目标 App，把文件粘贴、拖入或上传为附件，继续对话。
 
 > [!NOTE]
-> 文件复制目前只在 macOS 实现；Windows／Linux 主按钮直接保存完整文件，更多菜单也保留保存入口。NewMax／Cindy 在 Windows 开放连接与自定义位置，通过内置组件读取运行中的 WAL 数据库；本批 Windows 原生构建与交互尚待验证，Linux 仍禁用数据库连接。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
+> 文件复制在 macOS 与 Windows 实现（Windows 经系统 PowerShell 写入文件剪贴板）；Linux 主按钮直接保存完整文件，更多菜单在各平台都保留保存入口。NewMax／Cindy 在 Windows 开放连接与自定义位置，通过内置组件读取运行中的 WAL 数据库；本批 Windows 原生构建与交互尚待验证，Linux 仍禁用数据库连接。真实跨 App 文件粘贴效果仍在验收中，详见 [通用接续文件](docs/context-handoff.md)。
 
 ### 接续方式
 
@@ -99,7 +99,7 @@ Pinekin Engine 0.3.1 已向宿主提供 Codex、Qwen Code、WorkBuddy 和 DeepSe
 | 复制接续文件到剪贴板 | ✅ | 用保存代替 | ✅ |
 | 原生历史迁移（高级） | Codex／NewMax | NewMax | 暂不支持 |
 
-Windows 在日志来源浏览、阅读和保存完整接续文件之外，新增 NewMax／Cindy 活跃数据库读取实现，尚待本批原生验证；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。
+Windows 在日志来源浏览、阅读和保存完整接续文件之外，新增 NewMax／Cindy 活跃数据库读取实现，尚待本批原生验证；Windows 的原生迁移只接入 NewMax 正式协议（命名管道，仅虚拟机内用合成数据验证），Codex 仍未支持；没有已接入原生目标时隐藏迁移与目标设置入口。CI 已配置 macOS／Windows 双平台测试、Engine 构建与 Windows x64 NSIS 测试包生成，**配置不等于运行通过或安装包验收完成**。安装、升级、路径、缩放和协议投递仍需 Windows 原生验收，详见 [Windows 适配与验收](docs/windows-support.md)。
 
 ## 已知限制
 

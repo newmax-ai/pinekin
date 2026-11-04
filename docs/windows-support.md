@@ -163,6 +163,26 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 - 窗口顶部为英文的 Electron 默认菜单（`File / Edit / View / Window`），是否本地化尚未决定。
 - 虚拟机里 `C:\pinekin` 与 `C:\Users\Public` 下留有测试脚本和日志；SYSTEM 账户下残留一条卸载项，来自一次非登录用户的错误安装尝试。
 
+## NewMax 正式接续与原会话（2026-11-04）
+
+**范围**：这是跨项目改动，Pinekin 与 `/Users/jaylee/Documents/GitHub/newmax-client` 均在工作区中、未提交。NewMax 侧改动：`electron/nativeConversationTransfer.ts`（新增 `planNativeEndpoint`，Windows 监听 `\\.\pipe\newmax-transfer-<实例 ID>`，移除 win32 拒绝）、`electron/main.ts`（去掉 win32 启动门禁）、三份 locale 的平台提示、`docs/architecture/native-conversation-transfer.md`。Pinekin 侧改动：`newmax-target.ts` 的 Windows 管道校验、`native-targets.ts` 按平台注册、`newmax-application.ts` 的注册表身份校验、`source-actions.ts` 与 `index.ts` 接线。
+
+**协议不变**：描述文件字段、版本 v1、信封和动作与 Unix 端点一致，`socketPath` 在 Windows 上即管道路径，旧客户端无需改动。Pinekin 在 Windows 上要求 `socketPath` 严格匹配 `\\.\pipe\newmax-transfer-<UUID>` 且 UUID 等于描述文件的 `instanceId`，描述文件不得为符号链接，数据根按大小写不敏感比较；macOS／Linux 的权限位、所有者与 socket 校验原样保留。Node 读不到 Windows 命名管道的所有者与 ACL，也没有 POSIX 权限位，因此 Windows 不声称与 Unix 校验等价，信任依赖「随机管道名 + 256 位实例令牌 + 用户数据目录的继承权限」。
+
+**虚拟机内验证（Apple Silicon 宿主上的 x64 虚拟机，Node 24.22，以登录用户 Jay 的交互会话运行，只算补充证据）**：
+- 用 esbuild 把 NewMax 的真实 `startNativeConversationTransfer` 与 `ConversationStore`（`better-sqlite3` 13.0.3）打成单文件运行：错误令牌被拒；`capabilities` 与 `workspaces` 正常；关闭后描述文件被删除，再连接得到 `ENOENT`。
+- 管道的实际 DACL（经管道客户端句柄读取）：所有者 `BUILTIN\Administrators`；`Everyone` 与 `NT AUTHORITY\ANONYMOUS LOGON` 仅 `Read, Synchronize`；`SYSTEM` 与 `Administrators` 完全控制。虚拟机里的 Jay 是本机管理员（任务以受限令牌运行），没有用第二个标准账户验证「其他用户无法写入」，该结论只来自 DACL 内容。描述文件的 ACL 为 `SYSTEM`、`Administrators` 与 Jay 完全控制，由用户目录继承。
+- 把 Pinekin 的真实 `NewMaxTarget` 与上述 NewMax 服务放在同一进程，通过真实命名管道完成 `inspect`、`configure`、`continue`（预演、提交、回读）和 `rollback`：创建 2 条消息，回滚成功；`open` 因测试替身返回「未确认界面选中」，所以 `opened:false`。
+- 注册表身份校验：对虚拟机里已安装的 NewMax 1.1.24 运行真实 `resolveNewMaxWindowsApplication()`，得到 `…\Programs\NewMax\NewMax.exe`、产品名 `NewMax`。该虚拟机没有 `UserChoice` 覆盖。
+
+**身份校验做什么、不做什么**：只读 `HKCU\…\UrlAssociations\newmax\UserChoice`（存在则拒绝）和 `HKCR\newmax\shell\open\command`；命令必须严格是 `"<本地绝对路径>" "%1"`；文件名必须是 `NewMax.exe` 或 `NewMax AI.exe`，并与版本信息产品名配对（`NewMax`／`NewMax AI`）；路径不得经符号链接或联接点，检查期间文件不得变化。只调用系统目录下固定的 `reg.exe` 与 `powershell.exe`，不执行目标程序。**没有校验数字签名**，也不能防止同用户进程改写注册表后伪造产品名，与 macOS 包身份校验同级，不是安全边界。查看原会话只发出固定深链并报告「已请求」，不声称已选中。
+
+**仍未验证**：
+- 虚拟机里已安装的 NewMax 1.1.24 不含这次改动，没有对真实 NewMax 桌面应用的 Windows 端点做过验证；NewMax 侧对 `open` 的界面确认、下一轮模型调用都未验。
+- `newmax://open?conversation=` 在 Windows 上是否选中正确会话未验：NewMax 的 `second-instance` 处理与 macOS 共用同一深链路由（代码阅读，不是运行验证）。
+- NewMax 侧新增的真实命名管道用例（`it.runIf(win32)`）没有在 vitest 里跑过，虚拟机里跑的是等价的打包脚本。
+- 第二个标准用户账户下的管道访问；Windows CI 结果；国际版 `NewMax AI.exe` 只有单元测试，没有真机。
+
 ## 待完成的 Windows 验收
 
 以下全部为待验收项，不由 macOS、模拟 `platform: 'win32'` 或构建成功替代；上一节的虚拟机结果只作补充证据：
@@ -172,7 +192,7 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 - 含中文／空格用户名、盘符大小写、跨盘、长路径；明确 UNC 支持边界。
 - NTFS junction／符号链接、文件替换、来源活跃追加、读取权限不足、文件占用与原子替换失败。
 - 125%／150%／200% 缩放、最大化、贴靠、多显示器、输入法、长提示与弹窗布局。
-- Pinekin 深链：虚拟机内已验证冷启动与运行中投递到「本地找不到」分支，真实会话 ID 的选中仍待验收。外部「查看原会话」在 Windows 上已明确标为未支持：主进程直接返回不可用，不检查协议、不调用系统打开，界面不显示该入口；原因是名字匹配不能证明协议由官方客户端处理，也未验证会选中正确会话。要重新开放，须先实现注册表／应用身份校验，并验证目标 App 真的选中正确会话。Linux 沿用现有名字匹配行为，未在此处核验。
+- Pinekin 深链：虚拟机内已验证冷启动与运行中投递到「本地找不到」分支，真实会话 ID 的选中仍待验收。外部「查看原会话」：Codex 在 Windows 上仍标为未支持（主进程直接返回不可用，不检查协议、不调用系统打开，界面不显示入口），原因是缺少应用身份校验且未验证会选中正确会话；NewMax 改为必须先通过注册表应用身份校验才可用，见下文「NewMax 正式接续与原会话」。Linux 沿用现有名字匹配行为，未在此处核验。
 - 保存文件上传目标 App 后被正确解析，并能继续下一轮对话；系统保存成功不等于目标已接收。
 - 文件剪贴板（2026-11-03，提交 `d91b826`）：在虚拟机内同步改动后重新构建，`source-actions.spec.ts` 6 通过、7 跳过（均为 macOS／Linux 专属）；该 Windows 用例替换了 PowerShell 执行器。另以计划任务在登录用户的交互会话里用真实 `powershell.exe` 对合成 `.md`（路径含空格与非 ASCII 字符）执行同一条 `Set-Clipboard -LiteralPath`，读回结果为文件列表剪贴板（`ContainsFileDropList` 为真）、无文字剪贴板，且路径与写入一致。随后在虚拟机内用 `dist:win` 打出的新版 NSIS 包覆盖安装（旧版为同版本号 0.1.0），点击「复制接续文件」后在目标 App 输入框按 Ctrl+V，出现 `pinekin-handoff-*.md` 附件（用户截图确认，截图未显示应用名与附件内容）。272 字符超长路径写入成功但读回被截在约 260 字符，无法判断是写入还是读取方式的限制，未处理。未验证模型是否读取并正确接续。
 
@@ -180,7 +200,7 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 1. Windows 文件剪贴板的模型接续效果验收与超长路径处理；CI 的 Windows 作业结果。
 2. 对本批 Windows 只读 SQLite 组件完成原生 CI、NSIS 资源核对及运行中客户端验收；包含活跃 WAL、锁竞争、目录重解析、权限不足与副文件不变验证。
-3. Windows 原生迁移适配，必须先具备版本探测、预演、备份、冲突处理、回读与回滚；不得通过直接写目标数据库绕过。
+3. Windows 原生迁移：NewMax 已通过正式协议接入（见上节）；Codex 的隔离验证仍只有 macOS，需另设计 Windows 隔离方案，必须先具备版本探测、预演、备份、冲突处理、回读与回滚；不得通过直接写目标数据库绕过。
 
 ## Engine 平台口径
 

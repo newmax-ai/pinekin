@@ -6,12 +6,12 @@
 
 本页仅描述「更多 → 原生历史迁移（高级）」。默认「在其他 App 继续」已改为独立的[通用上下文交接](context-handoff.md)，所有已连接目标可准备文本，不再以原生创建为前提。高级入口仍必须真实创建并核验历史，不能用复制、导出或仅唤起应用冒充原生迁移；两条路径不自动互相回退。
 
-**通用目标机制及 Codex、NewMax 独立适配已实现，但没有完成全部 App 的接续，也没有据此宣称 NewMax GUI 与下一轮模型调用已验收。** NewMax 需要提供 `newmax.native-transfer` v1 正式接口的目标版本；macOS / Linux 注册，Windows 暂不支持。按用户选择，仅移除未接通 App 的迁移入口：Claude Code、Cindy、DeepSeek Harness、WorkBuddy、Qwen Code 不再列出灰色占位和缺口说明，但来源连接与读取保持不变。缺口保留在本文研究表中，不能将暂未接通断言为上游永远不可能实现。
+**通用目标机制及 Codex、NewMax 独立适配已实现，但没有完成全部 App 的接续，也没有据此宣称 NewMax GUI 与下一轮模型调用已验收。** NewMax 需要提供 `newmax.native-transfer` v1 正式接口的目标版本；macOS / Linux / Windows 注册（Windows 使用命名管道，见 [专项边界](newmax-target.md)）。按用户选择，仅移除未接通 App 的迁移入口：Claude Code、Cindy、DeepSeek Harness、WorkBuddy、Qwen Code 不再列出灰色占位和缺口说明，但来源连接与读取保持不变。缺口保留在本文研究表中，不能将暂未接通断言为上游永远不可能实现。
 
 ## 目标发现与安全分发
 
 - `NativeTargets.list()` 仅枚举已注册适配器，不再读取或依赖来源连接列表。不会扫描应用目录、读取会话正文或凭据、新建来源连接。
-- macOS 保留 Codex／NewMax，Linux 保留 NewMax，Windows 返回空列表；目标是否展示与其是否连接为来源无关。
+- macOS 保留 Codex／NewMax，Linux 与 Windows 只保留 NewMax（`nativeAdaptersForPlatform`）；目标是否展示与其是否连接为来源无关。
 - 目标列表由主进程生成，返回 `implemented:true` 与运行时 `available`，分别表示已注册适配和配置检查可用；一个适配器的配置检查失败仍保留该目标和具体原因，显示「暂不可用」，不冒充未配置成功。
 - `implemented` 为向后兼容可选字段。renderer 接收旧主进程列表时，只保留显式可用项及既有 Codex／NewMax 适配的故障提示；显式 `implemented:false` 始终隐藏。过滤不提高 `available` 权限，不改变主进程创建门禁。渲染层可热更新，主进程列表收紧在下一次获准重启后生效，本轮不自行重启。
 - 未注册目标在主进程拒绝所有识别、配置、项目选择和创建操作；renderer 隐藏或禁用不是唯一门禁。不会回退 Codex、复制文本、执行恢复命令或直接写外部数据库。
@@ -39,7 +39,7 @@
 | App | 当前可复用的证据 | 尚未接通的目标链路 |
 | --- | --- | --- |
 | Codex | 已有日志序列化、隔离程序回读与事务适配 | 真实桌面展示、项目归属与下一轮接续仍按既有文档分别验收；不能用本次 mock 回归替代 |
-| NewMax | 已实现正式 v1 本机协议适配；目标自己完成真实隔离预演、备份、创建、回读、幂等和受保护回滚；已有工作区选择 | 主 dev GUI、下一轮模型调用、Linux 桌面及正式安装包分别待验收；Windows 未支持。见 [专项边界](newmax-target.md) |
+| NewMax | 已实现正式 v1 本机协议适配；目标自己完成真实隔离预演、备份、创建、回读、幂等和受保护回滚；已有工作区选择 | 主 dev GUI、下一轮模型调用、Linux 桌面、Windows 真实 NewMax 应用及正式安装包分别待验收；Windows 命名管道协议已在虚拟机内用合成数据验证。见 [专项边界](newmax-target.md) |
 | Claude Code | 既有 JSONL 来源读取与原生 resume 的历史调研 | 安全生成跨 App 历史、版本与隔离加载验证、持久化回读及指定会话启动 |
 | Cindy | 分享包格式解析；上游预检、导入、冲突与回滚的历史研究 | 生成官方可接收的包、正式调用目标导入事务、回读和新会话定位 |
 | DeepSeek Harness | v4 来源投影；既有日志 resume/fork 的历史调研 | 新建外部历史、隔离加载与回读、指定会话启动 |

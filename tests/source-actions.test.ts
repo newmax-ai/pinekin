@@ -32,14 +32,32 @@ describe('原 App 打开与目标能力门禁', () => {
     const invalid = setup({ ...entry, source: 'codex', sourceSessionId: 'not-uuid' })
     expect((await invalid.service.inspect(entry.id)).original.available).toBe(false)
   })
-  it.each(['newmax', 'codex'] as const)('Windows 上 %s 原会话打开方式未验证，标为不可用且不检查协议或打开', async source => {
-    const { service, handler, openExternal } = setup({ ...entry, source, sourceSessionId: '0199e6ba-0000-7000-8000-000000000001' }, 'win32')
+  it('Windows 上 Codex 原会话打开方式未验证，标为不可用且不检查协议或打开', async () => {
+    const { service, handler, openExternal } = setup({ ...entry, source: 'codex', sourceSessionId: '0199e6ba-0000-7000-8000-000000000001' }, 'win32')
     const state = (await service.inspect(entry.id)).original
     expect(state.available).toBe(false)
     expect(state.reason).toContain('Windows')
     await expect(service.openOriginal(entry.id)).rejects.toThrow('Windows')
     expect(handler).not.toHaveBeenCalled()
     expect(openExternal).not.toHaveBeenCalled()
+  })
+  it('Windows 上 NewMax 必须先通过应用身份校验才可用，校验失败不打开', async () => {
+    const { service, handler, openExternal } = setup(entry, 'win32')
+    expect((await service.inspect(entry.id)).original.available).toBe(true)
+    expect(handler).toHaveBeenCalledWith('newmax://open?conversation=conv-123_abc')
+    handler.mockRejectedValue(new Error('产品名与文件名不匹配'))
+    const state = (await service.inspect(entry.id)).original
+    expect(state).toMatchObject({ available: false })
+    expect(state.reason).toContain('无法检查')
+    await expect(service.openOriginal(entry.id)).rejects.toThrow('无法检查')
+    expect(openExternal).not.toHaveBeenCalled()
+    handler.mockResolvedValue('Electron')
+    expect((await service.inspect(entry.id)).original.available).toBe(false)
+  })
+  it('Windows 上 NewMax 通过校验后只发出固定深链并报告已请求，不声称已选中', async () => {
+    const { service, openExternal } = setup(entry, 'win32')
+    expect(await service.openOriginal(entry.id)).toEqual({ status: 'requested', app: 'NewMax' })
+    expect(openExternal).toHaveBeenCalledExactlyOnceWith('newmax://open?conversation=conv-123_abc')
   })
   it.each(['claude-code', 'cindy', 'deepseek'] as const)('%s 未核验打开方式时不可伪造支持', async source => {
     const { service, handler, openExternal } = setup({ ...entry, source })

@@ -207,7 +207,7 @@ macTest('默认一次点击复制通用 Markdown 文件，经真实 preload 和�
   expect(rejected).toEqual([true, true, true, true])
 })
 
-windowsTest('Windows 一次点击把完整 Markdown 文件交给文件剪贴板，不写文字、不打开目标，且不提供未验证的原会话入口', async () => {
+windowsTest('Windows 一次点击把完整 Markdown 文件交给文件剪贴板，不写文字、不打开目标，且不提供未验证的原会话入口，原生迁移入口只面向 NewMax', async () => {
   const source = join(root, '.codex', 'sessions', 'synthetic.jsonl'), before = await readFile(source)
   await connect('Codex')
   const copyButton = page.getByRole('button', { name: '复制接续文件', exact: true })
@@ -239,7 +239,8 @@ windowsTest('Windows 一次点击把完整 Markdown 文件交给文件剪贴板�
   await expect(readFile(join(root, 'pinekin', 'codex-target.json'))).rejects.toThrow()
   await more()
   await expect(page.getByRole('menuitem', { name: '查看原会话' })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: '原生历史迁移（高级）' })).toHaveCount(0)
+  // Windows 仅注册 NewMax 正式协议适配；Codex 隔离验证仍只有 macOS，入口只能进入 NewMax 目标。
+  await expect(page.getByRole('menuitem', { name: '原生历史迁移（高级）' })).toHaveCount(1)
   await page.keyboard.press('Escape')
   const rejected = await page.evaluate(async () => {
     const api = window.staithe.sourceActions!

@@ -32,18 +32,27 @@ async function save(path: string, value: unknown) {
   const temporary = `${path}.${randomUUID()}.tmp`
   await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 }); await rename(temporary, path)
 }
-/** 只连接同用户私有 Unix socket，不支持 TCP、任意 URL、命令或数据库写入。 */
+const WINDOWS_PIPE = /^\\\\\.\\pipe\\newmax-transfer-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+/** 只连接同用户私有端点：macOS／Linux 为私有 Unix socket，Windows 为绑定实例 ID 的本机命名管道；不支持 TCP、任意 URL、命令或数据库写入。
+ * Node 无法读取 Windows 命名管道的所有者或 ACL，也没有 POSIX 权限位，因此 Windows 只校验管道名格式与实例绑定、描述文件非符号链接，
+ * 其余信任依赖随机管道名、实例令牌和 NewMax 数据目录的继承权限，不声称与 Unix 校验等价。 */
 async function endpointAt(root: string): Promise<Endpoint> {
-  if (process.platform === 'win32') throw new Error('当前平台尚未支持 NewMax 正式接续协议')
+  const windows = process.platform === 'win32'
   const canonical = await realpath(root), path = join(canonical, 'native-transfer.json')
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  if (windows && (await lstat(path)).isSymbolicLink()) throw new Error('NewMax 端点文件权限不安全')
+  const file = await open(path, constants.O_RDONLY | (windows ? 0 : constants.O_NOFOLLOW))
   try {
     const stat = await file.stat()
-    if (!stat.isFile() || stat.size > 16 * 1024 || (stat.mode & 0o077) !== 0 || process.getuid && stat.uid !== process.getuid()) throw new Error('NewMax 端点文件权限不安全')
+    if (!stat.isFile() || stat.size > 16 * 1024 || !windows && ((stat.mode & 0o077) !== 0 || process.getuid && stat.uid !== process.getuid())) throw new Error('NewMax 端点文件权限不安全')
     const parsed = descriptorSchema.safeParse(JSON.parse(await file.readFile('utf8')))
     if (!parsed.success) throw new Error('NewMax 端点协议或版本不支持，请更新目标 App')
     const endpoint = parsed.data
-    if (endpoint.dataPath !== canonical || !isAbsolute(endpoint.socketPath)) throw new Error('NewMax 端点与所选数据位置不一致')
+    if (windows ? endpoint.dataPath.toLowerCase() !== canonical.toLowerCase() : endpoint.dataPath !== canonical) throw new Error('NewMax 端点与所选数据位置不一致')
+    if (windows) {
+      if (WINDOWS_PIPE.exec(endpoint.socketPath)?.[1].toLowerCase() !== endpoint.instanceId.toLowerCase()) throw new Error('NewMax 端点不是绑定当前实例的本机命名管道')
+      return endpoint
+    }
+    if (!isAbsolute(endpoint.socketPath)) throw new Error('NewMax 端点与所选数据位置不一致')
     const socket = await lstat(endpoint.socketPath), parent = await lstat(join(endpoint.socketPath, '..'))
     if (!socket.isSocket() || socket.isSymbolicLink() || !parent.isDirectory() || parent.isSymbolicLink()
       || (socket.mode & 0o077) !== 0 || (parent.mode & 0o077) !== 0

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash, randomUUID } from 'node:crypto'
-import { chmod, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import * as net from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -126,18 +126,67 @@ async function configure() {
   })
 })
 
-it('Windows 明确拒绝正式接续，不连接 socket、不选择目录或保存授权', async () => {
-  const directory = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-newmax-unsupported-')))
-  const chooseDirectory = vi.fn(), connect = vi.spyOn(net, 'connect').mockClear()
-  vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
-  try {
-    const unsupported = new NewMaxTarget({ storePath: join(directory, 'pinekin'), defaultDataPath: directory, chooseDirectory })
-    await expect(unsupported.inspect('automatic')).rejects.toThrow('尚未支持 NewMax 正式接续协议')
-    expect(connect).not.toHaveBeenCalled()
-    expect(chooseDirectory).not.toHaveBeenCalled()
-    expect(await readdir(directory)).toEqual([])
-  } finally {
-    vi.unstubAllGlobals(); connect.mockRestore()
+const pipeFor = (id: string) => `\\\\.\\pipe\\newmax-transfer-${id}`
+// 在 mac／Linux 上模拟 win32 平台与命名管道路径；真实命名管道由虚拟机内的端到端验证覆盖。
+describe.skipIf(process.platform === 'win32')('NewMax 原生目标客户端（模拟 Windows 命名管道）', () => {
+  let directory: string, unixPath: string, id: string, fake: Server, reportedPath: string
+  const capabilities = { protocol: 'newmax.native-transfer', version: 1, appVersion: '1.1.22', historyMode: 'text-history',
+    runtimeResume: false, arbitraryDirectories: false, features: ['preview', 'backup', 'commit', 'read', 'rollback', 'open', 'workspaces'] }
+  const writeDescriptor = (patch: Record<string, unknown> = {}) => writeFile(join(directory, 'native-transfer.json'), JSON.stringify({
+    protocol: 'newmax.native-transfer', version: 1, appVersion: '1.1.22', dataPath: reportedPath, socketPath: pipeFor(id),
+    instanceId: id, token: 'a'.repeat(64), ...patch }), { mode: 0o644 })
+  beforeEach(async () => {
+    directory = await realpath(await mkdtemp(join(tmpdir(), 'pinekin-newmax-pipe-')))
+    unixPath = join(directory, 'api.sock'); id = randomUUID(); reportedPath = directory.toUpperCase()
+    fake = createServer(socket => {
+      let text = ''
+      socket.on('data', chunk => {
+        text += chunk.toString(); if (!text.endsWith('\n')) return
+        socket.end(JSON.stringify({ ok: true, result: { ...capabilities, dataPath: reportedPath } }))
+      })
+    })
+    await new Promise<void>(resolve => fake.listen(unixPath, resolve))
+    const original = await vi.importActual<typeof import('node:net')>('node:net')
+    vi.mocked(net.connect).mockClear()
+    vi.mocked(net.connect).mockImplementation((() => original.connect(unixPath)) as never)
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }))
+  })
+  afterEach(async () => {
+    vi.unstubAllGlobals()
+    const original = await vi.importActual<typeof import('node:net')>('node:net')
+    vi.mocked(net.connect).mockImplementation(original.connect)
+    await new Promise<void>(resolve => fake.close(() => resolve()))
     await rm(directory, { recursive: true, force: true })
-  }
+  })
+  const create = () => new NewMaxTarget({ storePath: join(directory, 'pinekin'), defaultDataPath: directory, chooseDirectory: async () => directory })
+
+  it('接受绑定实例 ID 的命名管道，不套用 POSIX 权限与 socket 校验，数据根大小写不敏感', async () => {
+    await writeDescriptor()
+    const preview = await create().inspect('automatic')
+    expect(preview).toMatchObject({ app: 'NewMax', dataPath: reportedPath, configured: false })
+    expect(preview?.token).toBeDefined()
+    expect(net.connect).toHaveBeenCalledWith(pipeFor(id))
+  })
+  it.each([
+    ['其他管道名', () => '\\\\.\\pipe\\other'],
+    ['属于其他实例的管道', () => pipeFor(randomUUID())],
+    ['远程主机管道', () => `\\\\server\\pipe\\newmax-transfer-${id}`],
+    ['设备命名空间前缀', () => `\\\\?\\pipe\\newmax-transfer-${id}`],
+    ['管道名带路径穿越', () => `${pipeFor(id)}\\..\\x`],
+    ['文件系统路径', () => 'C:\\temp\\api.sock'],
+  ])('拒绝非受信任的端点地址：%s，且不发起连接', async (_name, address) => {
+    await writeDescriptor({ socketPath: address() })
+    await expect(create().inspect('automatic')).rejects.toThrow(/命名管道/)
+    expect(net.connect).not.toHaveBeenCalled()
+  })
+  it('拒绝符号链接的端点描述文件', async () => {
+    await writeDescriptor(); await rename(join(directory, 'native-transfer.json'), join(directory, 'real.json'))
+    await symlink(join(directory, 'real.json'), join(directory, 'native-transfer.json'))
+    await expect(create().inspect('automatic')).rejects.toThrow(/权限|符号链接/)
+    expect(net.connect).not.toHaveBeenCalled()
+  })
+  it('数据根确实不同时仍拒绝', async () => {
+    reportedPath = join(directory, 'other'); await writeDescriptor()
+    await expect(create().inspect('automatic')).rejects.toThrow(/不一致/)
+  })
 })

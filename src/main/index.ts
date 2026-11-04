@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path'
 import { SourceActions } from './source-actions'
 import { CodexTarget } from './codex-target'
 import { registerCodexTargetIpc } from './codex-target-ipc'
-import { NativeTargets } from './native-targets'
+import { NativeTargets, nativeAdaptersForPlatform } from './native-targets'
 import { NewMaxTarget } from './newmax-target'
 import { createNewMaxTargetAdapter } from './newmax-target-adapter'
 import { registerNativeTargetIpc } from './native-targets-ipc'
@@ -13,7 +13,7 @@ import { copyHandoffFile, saveHandoffFile } from './handoff-io'
 import { CodexProjectSelection } from './codex-project'
 import { readCodexProjectCatalog } from './codex-project-catalog'
 import { resolveCodexBinary, resolveCodexApplication } from './codex-target-runtime'
-import { resolveNewMaxApplication } from './newmax-application'
+import { resolveNewMaxApplication, resolveNewMaxWindowsApplication } from './newmax-application'
 import { CodexTargetSetup, checkCodexDirectory } from './codex-target-setup'
 import { registerTextExportIpc } from './text-export-ipc'
 import { fileURLToPath } from 'node:url'
@@ -106,6 +106,11 @@ else {
         await resolveNewMaxApplication(application.path)
         return 'NewMax'
       }
+      if (process.platform === 'win32' && url.startsWith('newmax:')) {
+        // 只在注册表身份校验通过后返回能力标识，不依赖可变的应用显示名。
+        await resolveNewMaxWindowsApplication()
+        return 'NewMax'
+      }
       return app.getApplicationNameForProtocol(url)
     }
     const codexTarget = CodexTarget.create(app.getPath('userData'), {
@@ -154,8 +159,7 @@ else {
     })
     const newmaxAdapter = createNewMaxTargetAdapter({ source: sourceBrowser, target: newmaxTarget })
     const nativeTargets = new NativeTargets({
-      connections: () => sourceBrowser.connections(), adapters: process.platform === 'darwin' ? [codexAdapter, newmaxAdapter]
-        : process.platform === 'linux' ? [newmaxAdapter] : [],
+      connections: () => sourceBrowser.connections(), adapters: nativeAdaptersForPlatform(process.platform, { codex: codexAdapter, newmax: newmaxAdapter }),
     })
     registerNativeTargetIpc<IpcMainInvokeEvent>({
       handle: (channel, handler) => { ipcMain.handle(channel, handler) }, assertSender, targets: nativeTargets,

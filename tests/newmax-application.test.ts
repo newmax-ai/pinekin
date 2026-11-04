@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveNewMaxApplication } from '../src/main/newmax-application'
+import { resolveNewMaxApplication, resolveNewMaxWindowsApplication, type WindowsApplicationDeps } from '../src/main/newmax-application'
 
 const roots: string[] = []
 const protocol = [{ CFBundleURLSchemes: ['newmax'] }]
@@ -64,5 +64,68 @@ describe.runIf(process.platform === 'darwin')('NewMax 系统协议关联的应�
     await expect(resolveNewMaxApplication(app)).rejects.toThrow('解析')
     await rm(metadata); await mkdir(metadata)
     await expect(resolveNewMaxApplication(app)).rejects.toThrow('普通文件')
+  })
+})
+
+// Windows 身份校验通过注入的注册表／文件系统／PowerShell 替身运行，不读取真实注册表，也不执行任何目标程序。
+describe('NewMax 系统协议关联的 Windows 应用身份识别', () => {
+  const exe = 'C:\\Users\\Jay\\AppData\\Local\\Programs\\NewMax\\NewMax.exe'
+  const reg = (value: string) => `\r\nHKEY_CLASSES_ROOT\\newmax\\shell\\open\\command\r\n    (默认)    REG_SZ    ${value}\r\n`
+  interface World { command: string; userChoice: boolean; product: string; link: boolean; file: boolean; real: string; size: number; mtime: number; productFails: boolean; regFails: boolean }
+  function setup(patch: Partial<World> = {}) {
+    const world: World = { command: `"${exe}" "%1"`, userChoice: false, product: 'NewMax', link: false, file: true, real: exe, size: 100, mtime: 1, productFails: false, regFails: false, ...patch }
+    const run = vi.fn(async (file: string, args: string[], _env?: Record<string, string>) => {
+      if (file.toLowerCase().endsWith('\\reg.exe')) {
+        if (args.join(' ').includes('UserChoice')) return world.userChoice ? { code: 0, stdout: 'ProgId    REG_SZ    Other' } : { code: 1, stdout: '' }
+        return world.regFails ? { code: 1, stdout: '' } : { code: 0, stdout: reg(world.command) }
+      }
+      return world.productFails ? { code: 1, stdout: '' } : { code: 0, stdout: `${world.product}\r\n` }
+    })
+    const deps: WindowsApplicationDeps = { run, systemRoot: 'C:\\Windows',
+      lstat: async () => ({ isSymbolicLink: () => world.link, isFile: () => world.file, size: world.size, mtimeMs: world.mtime }),
+      realpath: async () => world.real }
+    return { run, deps, world }
+  }
+  it('按注册表命令、可执行文件规范路径与产品名识别正式版和国际版', async () => {
+    const { deps } = setup()
+    expect(await resolveNewMaxWindowsApplication(deps)).toEqual({ path: exe, productName: 'NewMax' })
+    const intl = 'D:\\Apps\\NewMax AI\\NewMax AI.exe'
+    const second = setup({ command: `"${intl}" "%1"`, real: intl, product: 'NewMax AI' })
+    expect(await resolveNewMaxWindowsApplication(second.deps)).toEqual({ path: intl, productName: 'NewMax AI' })
+  })
+  it('只调用系统目录下固定的 reg.exe 与 powershell.exe，可执行文件路径仅经环境变量传入', async () => {
+    const { deps, run } = setup()
+    await resolveNewMaxWindowsApplication(deps)
+    const files = run.mock.calls.map(call => call[0])
+    expect(files).toEqual(['C:\\Windows\\System32\\reg.exe', 'C:\\Windows\\System32\\reg.exe', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'])
+    const powershell = run.mock.calls[2]
+    expect(powershell[1].join(' ')).not.toContain('NewMax.exe')
+    expect(powershell[2]).toMatchObject({ PINEKIN_APPLICATION: exe })
+  })
+  it.each([
+    ['用户另选了默认应用', { userChoice: true }, /默认应用/],
+    ['注册表读取失败', { regFails: true }, /协议|注册/],
+    ['未加引号', { command: `${exe} "%1"` }, /命令/],
+    ['带额外参数', { command: `"${exe}" "%1" --evil` }, /命令/],
+    ['经解释器转调', { command: 'cmd.exe /c start "%1"' }, /命令/],
+    ['网络路径', { command: '"\\\\server\\share\\NewMax.exe" "%1"', real: '\\\\server\\share\\NewMax.exe' }, /本地绝对路径/],
+    ['相对路径', { command: '"NewMax.exe" "%1"', real: 'NewMax.exe' }, /本地绝对路径/],
+    ['路径穿越', { command: '"C:\\Apps\\..\\NewMax.exe" "%1"', real: 'C:\\NewMax.exe' }, /本地绝对路径/],
+    ['文件名不符', { command: '"C:\\Apps\\electron.exe" "%1"', real: 'C:\\Apps\\electron.exe' }, /文件名/],
+    ['产品名为通用 Electron', { product: 'Electron' }, /产品名/],
+    ['文件名与产品名不配对', { command: '"C:\\Apps\\NewMax AI.exe" "%1"', real: 'C:\\Apps\\NewMax AI.exe', product: 'NewMax' }, /产品名/],
+    ['符号链接', { link: true }, /符号链接/],
+    ['路径经过联接点', { real: 'C:\\Other\\NewMax.exe' }, /符号链接|联接/],
+    ['不是普通文件', { file: false }, /普通文件/],
+    ['产品名读取失败', { productFails: true }, /产品名|版本信息/],
+  ] as const)('拒绝：%s', async (_name, patch, message) => {
+    const { deps } = setup(patch)
+    await expect(resolveNewMaxWindowsApplication(deps)).rejects.toThrow(message)
+  })
+  it('检查期间可执行文件变化时拒绝', async () => {
+    const { deps, world } = setup()
+    let calls = 0
+    deps.lstat = async () => ({ isSymbolicLink: () => false, isFile: () => true, size: world.size, mtimeMs: calls++ === 0 ? 1 : 2 })
+    await expect(resolveNewMaxWindowsApplication(deps)).rejects.toThrow(/变化/)
   })
 })

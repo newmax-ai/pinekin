@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NativeTargets, type NativeTargetAdapter } from '../src/main/native-targets'
+import { NativeTargets, nativeAdaptersForPlatform, type NativeTargetAdapter } from '../src/main/native-targets'
 import { registerCodexTargetIpc } from '../src/main/codex-target-ipc'
 import { browsableSources, sourceNames, type BrowsableSource } from '../src/core/sources'
 
@@ -122,5 +122,18 @@ describe('已实现原生目标的注册与门禁', () => {
   })
   it('拒绝重复原生适配注册，防止后注册静默覆盖已验证实现', () => {
     expect(() => setup([], [adapter(), adapter()])).toThrow('重复的原生目标')
+  })
+})
+
+describe('按平台注册原生适配', () => {
+  const adapters = { codex: adapter('codex'), newmax: adapter('newmax') }
+  it('macOS 注册 Codex 与 NewMax；Linux、Windows 只注册 NewMax 正式协议', () => {
+    expect(nativeAdaptersForPlatform('darwin', adapters).map(item => item.id)).toEqual(['codex', 'newmax'])
+    expect(nativeAdaptersForPlatform('linux', adapters).map(item => item.id)).toEqual(['newmax'])
+    expect(nativeAdaptersForPlatform('win32', adapters).map(item => item.id)).toEqual(['newmax'])
+  })
+  it('其他平台不注册任何原生适配，Windows 也不会拿到 Codex', () => {
+    expect(nativeAdaptersForPlatform('freebsd', adapters)).toEqual([])
+    expect(nativeAdaptersForPlatform('win32', adapters)).not.toContain(adapters.codex)
   })
 })

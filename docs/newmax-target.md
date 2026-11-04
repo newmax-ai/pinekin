@@ -8,7 +8,13 @@
 
 需要加载了该协议的 NewMax 版本，并在同一 OS 用户下运行。Pinekin 自动采用已授权目标位置，其次使用自身继承的 `NEWMAX_USER_DATA_DIR` 或标准 `~/.newmax`；只探测该数据根的私有描述文件，不扫描其它副本。自定义位置通过「更多 → 接续目标设置 → NewMax → 使用自定义位置」选择。
 
-当前 macOS / Linux 注册客户端，Windows 未支持。Linux GUI、正式发行包、主 dev 实际按钮和用户下一轮模型调用均须独立验收，不能从 socket/SQLite 测试外推。
+当前 macOS / Linux / Windows 注册客户端；Windows 的端点为命名管道，校验差异见下节。Linux GUI、Windows 真实 NewMax 应用、正式发行包、主 dev 实际按钮和用户下一轮模型调用均须独立验收，不能从 socket/SQLite 或命名管道测试外推。
+
+## Windows 命名管道端点
+
+Windows 上 NewMax 监听 `\\.\pipe\newmax-transfer-<实例 ID>`，描述文件字段与协议 v1 不变，`socketPath` 即管道路径。Pinekin 在 Windows 上要求管道名严格匹配并绑定描述文件的 `instanceId`、描述文件不是符号链接、数据根按大小写不敏感比较，不再检查 POSIX 权限位与 socket 属性。Node 无法读取管道所有者或 ACL，因此信任依赖随机管道名、实例令牌和用户数据目录的继承权限，不声称等同 Unix 校验。虚拟机内的验证事实与未验证项见 [Windows 适配与验收](windows-support.md)。
+
+「查看原会话」在 Windows 上对 NewMax 先做注册表应用身份校验（`UserChoice`、`HKCR\newmax` 启动命令、文件名与版本信息产品名配对、路径无符号链接或联接点），通过后才发出固定深链；不校验数字签名，也不声称已选中会话。Codex 在 Windows 上仍不支持。
 
 ## 实现
 
@@ -21,7 +27,7 @@ Pinekin 生产代码不 import NewMax 源码；跨项目修改只在本次明确
 
 ## 安全事务
 
-1. 读取 `0600` 的 `native-transfer.json`，验证同用户所有者、私有 socket/目录权限、规范化数据根、实例 ID、协议 v1、应用版本与完整能力集；不接受 TCP、任意 URL 或命令。
+1. 读取 `0600` 的 `native-transfer.json`，验证同用户所有者、私有 socket/目录权限、规范化数据根、实例 ID、协议 v1、应用版本与完整能力集；不接受 TCP、任意 URL 或命令。Windows 的差异见下节。
 2. 只上传完整可读取 user/assistant 文字；32 MiB / 100000 条上限，传输封装另限 64 MiB，超限不截断。系统、工具、附件、原生 session、权限、Skill、原模型与运行态不迁移。
 3. NewMax 用真实临时 SQLite / JSONL 做隔离预演并重开回读，不调用模型、执行工具或沿历史路径复制附件。Pinekin 比对角色、原文摘要与条数。
 4. Pinekin 再次复核来源及同一目标实例；NewMax 用宿主 SQLite `backup()` 创建一致性快照，提交前复核工作区与有效期。
