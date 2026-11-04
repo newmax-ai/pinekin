@@ -165,7 +165,7 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 
 ## NewMax 正式接续与原会话（2026-11-04）
 
-**范围**：这是跨项目改动，Pinekin 与 `/Users/jaylee/Documents/GitHub/newmax-client` 均在工作区中、未提交。NewMax 侧改动：`electron/nativeConversationTransfer.ts`（新增 `planNativeEndpoint`，Windows 监听 `\\.\pipe\newmax-transfer-<实例 ID>`，移除 win32 拒绝）、`electron/main.ts`（去掉 win32 启动门禁）、三份 locale 的平台提示、`docs/architecture/native-conversation-transfer.md`。Pinekin 侧改动：`newmax-target.ts` 的 Windows 管道校验、`native-targets.ts` 按平台注册、`newmax-application.ts` 的注册表身份校验、`source-actions.ts` 与 `index.ts` 接线。
+**范围**：这是跨项目改动，Pinekin 与 `/Users/jaylee/Documents/GitHub/newmax-client` 已分别提交：Pinekin 为 `6bbe30e`，newmax-client 为 `9cf5f9ee9`，均未推送。NewMax 侧改动：`electron/nativeConversationTransfer.ts`（新增 `planNativeEndpoint`，Windows 监听 `\\.\pipe\newmax-transfer-<实例 ID>`，移除 win32 拒绝）、`electron/main.ts`（去掉 win32 启动门禁）、三份 locale 的平台提示、`docs/architecture/native-conversation-transfer.md`。Pinekin 侧改动：`newmax-target.ts` 的 Windows 管道校验、`native-targets.ts` 按平台注册、`newmax-application.ts` 的注册表身份校验、`source-actions.ts` 与 `index.ts` 接线。
 
 **协议不变**：描述文件字段、版本 v1、信封和动作与 Unix 端点一致，`socketPath` 在 Windows 上即管道路径，旧客户端无需改动。Pinekin 在 Windows 上要求 `socketPath` 严格匹配 `\\.\pipe\newmax-transfer-<UUID>` 且 UUID 等于描述文件的 `instanceId`，描述文件不得为符号链接，数据根按大小写不敏感比较；macOS／Linux 的权限位、所有者与 socket 校验原样保留。Node 读不到 Windows 命名管道的所有者与 ACL，也没有 POSIX 权限位，因此 Windows 不声称与 Unix 校验等价，信任依赖「随机管道名 + 256 位实例令牌 + 用户数据目录的继承权限」。
 
@@ -174,11 +174,14 @@ Windows 失败集中在 Codex 原生写入的 POSIX 路径假设、图标大 Buf
 - 管道的实际 DACL（经管道客户端句柄读取）：所有者 `BUILTIN\Administrators`；`Everyone` 与 `NT AUTHORITY\ANONYMOUS LOGON` 仅 `Read, Synchronize`；`SYSTEM` 与 `Administrators` 完全控制。虚拟机里的 Jay 是本机管理员（任务以受限令牌运行），没有用第二个标准账户验证「其他用户无法写入」，该结论只来自 DACL 内容。描述文件的 ACL 为 `SYSTEM`、`Administrators` 与 Jay 完全控制，由用户目录继承。
 - 把 Pinekin 的真实 `NewMaxTarget` 与上述 NewMax 服务放在同一进程，通过真实命名管道完成 `inspect`、`configure`、`continue`（预演、提交、回读）和 `rollback`：创建 2 条消息，回滚成功；`open` 因测试替身返回「未确认界面选中」，所以 `opened:false`。
 - 注册表身份校验：对虚拟机里已安装的 NewMax 1.1.24 运行真实 `resolveNewMaxWindowsApplication()`，得到 `…\Programs\NewMax\NewMax.exe`、产品名 `NewMax`。该虚拟机没有 `UserChoice` 覆盖。
+- 真实 NewMax 应用（提交 `9cf5f9ee9` 的源码构建版，不是安装包）：在虚拟机内 `npm ci --ignore-scripts` 后构建，以登录用户 Jay 的交互会话启动，`NEWMAX_USER_DATA_DIR` 指向隔离的临时目录，Electron 44.7.2、`platform=win32`。应用写出 `native-transfer.json`，`socketPath` 为 `\\.\pipe\newmax-transfer-<实例 ID>`。Pinekin 的真实 `NewMaxTarget`（提交 `6bbe30e`）对它完成 `inspect`、`configure`、`listProjects`；全新数据目录没有工作区时，提交被 NewMax 拒绝（「目标尚无默认工作区」），在其窗口里新建工作区后，合成会话提交为 `created`（2 条消息、回读一致），同一请求重放返回 `existing`，`open` 返回 `opened:true`，用户在虚拟机屏幕上确认窗口已切到该合成会话，随后 `rollback` 返回 `rolledBack:true`。回滚后没有再用界面确认会话已消失。这一轮直接调用 `NewMaxTarget`，没有经过 Pinekin 界面。
+- 同一次运行里，开发实例把 `HKCU\Software\Classes` 下的 `newmax`、`yinian` 协议改成了 `electron.exe`；此时 `resolveNewMaxWindowsApplication()` 拒绝（「启动命令格式不受信任」）。结束开发实例并把两个协议还原为已装 NewMax 的 `"<路径>\NewMax.exe" "%1"` 后，校验再次通过。还原值依据安装器的命令格式，不是改动前的备份，`DefaultIcon` 读回为空，所以不保证与改动前逐项一致。
+- 构建注意：`better-sqlite3` 没有 install 脚本，npm 会因 `binding.gyp` 默认执行 `node-gyp rebuild`，虚拟机没有 Python，需用 `--ignore-scripts` 并改用包内 `win32-x64` 预编译产物；子模块 `vendor/open-connector` 与 `file:` 依赖 `@newmax/shared-api`（来自 `newmax-web`）不在源码归档里，需要另行准备。
 
 **身份校验做什么、不做什么**：只读 `HKCU\…\UrlAssociations\newmax\UserChoice`（存在则拒绝）和 `HKCR\newmax\shell\open\command`；命令必须严格是 `"<本地绝对路径>" "%1"`；文件名必须是 `NewMax.exe` 或 `NewMax AI.exe`，并与版本信息产品名配对（`NewMax`／`NewMax AI`）；路径不得经符号链接或联接点，检查期间文件不得变化。只调用系统目录下固定的 `reg.exe` 与 `powershell.exe`，不执行目标程序。**没有校验数字签名**，也不能防止同用户进程改写注册表后伪造产品名，与 macOS 包身份校验同级，不是安全边界。查看原会话只发出固定深链并报告「已请求」，不声称已选中。
 
 **仍未验证**：
-- 虚拟机里已安装的 NewMax 1.1.24 不含这次改动，没有对真实 NewMax 桌面应用的 Windows 端点做过验证；NewMax 侧对 `open` 的界面确认、下一轮模型调用都未验。
+- 虚拟机里已安装的 NewMax 1.1.24 不含这次改动。真实应用的端点只在源码构建版上验证过，打包后的 NewMax 安装包未验；接续出的会话在 NewMax 里发起下一轮模型调用也未验；经 Pinekin 界面（而不是直接调用 `NewMaxTarget`）的完整流程未验。
 - `newmax://open?conversation=` 在 Windows 上是否选中正确会话未验：NewMax 的 `second-instance` 处理与 macOS 共用同一深链路由（代码阅读，不是运行验证）。
 - NewMax 侧新增的真实命名管道用例（`it.runIf(win32)`）没有在 vitest 里跑过，虚拟机里跑的是等价的打包脚本。
 - 第二个标准用户账户下的管道访问；Windows CI 结果；国际版 `NewMax AI.exe` 只有单元测试，没有真机。
