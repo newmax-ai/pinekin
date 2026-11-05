@@ -157,7 +157,7 @@ static int authorize(void *context, int action, const char *a, const char *b, co
       return a && (!strcmp(a,"BEGIN") || !strcmp(a,"COMMIT") || !strcmp(a,"ROLLBACK")) ? SQLITE_OK : SQLITE_DENY;
     case SQLITE_READ:
       if (!a || (db && strcmp(db,"main"))) return SQLITE_DENY;
-      return !strcmp(a,"conversations") || !strcmp(a,"sessions") || !strcmp(a,"messages") ||
+      return !strcmp(a,"conversations") || !strcmp(a,"workspaces") || !strcmp(a,"sessions") || !strcmp(a,"messages") ||
         !strcmp(a,"orca_workers") || !strcmp(a,"orca_teams") || !strcmp(a,"sqlite_master") ||
         !strcmp(a,"sqlite_schema") || !strcmp(a,"pragma_table_list") || !strcmp(a,"pragma_table_info") ? SQLITE_OK : SQLITE_DENY;
     case SQLITE_PRAGMA:

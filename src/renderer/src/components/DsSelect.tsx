@@ -38,8 +38,12 @@ export function DsSelect({ id, value, options, onChange, placeholder = '请选�
     // 原生 popover 进入 top layer，但 DOM 仍归属 dialog，避免被滚动容器裁切或跳出模态焦点范围。
     function position() {
       const rect = button.getBoundingClientRect(), gutter = 8, gap = 4
-      const width = Math.min(Math.max(rect.width, 120), window.innerWidth - gutter * 2)
-      popup.style.width = `${width}px`
+      const maxWidth = Math.max(0, window.innerWidth - gutter * 2)
+      // 菜单按最长选项展开；视口放不下时换行，不截断目录名称。
+      popup.style.width = 'max-content'
+      popup.style.minWidth = `${Math.min(Math.max(rect.width, 120), maxWidth)}px`
+      popup.style.maxWidth = `${maxWidth}px`
+      const width = Math.min(popup.getBoundingClientRect().width, maxWidth)
       const below = Math.max(0, window.innerHeight - rect.bottom - gap - gutter)
       const above = Math.max(0, rect.top - gap - gutter)
       const upward = below < Math.min(Math.max(popup.scrollHeight, popup.getBoundingClientRect().height), 240) && above > below

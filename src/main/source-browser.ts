@@ -77,7 +77,7 @@ function date(value: unknown) {
   const result = new Date(typeof value === 'number' || typeof value === 'string' ? value : 0)
   return Number.isFinite(result.getTime()) ? result.toISOString() : new Date(0).toISOString()
 }
-/** 日志自报的工作目录只作展示分组：必须是不含控制字符的绝对路径，相对路径和非字符串一律忽略。 */
+/** 来源自报的工作目录只作展示分组：必须是不含控制字符的绝对路径，相对路径和非字符串一律忽略。 */
 function workspacePath(value: unknown): string | undefined {
   if (typeof value !== 'string' || !value || value.length > 1024 || /[\u0000-\u001f\u007f]/.test(value)) return undefined
   return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') ? value : undefined
@@ -513,7 +513,7 @@ export class SourceBrowser {
         const old = previous.get(id), rowRevision = revision(row)
         if (old?.summary.revision === rowRevision) { state.entries.set(id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old)) }
         else this.add(state, rowId, { sourceSessionId: rowId, title: short(row.title, rowId), project: '', updatedAt: date(row.updated_at), revision: rowRevision,
-          availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
+          ...(!cindy ? { workspace: workspacePath(row.workspace) } : {}), availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
       }
       await setImmediate()
     }

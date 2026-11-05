@@ -161,6 +161,37 @@ describe('来源列表：按工作目录筛选', () => {
   })
 })
 
+describe('NewMax 来源：复用工作区筛选', () => {
+  it('切到 NewMax 后可选择工作区并切回全部目录；换来源时清除工作区条件', async () => {
+    const newmax = { ...connection, source: 'newmax' as const }
+    const entries = [main, plain].map(entry => ({ ...entry, source: 'newmax' as const, project: '' }))
+    const page = vi.fn().mockImplementation(async (query: Record<string, unknown>) => pageOf(
+      query.source === 'newmax' ? entries.filter(entry => !query.workspace || entry.workspace === query.workspace) : [main, plain],
+      { connections: [connection, newmax] },
+    ))
+    window.staithe = { platform: 'darwin', list: vi.fn(), previewImport: vi.fn(), confirmImport: vi.fn(), cancelImport: vi.fn(), exportSession: vi.fn(), copy: vi.fn(), onOpenSession: vi.fn().mockReturnValue(() => {}),
+      sources: { ...mockSourcesAPI(), page } }
+    render(<SourceApp />)
+    fireEvent.click(await screen.findByRole('button', { name: /^NewMax/ }))
+    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'newmax' })))
+    fireEvent.click(screen.getByRole('combobox', { name: '按工作目录筛选' }))
+    fireEvent.click(screen.getByRole('option', { name: 'beta' }))
+    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'newmax', workspace: '/synthetic/work/beta' })))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '主会话甲' })).toBeNull())
+    expect(screen.getByRole('button', { name: '主会话乙' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('combobox', { name: '按工作目录筛选' }))
+    fireEvent.click(screen.getByRole('option', { name: '全部目录' }))
+    await screen.findByRole('button', { name: '主会话甲' })
+    expect(page.mock.calls.at(-1)![0]).not.toHaveProperty('workspace')
+    fireEvent.click(screen.getByRole('combobox', { name: '按工作目录筛选' }))
+    fireEvent.click(screen.getByRole('option', { name: 'beta' }))
+    await waitFor(() => expect(page.mock.calls.at(-1)![0].workspace).toBe('/synthetic/work/beta'))
+    fireEvent.click(screen.getByRole('button', { name: /^Claude Code/ }))
+    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'claude-code' })))
+    expect(page.mock.calls.at(-1)![0]).not.toHaveProperty('workspace')
+  })
+})
+
 describe('来源详情：子会话', () => {
   it('主会话详情列出折叠的子会话，点击后打开子会话正文', async () => {
     const page = setup()

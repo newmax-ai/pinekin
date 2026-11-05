@@ -14,15 +14,15 @@
 .ds-select-trigger:disabled { opacity: 0.4; box-shadow: none; background: var(--ds-on-surface); cursor: default; }
 .ds-select-trigger > .design-icon { color: var(--ds-text-tertiary); flex-shrink: 0; }
 .ds-select-value { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.ds-select-menu { position: fixed; inset: auto; margin: 0; padding: 6px; border: 0; border-radius: var(--ds-radius-lg); background: var(--ds-menu-bg); color: var(--ds-text-primary); box-shadow: var(--ds-menu-shadow), var(--ds-menu-shadow-inset); overflow: auto; overscroll-behavior: contain; }
-.ds-select-option { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 32px; padding: 6px 10px; border: 0; border-radius: var(--ds-radius-md); background: transparent; color: var(--ds-text-primary); font-size: 13px; line-height: 16px; text-align: left; cursor: pointer; }
-.ds-select-option > span:last-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ds-select-menu { position: fixed; inset: auto; margin: 0; padding: 6px; border: 0; border-radius: var(--ds-radius-lg); background: var(--ds-menu-bg); color: var(--ds-text-primary); box-shadow: var(--ds-menu-shadow), var(--ds-menu-shadow-inset); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.ds-select-option { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 32px; padding: 6px 10px; padding-inline-end: 2em; border: 0; border-radius: var(--ds-radius-md); background: transparent; color: var(--ds-text-primary); font-size: 13px; line-height: 16px; text-align: left; cursor: pointer; }
+.ds-select-option > span:last-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .ds-select-option[data-active='true'] { background: var(--ds-on-surface); }
 .ds-select-option[aria-selected='true'] { color: var(--ds-brand-primary); font-weight: 500; }
 .ds-select-check { display: inline-flex; justify-content: center; width: 18px; flex-shrink: 0; }
 /* small：与 DsButton small 同为 28px。 */
 .ds-select[data-size='small'] .ds-select-trigger { height: 28px; font-size: var(--ds-text-sm); }
-.ds-select[data-size='small'] .ds-select-option { min-height: 28px; padding: 4px 10px; font-size: var(--ds-text-sm); }
+.ds-select[data-size='small'] .ds-select-option { min-height: 28px; padding-block: 4px; font-size: var(--ds-text-sm); }
 /* neutral：选中项文字与悬停、聚焦环改用中性文字色，浅深色主题各自取 --ds-text-primary。 */
 .ds-select[data-tone='neutral'] { --ds-input-shadow-hover: 0 0 0 0.5px color-mix(in srgb, var(--ds-text-primary) 24%, transparent); --ds-input-shadow-focus: 0 0 0 0.5px color-mix(in srgb, var(--ds-text-primary) 40%, transparent), 0 0 0 3px color-mix(in srgb, var(--ds-text-primary) 8%, transparent); }
 .ds-select[data-tone='neutral'] .ds-select-option[aria-selected='true'] { color: var(--ds-text-primary); }

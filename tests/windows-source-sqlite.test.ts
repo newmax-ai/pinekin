@@ -78,6 +78,20 @@ describe.runIf(runtime.platform === 'darwin' || runtime.platform === 'win32')('W
       expect((await readSourceDatabase(path, 'newmax', 'one')).rows).toEqual([])
     } finally { db.close() }
   })
+  it('NewMax 工作区目录在 Windows 只读组件白名单内，且不投影其他表', async () => {
+    const { root, path, db } = await setup()
+    try {
+      db.exec(`CREATE TABLE conversations(id TEXT,title TEXT,source TEXT,created_at INTEGER,updated_at INTEGER,forked_from_id TEXT,is_private INTEGER,message_count INTEGER,workspace_id TEXT);
+        CREATE TABLE workspaces(id TEXT PRIMARY KEY,path TEXT);
+        INSERT INTO workspaces VALUES('workspace','C:\\synthetic\\alpha');
+        INSERT INTO conversations VALUES('one','合成会话','app',1000,2000,NULL,0,1,'workspace')`)
+      const before = await bytes(root)
+      const result = await readSourceDatabase(path, 'newmax')
+      expect(result.rows).toMatchObject([{ id: 'one', workspace: 'C:\\synthetic\\alpha' }])
+      expect(JSON.stringify(result)).not.toContain('NEVER_READ_CREDENTIALS')
+      expect(await bytes(root)).toEqual(before)
+    } finally { db.close() }
+  })
   it('视图冒充白名单表时在查询正文前拒绝', async () => {
     const { path, db } = await setup()
     try {

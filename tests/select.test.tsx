@@ -37,6 +37,14 @@ describe('DsSelect 本地适配 NewMax 选择控件', () => {
     expect(neutral.length).toBeGreaterThan(0)
     expect(css.match(/\.ds-select\[data-tone='neutral'\][^{]*\{[^}]*\}/g)?.join('\n')).not.toContain('brand-primary')
   })
+  it('菜单项文字末尾保留 2em 留白，small 规格仅调整纵向间距，不覆盖末尾留白', () => {
+    const css = readFileSync('src/renderer/src/components/DsSelect.css', 'utf8')
+    const option = css.match(/\.ds-select-option\s*\{([^}]*)\}/)![1]
+    const small = css.match(/\.ds-select\[data-size='small'\] \.ds-select-option\s*\{([^}]*)\}/)![1]
+    expect(option).toMatch(/padding-inline-end:\s*2em/)
+    expect(small).toMatch(/padding-block:\s*4px/)
+    expect(small).not.toMatch(/padding(?:-inline(?:-end)?|-right)?:/)
+  })
   it('复用按钮触发器与菜单项契约，不渲染原生 select，选择后关闭并归还焦点', () => {
     const { container } = render(<Controlled />)
     const trigger = screen.getByRole('combobox', { name: '来源 App' })
@@ -124,6 +132,59 @@ describe('DsSelect 本地适配 NewMax 选择控件', () => {
     fireEvent.keyDown(trigger, { key: ' ' })
     expect(onChange).toHaveBeenCalledWith('codex')
     expect(screen.queryByRole('listbox')).toBeNull()
+  })
+  it('菜单按内容展开，至少与触发器等宽，并用展开后的宽度避让视口右边缘', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const left = this.getAttribute('role') === 'combobox' ? window.innerWidth - 200 : 0
+      const width = this.getAttribute('role') === 'combobox' ? 180 : 420
+      return { left, right: left + width, top: 40, bottom: 72, width, height: 32, x: left, y: 40, toJSON() {} }
+    })
+    render(<DsSelect aria-label="目录" options={[{ value: 'long', label: 'synthetic-workspace-with-a-complete-long-name' }]} />)
+    fireEvent.click(screen.getByRole('combobox'))
+    const menu = screen.getByRole('listbox')
+    expect(menu.style.width).toBe('max-content')
+    expect(menu.style.minWidth).toBe('180px')
+    expect(menu.style.maxWidth).toBe(`${window.innerWidth - 16}px`)
+    expect(parseFloat(menu.style.left)).toBe(window.innerWidth - 420 - 8)
+  })
+  it('窗口缩小时重新约束菜单最小宽度，不让宽触发器把菜单撑出窗口', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 10, right: 910, top: 40, bottom: 72, width: 800, height: 32, x: 10, y: 40, toJSON() {} })
+    const viewport = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(640)
+    render(<Controlled />)
+    fireEvent.click(screen.getByRole('combobox'))
+    const menu = screen.getByRole('listbox')
+    expect(menu.style.minWidth).toBe('624px')
+    expect(menu.style.maxWidth).toBe('624px')
+    viewport.mockReturnValue(320)
+    fireEvent(window, new Event('resize'))
+    expect(menu.style.minWidth).toBe('304px')
+    expect(menu.style.maxWidth).toBe('304px')
+    expect(menu.style.left).toBe('8px')
+  })
+  it('超长选项换行完整展示，菜单只沿纵向滚动而不省略文字', () => {
+    const css = readFileSync('src/renderer/src/components/DsSelect.css', 'utf8')
+    const label = css.match(/\.ds-select-option > span:last-child\s*\{([^}]*)\}/)![1]
+    expect(label).toMatch(/white-space:\s*normal/)
+    expect(label).toMatch(/overflow-wrap:\s*anywhere/)
+    expect(label).not.toMatch(/ellipsis|nowrap|overflow:\s*hidden/)
+    expect(css).toMatch(/\.ds-select-menu\s*\{[^}]*overflow-x:\s*hidden/)
+    expect(css).toMatch(/\.ds-select-menu\s*\{[^}]*overflow-y:\s*auto/)
+  })
+  it('长列表受可用高度约束，End 可定位并选择最后一项', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 20, right: 200, top: 40, bottom: 72, width: 180, height: 32, x: 20, y: 40, toJSON() {} })
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(1200)
+    const onChange = vi.fn()
+    const many = Array.from({ length: 40 }, (_, index) => ({ value: `${index}`, label: `synthetic-workspace-${index}` }))
+    render(<DsSelect aria-label="目录" options={many} onChange={onChange} />)
+    const trigger = screen.getByRole('combobox')
+    fireEvent.click(trigger)
+    const menu = screen.getByRole('listbox')
+    expect(screen.getAllByRole('option')).toHaveLength(40)
+    expect(parseFloat(menu.style.maxHeight)).toBeLessThanOrEqual(Math.min(400, window.innerHeight - 84))
+    fireEvent.keyDown(trigger, { key: 'End' })
+    expect(document.getElementById(trigger.getAttribute('aria-activedescendant')!)?.textContent).toBe(many[39].label)
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('39')
   })
   it('贴近视口边缘时约束宽高并向上展开，resize 后重新定位', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {

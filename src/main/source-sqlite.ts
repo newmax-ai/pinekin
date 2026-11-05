@@ -54,7 +54,7 @@ export async function readSourceDatabase(path: string, source: 'newmax' | 'cindy
   }
 }
 
-async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', rowId: string | undefined, cursor: SourceReadCursor): Promise<DatabaseProjection> {
+async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', rowId: string | undefined, cursor: SourceReadCursor, withWorkspaces = false): Promise<DatabaseProjection> {
   const before = await ordinary(path)
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
@@ -68,19 +68,27 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
     const immutable = !wal && !shm
     const table = source === 'cindy' ? 'sessions' : 'conversations'
     const required = source === 'cindy' ? cindyRequiredTables
-      : { [table]: conversationColumns, ...(rowId === undefined ? {} : { messages: messageColumns }) }
+      : { [table]: [...conversationColumns, ...(withWorkspaces ? ['workspace_id'] : [])],
+        ...(withWorkspaces ? { workspaces: ['id', 'path'] } : {}), ...(rowId === undefined ? {} : { messages: messageColumns }) }
     const names = Object.keys(required).map(name => `'${name}'`).join(',')
+    // 旧契约不要求工作区字段。首次仅探测结构；确认支持后重读完整目录，不能在同一 SQL 中引用不存在的列。
+    const probeWorkspaces = source === 'newmax' && rowId === undefined && !withWorkspaces
+    const schemaNames = probeWorkspaces ? `${names},'workspaces'` : names
     // 在同一事务中先验证普通表，再验证列；-bail 遇到校验错误即退出，后续查询不会准备或执行。
     // 不能只在 stdout 返回后拒绝视图，否则视图已可能读取非白名单表。虚拟表和 shadow 表也排除。
     const tableCheck = `(SELECT COUNT(*) FROM pragma_table_list WHERE schema='main' AND name IN (${names}) AND type='table')=${Object.keys(required).length}`
     const columnCheck = Object.entries(required).map(([name, columns]) =>
       `(SELECT COUNT(*) FROM pragma_table_info('${name}') WHERE name IN (${columns.map(column => `'${column}'`).join(',')}))=${columns.length}`).join(' AND ')
     const guard = (condition: string) => `SELECT json_object('kind','schema-guard','valid',CASE WHEN ${condition} THEN 1 ELSE json('PINEKIN_SCHEMA_MISMATCH') END);`
-    const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',json((SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name)))) FROM sqlite_schema WHERE name IN (${names});`
+    const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',json((SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name)))) FROM sqlite_schema WHERE name IN (${schemaNames});`
     let query: string
     if (rowId === undefined) {
       query = source === 'cindy' ? cindyDirectoryQuery()
-        : `SELECT json_object('kind','row','value',${object(conversationColumns)}) FROM ${table} ORDER BY id;`
+        : withWorkspaces
+          ? `${guard('NOT EXISTS(SELECT 1 FROM workspaces GROUP BY id HAVING COUNT(*)>1)')}
+            SELECT json_object('kind','row','value',json_set(${object(conversationColumns)},'$.workspace',
+              (SELECT CASE WHEN typeof(path)='text' AND length(path)<=1024 THEN path END FROM workspaces WHERE id=conversations.workspace_id))) FROM conversations ORDER BY id;`
+          : `SELECT json_object('kind','row','value',${object(conversationColumns)}) FROM ${table} ORDER BY id;`
     } else if (source === 'cindy') {
       query = cindySourceQuery(rowId, cursor)
     } else {
@@ -142,6 +150,18 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
       const schema = records.find(row => row.kind === 'schema' && row.name === name)
       const actual = schema?.columns
       if (schema?.type !== 'table' || !Array.isArray(actual) || columns.some(column => !actual.includes(column))) throw new Error('数据库结构未支持：会话表或字段不匹配')
+    }
+    if (probeWorkspaces) {
+      const conversations = records.find(row => row.kind === 'schema' && row.name === 'conversations')
+      const workspaces = records.find(row => row.kind === 'schema' && row.name === 'workspaces')
+      if (Array.isArray(conversations?.columns) && conversations.columns.includes('workspace_id') && workspaces) {
+        const columns = workspaces.columns
+        if (workspaces.type !== 'table' || !Array.isArray(columns) || !['id', 'path'].every(column => columns.includes(column))) {
+          throw new Error('数据库结构未支持：工作区表或字段不匹配')
+        }
+        // 最终投影在新的单一事务中重新校验全部表与字段；不拼接两个事务的目录或路径。
+        return await readDatabaseSnapshot(path, source, rowId, cursor, true)
+      }
     }
     const rows = records.filter(row => row.kind === 'row').map(row => row.value as DatabaseRow)
     const session = records.find(row => row.kind === 'session')?.value as DatabaseRow | undefined

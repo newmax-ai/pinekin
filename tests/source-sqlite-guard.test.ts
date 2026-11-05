@@ -54,6 +54,15 @@ describe.runIf(process.platform === 'darwin')('SQLite 在正文语句之前校�
     await expect(readSourceDatabase(path, 'cindy', 'synthetic-session')).rejects.toThrow(/结构/)
     expect(trace.outputs.join('')).not.toContain('"kind":"session"')
   })
+  it('NewMax 工作区视图在准备路径查询前拒绝，stdout 也不泄露凭据', async () => {
+    const { path, db } = await setup()
+    db.exec(`CREATE TABLE conversations(id TEXT,title TEXT,source TEXT,created_at INTEGER,updated_at INTEGER,forked_from_id TEXT,is_private INTEGER,message_count INTEGER,workspace_id TEXT);
+      INSERT INTO conversations VALUES('one','合成会话','app',1000,2000,NULL,0,1,'a');
+      CREATE VIEW workspaces AS SELECT 'a' AS id, secret AS path FROM credentials`)
+    db.close()
+    await expect(readSourceDatabase(path, 'newmax')).rejects.toThrow(/结构/)
+    expect(trace.outputs.join('')).not.toContain('NEVER_READ_CREDENTIALS')
+  })
   it('正常表仍通过同一连接的结构校验并返回正文', async () => {
     const { path, db } = await setup(); db.close()
     const result = await readSourceDatabase(path, 'cindy', 'synthetic-session')

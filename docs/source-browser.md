@@ -441,7 +441,8 @@ NewMax 的 `electron/libs/devInstanceRole.ts:5–10、63–70` 明确支持开�
 
 重度 Claude Code 用户常常有很多会话和子 agent 运行，平铺的列表难以回看。本批只用目录元数据解决“按项目找”和“子 agent 输出归到主会话下”，不读取正文。
 
-- **工作目录**：Claude Code 取连续头部首条记录的 `cwd`，Codex 取 `session_meta.payload.cwd`，写入 `SourceEntry.workspace`。只接受不含控制字符、不超过 1024 字符的绝对路径（POSIX、盘符、UNC）；相对路径和非字符串一律忽略。它是日志自报的展示信息，不用来读取任何文件，也不是客户端保存的项目列表。
+- **工作目录**：Claude Code 取连续头部首条记录的 `cwd`，Codex 取 `session_meta.payload.cwd`，NewMax 用 `conversations.workspace_id` 关联 `workspaces.path`，统一写入 `SourceEntry.workspace`。只接受不含控制字符、不超过 1024 字符的绝对路径（POSIX、盘符、UNC）；相对路径和非字符串一律忽略。这些路径只作展示与筛选，不用来读取任何文件；NewMax 表示客户端保存的所属工作区，其他两类仅表示日志自报目录。
+- **NewMax 工作区读取**：只读核对相邻 NewMax 源码 `electron/conversationStore.ts` 的建表及关联契约，不扫描真实客户端数据。目录首次在受限进程中探测可选结构；具备工作区关联时，再用新的单一只读事务重新验证 `conversations.workspace_id`、普通 `workspaces` 表及 `id/path`，投影完整目录与关联路径，不拼接两个事务的结果。工作区仅投影 `id/path` 所需数据，不读取模型配置、凭据或消息正文；Windows 组件白名单同步允许该表。旧库缺少工作区字段或表时仍能浏览；孤立关联、空路径及无效路径不伪造归属，视图、缺列或重复工作区 ID 明确拒绝。路径变化纳入目录 revision 与快照，刷新后重建筛选分面。多个工作区复用现有列表头部筛选器，可切回“全部目录”；不改变隐私、分叉及非 App 会话的过滤边界。真实主 dev 界面尚待验收，不因合成测试通过宣称本机功能已经跑通。
 - **子会话归属**：Claude Code 子会话位于 `<项目>/<主会话 ID>/subagents/agent-*.jsonl`，只采用紧邻 `subagents` 的上一级目录名作为 `SourceEntry.parentSessionId`；不读取日志内容推断父子关系，也不跨连接解析。
 - **列表折叠**：主列表默认隐藏父会话已在同一连接出现的子会话，并在父会话上返回 `subagentCount`。找不到父会话的子会话仍留在主列表，搜索时也不折叠，避免条目凭空消失。`subagentCount` 只在响应中计算，不进入目录缓存和快照指纹，翻页时懒加载出的子会话不会被误判为来源变化。
 - **查询**：`page` 新增 `workspace`（精确匹配，≤1024）与 `parentSessionId`（≤512），沿用严格对象校验；响应新增 `workspaces` 分面（已加载顶层会话的目录与数量，最多 50 项，不随筛选收窄）。按 `parentSessionId` 查询只展开已加载的子会话，不触发主列表的分页读取。快照指纹纳入 `workspace` 与 `parentSessionId`；搜索范围纳入工作目录。
