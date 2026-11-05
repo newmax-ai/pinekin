@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { sourceReadCursorSchema, type SourceReadCursor } from '../core/sources'
 import { textWindowQuery } from './source-read-window'
 import { SOURCE_TEXT_POLICY_VERSION } from '../core/source-user-content'
-import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery } from './cindy-source-query'
+import { cindyDirectoryQuery, cindyRequiredTables, cindySourceQuery, cindyWorkspaceColumns } from './cindy-source-query'
 
 const execute = promisify(execFile)
 class SourceDatabaseChangedError extends Error {}
@@ -67,12 +67,14 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
     // 无副文件的静态库才能使用 immutable；活跃 WAL 必须交给 SQLite 原生事务处理。
     const immutable = !wal && !shm
     const table = source === 'cindy' ? 'sessions' : 'conversations'
-    const required = source === 'cindy' ? cindyRequiredTables
+    const required = source === 'cindy' ? { ...cindyRequiredTables,
+      sessions: [...cindyRequiredTables.sessions, ...(withWorkspaces ? cindyWorkspaceColumns : [])] }
       : { [table]: [...conversationColumns, ...(withWorkspaces ? ['workspace_id'] : [])],
         ...(withWorkspaces ? { workspaces: ['id', 'path'] } : {}), ...(rowId === undefined ? {} : { messages: messageColumns }) }
     const names = Object.keys(required).map(name => `'${name}'`).join(',')
     // 旧契约不要求工作区字段。首次仅探测结构；确认支持后重读完整目录，不能在同一 SQL 中引用不存在的列。
     const probeWorkspaces = source === 'newmax' && rowId === undefined && !withWorkspaces
+    const probeCindyWorkspaces = source === 'cindy' && rowId === undefined && !withWorkspaces
     const schemaNames = probeWorkspaces ? `${names},'workspaces'` : names
     // 在同一事务中先验证普通表，再验证列；-bail 遇到校验错误即退出，后续查询不会准备或执行。
     // 不能只在 stdout 返回后拒绝视图，否则视图已可能读取非白名单表。虚拟表和 shadow 表也排除。
@@ -83,7 +85,7 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
     const schema = `${guard(tableCheck)}\n${guard(columnCheck)}\nSELECT json_object('kind','schema','name',name,'type',type,'columns',json((SELECT json_group_array(name) FROM pragma_table_info(sqlite_schema.name)))) FROM sqlite_schema WHERE name IN (${schemaNames});`
     let query: string
     if (rowId === undefined) {
-      query = source === 'cindy' ? cindyDirectoryQuery()
+      query = source === 'cindy' ? cindyDirectoryQuery(withWorkspaces)
         : withWorkspaces
           ? `${guard('NOT EXISTS(SELECT 1 FROM workspaces GROUP BY id HAVING COUNT(*)>1)')}
             SELECT json_object('kind','row','value',json_set(${object(conversationColumns)},'$.workspace',
@@ -160,6 +162,13 @@ async function readDatabaseSnapshot(path: string, source: 'newmax' | 'cindy', ro
           throw new Error('数据库结构未支持：工作区表或字段不匹配')
         }
         // 最终投影在新的单一事务中重新校验全部表与字段；不拼接两个事务的目录或路径。
+        return await readDatabaseSnapshot(path, source, rowId, cursor, true)
+      }
+    }
+    if (probeCindyWorkspaces) {
+      const columns = records.find(row => row.kind === 'schema' && row.name === 'sessions')?.columns
+      if (Array.isArray(columns) && cindyWorkspaceColumns.every(column => columns.includes(column))) {
+        // 重读时在单一事务内重新验证字段并投影目录，不能拼接两次读取的元数据。
         return await readDatabaseSnapshot(path, source, rowId, cursor, true)
       }
     }

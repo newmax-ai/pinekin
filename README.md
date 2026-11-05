@@ -64,12 +64,12 @@ flowchart LR
 | 来源 | 自动查找位置 | 正文支持范围 |
 | --- | --- | --- |
 | NewMax | `~/.newmax/newmax.db`、`NEWMAX_USER_DATA_DIR` | 普通主会话，支持按所属工作区路径筛选；隐私、分叉、非 App 会话不支持 |
-| Cindy | `Cindy` / `CindyGlobal` 下的账号库 | 普通桌面会话当前问答；分叉、协作、远程、隐藏会话不支持 |
+| Cindy | `Cindy` / `CindyGlobal` 下的账号库 | 普通桌面会话当前问答；支持按明确的项目目录筛选，普通对话运行目录不作项目；分叉、协作、远程、隐藏会话不支持 |
 | Claude Code | `~/.claude/projects` 或单项目目录 | 当前文件单根父链；不追读父文件，压缩日志不支持；按日志自报的工作目录筛选，`subagents/` 子会话折叠在主会话下 |
-| Codex | `sessions`、`archived_sessions` | 当前文件内主／子会话；跨文件继承历史不追读 |
-| DeepSeek Harness | `~/.dsh/sessions`、`DSH_HOME`；其他位置手动选择 | v4 独立主会话问答文本；不是 DeepSeek 网页聊天 |
-| WorkBuddy | `.workbuddy/projects` | 本地普通主会话；分叉、压缩、重发回退不支持 |
-| Qwen Code | `.qwen/projects` | 独立主会话单根父链；分叉、子会话、压缩不支持 |
+| Codex | `sessions`、`archived_sessions` | 当前文件内主／子会话；普通及压缩日志支持按自报工作目录筛选；跨文件继承历史不追读 |
+| DeepSeek Harness | `~/.dsh/sessions`、`DSH_HOME`；其他位置手动选择 | v4 独立主会话问答文本，普通及压缩日志支持按会话头工作目录筛选；不是 DeepSeek 网页聊天 |
+| WorkBuddy | `.workbuddy/projects` | 本地普通主会话；项目路径归属尚未验证，不按存储目录名猜测筛选项；分叉、压缩、重发回退不支持 |
+| Qwen Code | `.qwen/projects` | 独立主会话单根父链，支持按根记录工作目录筛选；分叉、子会话、压缩不支持 |
 
 - 显示数量是授权位置内**排除已知不支持条目后**的会话数，不是客户端全部记录；过滤不删除原件。
 - 当前搜索只覆盖标题等元数据，不是全文搜索。

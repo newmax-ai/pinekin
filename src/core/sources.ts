@@ -9,7 +9,7 @@ export const entryIdSchema = z.string().regex(/^[a-f0-9]{64}$/)
 export const sourceQuerySchema = z.strictObject({
   connectionId: connectionIdSchema.optional(), source: sourceSchema.optional(),
   query: z.string().max(200).default(''),
-  // 工作目录是日志自报的展示信息，只做精确匹配；父会话 ID 只用于列出某个主会话下的子会话。
+  // 工作目录是来源提供的展示信息，只做精确匹配；父会话 ID 只用于列出某个主会话下的子会话。
   workspace: z.string().min(1).max(1024).optional(), parentSessionId: z.string().min(1).max(512).optional(),
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(100).default(50),
@@ -32,7 +32,7 @@ export interface SourceConnection {
 export interface SourceEntry {
   id: string; connectionId: string; source: BrowsableSource; sourceSessionId?: string
   title: string; project: string; updatedAt: string; revision?: string; kind?: SourceRecordKind
-  /** 日志自报的绝对工作目录，仅用于分组展示；不据此读取任何文件。 */
+  /** 来源提供的绝对工作目录／项目路径，仅用于展示与筛选；不据此读取任何文件。 */
   workspace?: string
   /** 子会话所属主会话的来源会话 ID，由日志目录结构得出；不跨连接解析。 */
   parentSessionId?: string

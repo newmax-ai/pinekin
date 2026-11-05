@@ -21,18 +21,24 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       await scan((record, line) => parser.accept(record, line))
       const index = parser.finish()
       if ((await readWorkbuddyMetadata(path, root, authorized)).revision !== metadata.revision) throw new Error('WorkBuddy 元数据在检查期间变化，请刷新')
-      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: fileId, title: index.session.title }
+      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: fileId, title: index.session.title, workspace: undefined }
     }
     if (revision !== expectedRevision) throw new Error('来源在目录检查期间变化，请刷新')
     if (source === 'qwen-code') {
       const parser = createQwenIndexer()
-      await scan((record, line) => parser.accept(record, line))
+      let workspace: unknown
+      await scan((record, line) => {
+        parser.accept(record, line)
+        // 父链验证成功后才使用唯一根记录的目录，不用物理行顺序或后续消息目录推断项目。
+        if (record.parentUuid === null) workspace = record.cwd
+      })
       const index = parser.finish()
-      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: index.session.id, title: index.session.title }
+      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: index.session.id, title: index.session.title, workspace }
     }
     const origin = new ClaudeLogOrigin(), auxiliary = new ClaudeAuxiliaryLog()
     let reason: string | undefined, kind: SourceRecordKind | undefined, sourceSessionId: string | undefined, prompt = '', custom = ''
-    await scan(record => {
+    let workspace: unknown
+    await scan((record, line) => {
       if (source === 'claude-code') {
         origin.observe(record)
         auxiliary.observe(record)
@@ -41,6 +47,7 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       } else if (source === 'codex') {
         const payload = record.payload as Record<string, unknown> | undefined
         if (record.type === 'session_meta' && payload) {
+          if (line === 1) workspace = payload.cwd
           if (typeof payload.id === 'string') sourceSessionId = payload.id.slice(0, 512)
           reason = codexUnsupportedReason(payload) ?? reason
           if (isCodexSubagent(payload)) kind = 'subagent'
@@ -48,6 +55,7 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
         if (!prompt) prompt = codexFirstPrompt(record)
       } else {
         if (record.type === 'session') {
+          if (line === 1) workspace = record.cwd
           if (typeof record.id === 'string') sourceSessionId = record.id.slice(0, 512)
           if (record.version !== 4 || record.isSeeded !== false || record.delegationDepth !== 0) reason = '仅支持 DeepSeek v4 独立主会话'
         }
@@ -60,6 +68,6 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       if (auxiliary.auxiliary) { reason = claudeAuxiliaryReason; kind = 'internal' }
       if (origin.value(true) === 'sdk') reason = sdkOriginReason
     }
-    return { reason, kind, sourceSessionId, title: custom || prompt }
+    return { reason, kind, sourceSessionId, title: custom || prompt, workspace }
   })
 }

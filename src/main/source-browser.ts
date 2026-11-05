@@ -396,6 +396,7 @@ export class SourceBrowser {
       if (state.saved.source === 'qwen-code' || state.saved.source === 'workbuddy') {
         const support = await inspectLogSupport(path, root, state.saved.source, details.revision, active)
         details.title = support.title; details.sourceSessionId = support.sourceSessionId; details.kind = support.kind
+        details.workspace = workspacePath(support.workspace)
       }
       if (state.saved.source === 'claude-code' && !name.endsWith('.jsonl')) {
         details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
@@ -411,6 +412,7 @@ export class SourceBrowser {
         if (support.title) details.title = support.title
         if (support.sourceSessionId) details.sourceSessionId = support.sourceSessionId
         if (support.kind) details.kind = support.kind
+        details.workspace = workspacePath(support.workspace)
         if (support.reason) { details.availability = 'unsupported'; details.reason = support.reason }
       }
       if (state.saved.source !== 'qwen-code' && state.saved.source !== 'workbuddy' && name.endsWith('.jsonl') && (promptTitle || details.availability === 'unread')) {
@@ -482,6 +484,7 @@ export class SourceBrowser {
         }
         if (index === 0 && !prompt) prompt = codexFirstPrompt(value)
       } else if (source === 'deepseek') {
+        if (index === 0 && value.type === 'session') details.workspace ??= workspacePath(value.cwd)
         if (value.type === 'session' && (value.version !== 4 || value.isSeeded !== false || value.delegationDepth !== 0)) {
           details.availability = 'unsupported'; details.reason = '仅支持 DeepSeek v4 独立主会话'
         }
@@ -513,7 +516,7 @@ export class SourceBrowser {
         const old = previous.get(id), rowRevision = revision(row)
         if (old?.summary.revision === rowRevision) { state.entries.set(id, { ...old, summary: { ...old.summary } }); state.view.discovered += Number(visibleEntry(old)) }
         else this.add(state, rowId, { sourceSessionId: rowId, title: short(row.title, rowId), project: '', updatedAt: date(row.updated_at), revision: rowRevision,
-          ...(!cindy ? { workspace: workspacePath(row.workspace) } : {}), availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
+          workspace: workspacePath(row.workspace), availability: reason ? 'unsupported' : 'unread', reason }, state.saved.path, rowId)
       }
       await setImmediate()
     }

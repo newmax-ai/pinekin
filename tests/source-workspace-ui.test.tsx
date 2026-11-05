@@ -161,22 +161,24 @@ describe('来源列表：按工作目录筛选', () => {
   })
 })
 
-describe('NewMax 来源：复用工作区筛选', () => {
-  it('切到 NewMax 后可选择工作区并切回全部目录；换来源时清除工作区条件', async () => {
-    const newmax = { ...connection, source: 'newmax' as const }
-    const entries = [main, plain].map(entry => ({ ...entry, source: 'newmax' as const, project: '' }))
+describe.each([
+  ['newmax', 'NewMax'], ['codex', 'Codex'], ['cindy', 'Cindy'], ['deepseek', 'DeepSeek Harness'], ['qwen-code', 'Qwen Code'],
+] as const)('%s 来源：复用工作区筛选', (source, label) => {
+  it('可选择工作区并切回全部目录；换来源时清除工作区条件', async () => {
+    const selectedConnection = { ...connection, source }
+    const entries = [main, plain].map(entry => ({ ...entry, source, project: '' }))
     const page = vi.fn().mockImplementation(async (query: Record<string, unknown>) => pageOf(
-      query.source === 'newmax' ? entries.filter(entry => !query.workspace || entry.workspace === query.workspace) : [main, plain],
-      { connections: [connection, newmax] },
+      query.source === source ? entries.filter(entry => !query.workspace || entry.workspace === query.workspace) : [main, plain],
+      { connections: [connection, selectedConnection] },
     ))
     window.staithe = { platform: 'darwin', list: vi.fn(), previewImport: vi.fn(), confirmImport: vi.fn(), cancelImport: vi.fn(), exportSession: vi.fn(), copy: vi.fn(), onOpenSession: vi.fn().mockReturnValue(() => {}),
       sources: { ...mockSourcesAPI(), page } }
     render(<SourceApp />)
-    fireEvent.click(await screen.findByRole('button', { name: /^NewMax/ }))
-    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'newmax' })))
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${label}`) }))
+    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source })))
     fireEvent.click(screen.getByRole('combobox', { name: '按工作目录筛选' }))
     fireEvent.click(screen.getByRole('option', { name: 'beta' }))
-    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'newmax', workspace: '/synthetic/work/beta' })))
+    await waitFor(() => expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ source, workspace: '/synthetic/work/beta' })))
     await waitFor(() => expect(screen.queryByRole('button', { name: '主会话甲' })).toBeNull())
     expect(screen.getByRole('button', { name: '主会话乙' })).toBeTruthy()
     fireEvent.click(screen.getByRole('combobox', { name: '按工作目录筛选' }))

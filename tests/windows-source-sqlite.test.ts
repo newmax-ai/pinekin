@@ -58,6 +58,20 @@ describe.runIf(runtime.platform === 'darwin' || runtime.platform === 'win32')('W
       expect(runtime.calls).toHaveLength(2)
     } finally { db.close() }
   })
+  it('Cindy 项目目录通过同一受限组件投影，普通对话目录不当作项目，不改写来源', async () => {
+    const { root, path, db } = await setup()
+    try {
+      db.exec(`ALTER TABLE sessions ADD COLUMN working_dir TEXT;
+        ALTER TABLE sessions ADD COLUMN workspace_kind TEXT;
+        UPDATE sessions SET working_dir='C:\\synthetic\\project',workspace_kind='project';
+        INSERT INTO sessions(id,title,updated_at,working_dir,workspace_kind) VALUES('dialogue','合成对话',2000,'C:\\synthetic\\dialogue','dialogue')`)
+      const before = await bytes(root), result = await readSourceDatabase(path, 'cindy')
+      expect(result.rows.find(row => row.id === 'synthetic-session')?.workspace).toBe('C:\\synthetic\\project')
+      expect(result.rows.find(row => row.id === 'dialogue')?.workspace).toBeNull()
+      expect(JSON.stringify(result)).not.toMatch(/NEVER_READ|合成用户问题/)
+      expect(await bytes(root)).toEqual(before)
+    } finally { db.close() }
+  })
   it('NewMax 活跃 WAL 正文、长片段与后续游标可读，隐私会话不投影', async () => {
     const { root, path, db } = await setup()
     try {

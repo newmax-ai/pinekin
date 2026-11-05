@@ -5,6 +5,8 @@ import { textWindowQuery } from './source-read-window'
 export const CINDY_SOURCE_SCHEMA = '0.1.110-schema'
 export const cindySessionColumns = ['id', 'title', 'source', 'status', 'created_at', 'updated_at', 'parent_session_id',
   'forked_at_message_id', 'remote_host_id', 'orca_role', 'cleared_at', 'agent_device_id', 'orca_remote_lead', 'hidden_at']
+// 可选项目字段来自官方 77e2c32；旧库缺少任一字段时不猜测项目归属。
+export const cindyWorkspaceColumns = ['working_dir', 'workspace_kind']
 export const cindyMessageColumns = ['id', 'session_id', 'role', 'content', 'created_at', 'rewind_at']
 export const cindyRequiredTables = { sessions: cindySessionColumns, messages: cindyMessageColumns,
   orca_workers: ['session_id'], orca_teams: ['lead_session_id'] }
@@ -16,9 +18,11 @@ const allowed = `s.source='desktop' AND s.status IN ('active','archived')
   AND NOT EXISTS(SELECT 1 FROM orca_workers w WHERE w.session_id=s.id)
   AND NOT EXISTS(SELECT 1 FROM orca_teams t WHERE t.lead_session_id=s.id)`
 
-export function cindyDirectoryQuery(): string {
+export function cindyDirectoryQuery(withWorkspaces = false): string {
+  // dialogue 的 working_dir 是会话运行目录，不属于客户端 Projects 分组。
+  const workspace = withWorkspaces ? `,'workspace',CASE WHEN s.workspace_kind='project' AND typeof(s.working_dir)='text' AND length(s.working_dir)<=1024 THEN s.working_dir END` : ''
   return `SELECT json_object('kind','row','value',json_object('id',s.id,'title',s.title,'updated_at',s.updated_at,
-    'readable',CASE WHEN ${allowed} THEN 1 ELSE 0 END)) FROM sessions s ORDER BY s.id;`
+    'readable',CASE WHEN ${allowed} THEN 1 ELSE 0 END${workspace})) FROM sessions s ORDER BY s.id;`
 }
 
 /** 固定 SQL；ID 由调用方编码成十六进制值，不能传入 SQL 片段。 */
