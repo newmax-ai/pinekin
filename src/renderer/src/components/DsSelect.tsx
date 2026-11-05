@@ -11,10 +11,14 @@ interface DsSelectProps extends Pick<AriaAttributes, 'aria-label' | 'aria-labell
   placeholder?: string
   disabled?: boolean
   className?: string
+  /** small 为 28px 紧凑规格，与 DsButton small 对齐。 */
+  size?: 'small' | 'default'
+  /** neutral 的选中项与聚焦环使用文字色，不用品牌蓝。 */
+  tone?: 'brand' | 'neutral'
 }
 
 /** 本地适配 NewMax DsSelect / DsMenu 的基础单选契约；不引入宿主 store、i18n 或 portal。 */
-export function DsSelect({ id, value, options, onChange, placeholder = '请选择', disabled = false, className = '', ...aria }: DsSelectProps) {
+export function DsSelect({ id, value, options, onChange, placeholder = '请选择', disabled = false, className = '', size = 'default', tone = 'brand', ...aria }: DsSelectProps) {
   const menuId = useId()
   const container = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -96,7 +100,7 @@ export function DsSelect({ id, value, options, onChange, placeholder = '请选�
     }
   }
 
-  return <div ref={container} className={`ds-select ${className}`}>
+  return <div ref={container} className={`ds-select ${className}`} data-size={size} data-tone={tone}>
     <button ref={trigger} id={id} type="button" role="combobox" className="ds-select-trigger" disabled={unavailable}
       {...aria} aria-haspopup="listbox" aria-expanded={expanded} aria-controls={expanded ? menuId : undefined}
       aria-activedescendant={expanded ? `${menuId}-${activeIndex}` : undefined}

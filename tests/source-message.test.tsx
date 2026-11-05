@@ -88,6 +88,6 @@ describe('来源详情按内容结构展示', () => {
   })
   it('标题取真实首行并限制长度，不把整篇页面快照或第二行挤进列表', () => {
     expect(sourcePromptTitle('首行标题\n第二行很长的正文', 'claude-code')).toBe('首行标题')
-    expect(Array.from(sourcePromptTitle('😀'.repeat(300), 'claude-code')).length).toBeLessThanOrEqual(81)
+    expect(Array.from(sourcePromptTitle('😀'.repeat(300), 'claude-code'))).toHaveLength(200)
   })
 })

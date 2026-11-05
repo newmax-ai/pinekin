@@ -42,8 +42,10 @@ h1, h2, h3, strong { font-weight: 500; }
 .ds-button-small.ds-button-icon:not(.ds-button-icon-relaxed) { width: 28px; padding: 0; }
 
 /* NewMax Tooltip 视觉契约：无箭头、10px 连续圆角、8 × 12px 留白。 */
-.ds-tooltip { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(320px, calc(100vw - 16px)); padding: 8px 12px; border: 0; border-radius: var(--ds-radius-tooltip); background: var(--ds-surface-100); color: var(--ds-text-primary); box-shadow: var(--ds-elevation-200); font: 500 var(--ds-text-sm)/1.5 var(--ds-font-ui); white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; z-index: 9999; -webkit-app-region: no-drag; transform-origin: top center; animation: ds-tooltip-enter var(--ds-motion-spring) both; }
+.ds-tooltip { position: fixed; inset: auto; margin: 0; width: max-content; max-width: min(320px, calc(100vw - 16px)); padding: 8px 12px; border: 0; border-radius: var(--ds-radius-tooltip); background: var(--ds-surface-100); color: var(--ds-text-primary); box-shadow: var(--ds-elevation-200); font: 500 var(--ds-text-sm)/1.5 var(--ds-font-ui); white-space: pre-wrap; overflow-wrap: anywhere; text-wrap: pretty; line-break: strict; word-break: auto-phrase; pointer-events: none; z-index: 9999; -webkit-app-region: no-drag; transform-origin: top center; animation: ds-tooltip-enter var(--ds-motion-spring) both; }
 .ds-tooltip[data-side='top'] { transform-origin: bottom center; }
+.ds-tooltip[data-side='right'] { transform-origin: left top; }
+.ds-tooltip[data-side='left'] { transform-origin: right top; }
 @keyframes ds-tooltip-enter { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 
 /* 全高桌面工作台：各栏独立滚动，不挤压阅读与主操作。 */
@@ -235,6 +237,7 @@ h1, h2, h3, strong { font-weight: 500; }
 .record-label { display: flex; align-items: center; gap: 6px; font-size: var(--ds-text-xs); color: var(--ds-text-tertiary); margin-bottom: 8px; }
 @supports not (word-break: auto-phrase) {
   .detail-header h2, .message-body { word-break: keep-all; }
+  .ds-tooltip { word-break: keep-all; }
 }
 .code-block { border: 1px solid var(--ds-divider); border-radius: var(--ds-radius-md); background: var(--ds-surface-200); margin: 12px 0; overflow: hidden; }
 .code-label { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; color: var(--ds-text-tertiary); border-bottom: 1px solid var(--ds-divider); font-size: var(--ds-text-xs); }
@@ -361,3 +364,13 @@ h1, h2, h3, strong { font-weight: 500; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after, .ds-dialog::backdrop { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+.source-workspace-filter { flex-shrink: 0; padding: 0 20px 8px; }
+.source-workspace-filter .ds-select { width: 100%; }
+.source-card-context { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 2px; color: var(--ds-text-tertiary); font-size: var(--ds-text-xs); line-height: 16px; }
+.source-workspace { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-subagents { flex-shrink: 0; padding: 8px 24px; background: var(--ds-surface-200); color: var(--ds-text-secondary); font-size: var(--ds-text-xs); }
+.source-subagents > summary { cursor: pointer; }
+.source-subagents-note { margin: 4px 0 0; color: var(--ds-text-tertiary); }
+.source-subagent-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 4px 8px; border: 0; border-radius: var(--ds-radius-sm); background: transparent; color: inherit; text-align: left; }
+.source-subagent-item:hover, .source-subagent-item:focus-visible { background: var(--ds-on-surface); }
+.source-subagent-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

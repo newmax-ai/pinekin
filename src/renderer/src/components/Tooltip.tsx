@@ -20,13 +20,13 @@ export function restoreFocusWithoutTooltip(element: HTMLElement) {
   finally { restoringFocus.delete(element) }
 }
 
-export function Tooltip({ content, disabled = false, side = 'bottom', children }: { content: string; disabled?: boolean; side?: 'top' | 'bottom'; children: ReactElement<TriggerProps> }) {
+export function Tooltip({ content, disabled = false, side = 'bottom', children }: { content: string; disabled?: boolean; side?: 'top' | 'bottom' | 'right'; children: ReactElement<TriggerProps> }) {
   const id = useId()
   const trigger = useRef<HTMLButtonElement | null>(null)
   const tooltip = useRef<HTMLDivElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState<{ left: number; top: number; side: 'top' | 'bottom' } | null>(null)
+  const [position, setPosition] = useState<{ left: number; top: number; side: 'top' | 'bottom' | 'left' | 'right' } | null>(null)
   const pointerInteraction = useRef(false)
   const expanded = children.props['aria-expanded'] === true || children.props['aria-expanded'] === 'true'
   const popup = children.props['aria-haspopup']
@@ -73,10 +73,21 @@ export function Tooltip({ content, disabled = false, side = 'bottom', children }
     const available = {
       bottom: window.innerHeight - rect.bottom - offset - viewportPadding,
       top: rect.top - offset - viewportPadding,
+    } as const
+    const clamp = (value: number, maximum: number) => Math.max(viewportPadding, Math.min(value, maximum))
+    if (side === 'right') {
+      // 贴在触发元素侧边并与其顶部对齐，不遮挡上下相邻内容；右侧放不下且左侧更宽时翻到左侧。
+      const room = { right: window.innerWidth - rect.right - offset - viewportPadding, left: rect.left - offset - viewportPadding }
+      const resolved = width > room.right && room.left > room.right ? 'left' : 'right'
+      setPosition({
+        left: clamp(resolved === 'right' ? rect.right + offset : rect.left - offset - width, window.innerWidth - width - viewportPadding),
+        top: clamp(rect.top, window.innerHeight - height - viewportPadding),
+        side: resolved,
+      })
+      return () => { element.hidePopover?.() }
     }
     const oppositeSide = side === 'top' ? 'bottom' : 'top'
     const resolvedSide = height > available[side] && available[oppositeSide] > available[side] ? oppositeSide : side
-    const clamp = (value: number, maximum: number) => Math.max(viewportPadding, Math.min(value, maximum))
     setPosition({
       left: clamp(rect.left + (rect.width - width) / 2, window.innerWidth - width - viewportPadding),
       top: clamp(resolvedSide === 'top' ? rect.top - offset - height : rect.bottom + offset, window.innerHeight - height - viewportPadding),

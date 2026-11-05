@@ -77,6 +77,11 @@ function date(value: unknown) {
   const result = new Date(typeof value === 'number' || typeof value === 'string' ? value : 0)
   return Number.isFinite(result.getTime()) ? result.toISOString() : new Date(0).toISOString()
 }
+/** 日志自报的工作目录只作展示分组：必须是不含控制字符的绝对路径，相对路径和非字符串一律忽略。 */
+function workspacePath(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value || value.length > 1024 || /[\u0000-\u001f\u007f]/.test(value)) return undefined
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') ? value : undefined
+}
 function short(value: unknown, fallback: string, limit = 200) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : fallback
 }
@@ -395,7 +400,10 @@ export class SourceBrowser {
       if (state.saved.source === 'claude-code' && !name.endsWith('.jsonl')) {
         details.availability = 'unsupported'; details.reason = 'Claude 压缩日志尚未支持；不将其列作可阅读会话'
       }
-      if (project.split(sep).includes('subagents')) details.kind = 'subagent'
+      const segments = project.split(sep)
+      if (segments.includes('subagents')) details.kind = 'subagent'
+      // Claude Code 把子会话放在 <主会话 ID>/subagents/ 下；只采用紧邻 subagents 的上一级目录名。
+      if (state.saved.source === 'claude-code' && segments.length >= 2 && segments.at(-1) === 'subagents') details.parentSessionId = segments.at(-2)!.slice(0, 512)
       const promptTitle = ['claude-code', 'codex', 'deepseek'].includes(state.saved.source)
       if ((state.saved.source === 'deepseek' || state.saved.source === 'codex') && /\.jsonl\.(?:zst|zstd)$/.test(name)) {
         // 流式检查完整压缩流，只保留元数据；总展开量不再决定会话可见性。
@@ -448,7 +456,7 @@ export class SourceBrowser {
       const payload = value.payload as Record<string, unknown> | undefined
       if (value.type === 'session_meta' && payload && typeof payload.id === 'string') details.sourceSessionId = payload.id.slice(0, 512)
       if (source === 'claude-code') {
-        if (index === 0) origin.observe(value)
+        if (index === 0) { origin.observe(value); details.workspace ??= workspacePath(value.cwd) }
         if (value.isCompactSummary || value.isVisibleInTranscriptOnly || value.logicalParentUuid != null || value.subtype === 'compact_boundary') {
           details.availability = 'unsupported'; details.reason = 'Claude 压缩或逻辑父链边界尚未支持'
         }
@@ -467,6 +475,7 @@ export class SourceBrowser {
         }
       } else if (source === 'codex') {
         if (value.type === 'session_meta' && payload) {
+          if (index === 0) details.workspace ??= workspacePath(payload.cwd)
           if (isCodexSubagent(payload)) details.kind = 'subagent'
           const reason = codexUnsupportedReason(payload)
           if (reason) { details.availability = 'unsupported'; details.reason = reason }
@@ -602,20 +611,43 @@ export class SourceBrowser {
     await this.load()
     const search = query.query.trim().toLocaleLowerCase()
     const selected = [...this.states.values()].filter(state => (!query.connectionId || state.saved.id === query.connectionId) && (!query.source || state.saved.source === query.source))
+    // 子会话列表只展开已加载的子会话，不为它翻动主列表的分页读取。
+    const childrenOf = query.parentSessionId
     // 搜索只覆盖已加载的会话；浏览列表时才继续读取更旧的文件。
-    if (!search) await this.loadOlder(selected, () => this.visibleLoaded(selected) >= query.offset + query.limit)
-    const horizon = search ? -Infinity : this.horizon(selected)
+    if (!search && !childrenOf) await this.loadOlder(selected, () => this.visibleLoaded(selected) >= query.offset + query.limit)
+    const horizon = search || childrenOf ? -Infinity : this.horizon(selected)
     const order = (a: SourceEntry, b: SourceEntry) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)
+    // 子会话只在其主会话已在同一连接中出现时折叠；找不到主会话的保持独立，避免凭空消失。
+    const family = (entry: SourceEntry, id = entry.parentSessionId ?? entry.sourceSessionId) => `${entry.connectionId}\0${id}`
+    const mains = new Set<string>(), subagents = new Map<string, number>()
+    for (const state of selected) for (const entry of state.entries.values()) {
+      if (!visibleEntry(entry) || !entry.summary.sourceSessionId && !entry.summary.parentSessionId) continue
+      if (entry.summary.kind !== 'subagent') mains.add(family(entry.summary))
+      else if (entry.summary.parentSessionId) subagents.set(family(entry.summary), (subagents.get(family(entry.summary)) ?? 0) + 1)
+    }
+    const nested = (entry: SourceEntry) => entry.kind === 'subagent' && entry.parentSessionId !== undefined && mains.has(family(entry))
+    const folded = (entry: SourceEntry) => !search && !childrenOf && nested(entry)
     const loaded = selected.flatMap(state => [...state.entries.values()].filter(visibleEntry)
-      .filter(({ summary: entry, path, rowId }) => [entry.title, entry.project, entry.sourceSessionId ?? '', rowId === undefined ? basename(path) : ''].join('\n').toLocaleLowerCase().includes(search))
+      .filter(({ summary: entry, path, rowId }) => !folded(entry)
+        && (!childrenOf || entry.kind === 'subagent' && entry.parentSessionId === childrenOf)
+        && (!query.workspace || entry.workspace === query.workspace)
+        && [entry.title, entry.project, entry.workspace ?? '', entry.sourceSessionId ?? '', rowId === undefined ? basename(path) : ''].join('\n').toLocaleLowerCase().includes(search))
       .map(entry => ({ summary: entry.summary, lazy: !!state.lazyPaths?.has(entry.path) }))).sort((a, b) => order(a.summary, b.summary))
     const entries = loaded.filter(item => Date.parse(item.summary.updatedAt) > horizon).map(item => item.summary)
     // 覆盖整个筛选结果（包括未加载页），不把正文读取产生的已读状态当作来源更新。
     // 只散列已有内存元数据，不触发文件读取或正文查询；与本页保持同一同步快照。按页加载的旧条目不参与，保持翻页前后一致。
     const snapshot = createHash('sha256')
-    for (const { summary: entry, lazy } of loaded) if (!lazy) snapshot.update(JSON.stringify([entry.id, entry.revision, entry.title, entry.project, entry.updatedAt, entry.kind]))
-    const unloaded = search ? 0 : selected.reduce((sum, state) => sum + (state.pending?.length ?? 0), 0)
-    return { items: entries.slice(query.offset, query.offset + query.limit).map(entry => ({ ...entry })), total: entries.length + unloaded,
+    for (const { summary: entry, lazy } of loaded) if (!lazy) snapshot.update(JSON.stringify([entry.id, entry.revision, entry.title, entry.project, entry.updatedAt, entry.kind, entry.workspace, entry.parentSessionId]))
+    // 分面只统计顶层会话，且不受 workspace / 搜索筛选影响，保证筛选后仍能切换到其他目录。
+    const counts = new Map<string, number>()
+    for (const state of selected) for (const { summary: entry } of state.entries.values()) {
+      if (entry.availability === 'unsupported' || !entry.workspace || nested(entry) || Date.parse(entry.updatedAt) <= (search || childrenOf ? -Infinity : this.horizon(selected))) continue
+      counts.set(entry.workspace, (counts.get(entry.workspace) ?? 0) + 1)
+    }
+    const workspaces = [...counts].map(([path, count]) => ({ path, count })).sort((a, b) => b.count - a.count || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)).slice(0, 50)
+    const unloaded = search || childrenOf ? 0 : selected.reduce((sum, state) => sum + (state.pending?.length ?? 0), 0)
+    return { items: entries.slice(query.offset, query.offset + query.limit).map(entry => ({ ...entry,
+        ...(entry.kind !== 'subagent' && subagents.get(family(entry)) ? { subagentCount: subagents.get(family(entry)) } : {}) })), workspaces, total: entries.length + unloaded,
       offset: query.offset, hasMore: query.offset + query.limit < entries.length || unloaded > 0,
       connections: [...this.states.values()].map(state => ({ ...state.view })), version: this.version, snapshot: snapshot.digest('hex') }
   }

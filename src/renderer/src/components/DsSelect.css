@@ -20,6 +20,12 @@
 .ds-select-option[data-active='true'] { background: var(--ds-on-surface); }
 .ds-select-option[aria-selected='true'] { color: var(--ds-brand-primary); font-weight: 500; }
 .ds-select-check { display: inline-flex; justify-content: center; width: 18px; flex-shrink: 0; }
+/* small：与 DsButton small 同为 28px。 */
+.ds-select[data-size='small'] .ds-select-trigger { height: 28px; font-size: var(--ds-text-sm); }
+.ds-select[data-size='small'] .ds-select-option { min-height: 28px; padding: 4px 10px; font-size: var(--ds-text-sm); }
+/* neutral：选中项文字与悬停、聚焦环改用中性文字色，浅深色主题各自取 --ds-text-primary。 */
+.ds-select[data-tone='neutral'] { --ds-input-shadow-hover: 0 0 0 0.5px color-mix(in srgb, var(--ds-text-primary) 24%, transparent); --ds-input-shadow-focus: 0 0 0 0.5px color-mix(in srgb, var(--ds-text-primary) 40%, transparent), 0 0 0 3px color-mix(in srgb, var(--ds-text-primary) 8%, transparent); }
+.ds-select[data-tone='neutral'] .ds-select-option[aria-selected='true'] { color: var(--ds-text-primary); }
 @media (prefers-color-scheme: dark) {
   .ds-select {
     --ds-input-shadow-inset: 0 0 0 transparent;

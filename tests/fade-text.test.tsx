@@ -21,6 +21,15 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); disconnect.mockClear() })
 
 describe('会话标题两行渐隐', () => {
+  it('onOverflowChange 随测量回调截断状态；nativeTitle=false 时不写 title', () => {
+    const onChange = vi.fn()
+    const view = render(<FadeText text="合成标题" as="h3" nativeTitle={false} onOverflowChange={onChange} />)
+    expect(view.getByRole('heading', { level: 3 }).hasAttribute('title')).toBe(false)
+    expect(onChange).toHaveBeenLastCalledWith(true)
+    content = available
+    act(() => callback())
+    expect(onChange).toHaveBeenLastCalledWith(false)
+  })
   it('保留 h3、完整标题和文本，仅超过两行时标记截断，不添加省略号', () => {
     content = available
     const title = '合成任务标题 file:///synthetic/workspace/a-very-long-conversation-title'

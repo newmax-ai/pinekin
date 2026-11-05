@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { browsableSources, sameSourceSnapshot, sourceNames, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceReadCursor } from '../../core/sources'
+import { browsableSources, sameSourceSnapshot, sourceNames, workspaceName, type BrowsableSource, type SourceConnection, type SourceContent, type SourceEntry, type SourcePage, type SourceReadCursor } from '../../core/sources'
 import { ConnectSourcesDialog } from './components/ConnectSourcesDialog'
 import { SourceSearchDialog } from './components/SourceSearchDialog'
 import { SourceActions, type SourceActionFeedback } from './components/SourceActions'
 import { SourceReadNotice } from './components/SourceReadNotes'
 import { SourceUpdatePill } from './components/SourceUpdatePill'
 import { SourceDetailMeta } from './components/SourceDetailMeta'
+import { SourceSubagents } from './components/SourceSubagents'
+import { DsSelect } from './components/DsSelect'
 import { useDetailTransition } from './components/useDetailTransition'
 import { Sidebar } from './components/Sidebar'
 import { SessionPane } from './components/SessionPane'
@@ -27,7 +29,10 @@ import { EmptyState, resolveSourceEmptyState, type EmptyStateAction, type EmptyS
 const emptyPage: SourcePage = { items: [], total: 0, offset: 0, hasMore: false, connections: [] }
 const displaySources = browsableSources
 const roles = { user: '你', assistant: '助手', system: '系统记录', tool: '工具记录' }
-type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry }
+type BrowserView = { source: BrowsableSource | 'all'; selected?: SourceEntry; workspace?: string }
+const allWorkspaces = ''
+/** 列表查询范围：来源与工作目录筛选必须在首页、续页、核对与重建中保持一致，否则快照指纹无法比较。 */
+function listScope(view: Pick<BrowserView, 'source' | 'workspace'>) { return { ...(view.source === 'all' ? {} : { source: view.source }), ...(view.workspace ? { workspace: view.workspace } : {}) } }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error) }
 function newMessagesAreVisible(viewport: HTMLDivElement, firstIndex: number) {
   const bounds = viewport.getBoundingClientRect()
@@ -57,7 +62,7 @@ export function SourceApp() {
   const [navigation, setNavigation] = useState<{ entries: BrowserView[]; index: number }>({
     entries: [{ source: 'all' }], index: 0,
   })
-  const { source, selected } = navigation.entries[navigation.index]
+  const { source, selected, workspace } = navigation.entries[navigation.index]
   const [query, setQuery] = useState('')
   const [page, setPage] = useState<SourcePage>(emptyPage)
   const [loaded, setLoaded] = useState(false)
@@ -97,8 +102,8 @@ export function SourceApp() {
   const lastAutomaticCheck = useRef(0)
   const readRequest = useRef(0)
   const listRequest = useRef(0)
-  const current = useRef({ source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList })
-  current.current = { source, selected, page, content, loaded, busy, connecting, loadingMore, pendingList }
+  const current = useRef({ source, workspace, selected, page, content, loaded, busy, connecting, loadingMore, pendingList })
+  current.current = { source, workspace, selected, page, content, loaded, busy, connecting, loadingMore, pendingList }
   // 目录可能落后于刚读取的正文；已处理的目录提示不能仅因指纹不同而再次出现。
   const contentChanged = !!content && !!latestEntry && latestEntry.revision !== (content.revision ?? selected?.revision)
     && latestEntry.revision !== readContent?.acknowledgedRevision
@@ -124,10 +129,11 @@ export function SourceApp() {
     const request = ++listRequest.current
     moreRequest.current = undefined
     setLoaded(false); setListError(''); setError(''); setLoadingMore(false); setMoreError(''); setPendingList(false)
-    setPage(previous => ({ ...emptyPage, connections: previous.connections }))
+    // 保留分面，筛选重载期间选择器不闪烁消失。
+    setPage(previous => ({ ...emptyPage, connections: previous.connections, workspaces: previous.workspaces }))
     async function load() {
       try {
-        const result = await window.staithe.sources.page({ ...(source === 'all' ? {} : { source }), query: '', offset: 0, limit: 50 })
+        const result = await window.staithe.sources.page({ ...listScope({ source, workspace }), query: '', offset: 0, limit: 50 })
         if (!active || request !== listRequest.current) return
         setPage(result); setListError(''); setLoaded(true)
         if (result.connections.some(item => item.status === 'scanning' && (source === 'all' || item.source === source))) timer = setTimeout(() => void load(), 400)
@@ -135,7 +141,7 @@ export function SourceApp() {
     }
     void load()
     return () => { active = false; clearTimeout(timer) }
-  }, [source, reload])
+  }, [source, workspace, reload])
   useEffect(() => {
     const request = ++readRequest.current
     const sameConversation = displayedId.current === selected?.id
@@ -279,7 +285,9 @@ export function SourceApp() {
     const view = current.current, next = { source: view.source, selected: view.selected, ...update }
     transitionDetail(() => setNavigation(previous => {
       const current = previous.entries[previous.index], next = { ...current, ...update }
-      if (current.source === next.source && current.selected?.id === next.selected?.id) return previous
+      // 换来源时目录筛选属于旧来源，除非调用方明确指定。
+      if (next.source !== current.source && !('workspace' in update)) next.workspace = undefined
+      if (current.source === next.source && current.selected?.id === next.selected?.id && current.workspace === next.workspace) return previous
       const entries = [...previous.entries.slice(0, previous.index + 1), next].slice(-100)
       return { entries, index: entries.length - 1 }
     }), view.selected?.id !== next.selected?.id)
@@ -342,7 +350,7 @@ export function SourceApp() {
       let result: SourcePage | undefined
       const items: SourceEntry[] = []
       for (let offset = 0; offset < limit; offset += 100) {
-        const next = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset, limit: Math.min(100, limit - offset) })
+        const next = await window.staithe.sources.page({ ...listScope(view), query: '', offset, limit: Math.min(100, limit - offset) })
         if (!mounted.current || request !== listRequest.current) return
         if (result && !sameSourceSnapshot(result, next)) { result = undefined; break }
         result = next; items.push(...next.items)
@@ -383,7 +391,7 @@ export function SourceApp() {
       if (failures.length) setError(`更新未完成，已保留上次内容：${failures.map(item => `${sourceNames[item.source]} · ${item.error}`).join('；')}`)
       if (result.version !== current.current.page.version) {
         // 全局变化只触发核对，用一条元数据取得当前来源的完整筛选结果指纹。
-        const probe = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset: 0, limit: 1 })
+        const probe = await window.staithe.sources.page({ ...listScope(view), query: '', offset: 0, limit: 1 })
         if (!mounted.current || request !== listRequest.current) return
         if (sameSourceSnapshot(current.current.page, probe)) {
           setPage(previous => ({ ...previous, version: probe.version, snapshot: probe.snapshot, connections: probe.connections })); setPendingList(false)
@@ -423,7 +431,7 @@ export function SourceApp() {
     moreRequest.current = request
     setLoadingMore(true); setMoreError('')
     try {
-      const result = await window.staithe.sources.page({ ...(view.source === 'all' ? {} : { source: view.source }), query: '', offset: view.page.items.length, limit: 50 })
+      const result = await window.staithe.sources.page({ ...listScope(view), query: '', offset: view.page.items.length, limit: 50 })
       if (!mounted.current || request !== listRequest.current) return
       if (!sameSourceSnapshot(view.page, result)) { setPendingList(true); return }
       const entries = new Map(view.page.items.map(item => [item.id, item]))
@@ -478,6 +486,12 @@ export function SourceApp() {
             <div className="list-heading-copy"><h2>{source === 'all' ? '所有会话' : sourceNames[source]}</h2><span role="status" aria-label={!listError && (!loaded || scanning) ? count : undefined}>{!listError && (!loaded || scanning) ? <span className="source-loading-count">{scanning ? `发现 ${discovered} 条` : <LoadingMark label="正在读取" />}</span> : count}</span></div>
             <DsRefreshButton className="source-refresh-button" aria-label="刷新当前来源" loading={checking || scanning} disabled={!loaded || busy || !relevant.length} onClick={() => refresh()} />
           </div>
+          {(page.workspaces?.length ?? 0) > 1 || workspace ? <div className="source-workspace-filter">
+            <DsSelect aria-label="按工作目录筛选" size="small" tone="neutral" value={workspace ?? allWorkspaces} disabled={!loaded || busy}
+              options={[{ value: allWorkspaces, label: '全部目录' }, ...(page.workspaces ?? []).map(item => ({ value: item.path, label: workspaceName(item.path) })),
+                ...(workspace && !page.workspaces?.some(item => item.path === workspace) ? [{ value: workspace, label: workspaceName(workspace) }] : [])]}
+              onChange={value => navigate({ workspace: value || undefined })} />
+          </div> : null}
           <ScrollArea ref={listViewport} className="session-list" revealSelector=".session-card[aria-pressed='true']" bottomOverlayHeight={pendingList ? 96 : 0} style={pendingList ? { paddingBottom: 108 } : undefined} aria-busy={!loaded || scanning}>
             {page.items.map(entry => <SourceSessionCard key={entry.id} entry={entry} selected={selected?.id === entry.id} now={now} onSelect={navigate} />)}
             {listError && page.items.length > 0 && <EmptyState kind="list-error" layout="quiet" description={listError} action={emptyAction('list-error')} />}
@@ -502,6 +516,7 @@ export function SourceApp() {
                 {content && <SourceReadNotice key={selected.id} warnings={content.warnings} disabled={busy || reading} />}
               </div>
             </div>
+            <SourceSubagents entry={selected} now={now} onSelect={navigate} />
             {content && latestEntry === null && <div className="source-update-notice" role="status">来源会话已删除，当前显示的是上次读取的内容</div>}
             {reading && !content && <EmptyState kind="loading" title="正在读取来源正文…" />}
             {readError && (content ? <div className="source-update-notice" role="alert"><span>{readError}</span>{latestEntry !== null && <DsButton size="small" disabled={reading} onClick={() => setReadAttempt(value => value + 1)}>重试读取</DsButton>}</div> : <EmptyState kind={selected.availability === 'unsupported' ? 'unsupported' : 'read-error'} description={readError} action={selected.availability === 'unsupported' ? undefined : { label: '重试读取', onClick: () => setReadAttempt(value => value + 1) }} />)}

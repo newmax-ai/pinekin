@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -19,6 +20,23 @@ beforeEach(() => {
 })
 
 describe('DsSelect 本地适配 NewMax 选择控件', () => {
+  it('size 与 tone 通过数据属性暴露，默认保持原规格与品牌色', () => {
+    const view = render(<DsSelect aria-label="目录" value="a" options={[{ value: 'a', label: 'A' }]} />)
+    const root = () => view.container.querySelector('.ds-select')!
+    expect(root().getAttribute('data-size')).toBe('default')
+    expect(root().getAttribute('data-tone')).toBe('brand')
+    view.rerender(<DsSelect aria-label="目录" value="a" options={[{ value: 'a', label: 'A' }]} size="small" tone="neutral" />)
+    expect(root().getAttribute('data-size')).toBe('small')
+    expect(root().getAttribute('data-tone')).toBe('neutral')
+  })
+  it('样式表：small 规格 28px，neutral 的选中项、悬停与聚焦不使用品牌蓝', () => {
+    const css = readFileSync('src/renderer/src/components/DsSelect.css', 'utf8')
+    expect(css).toMatch(/\.ds-select\[data-size='small'\] \.ds-select-trigger\s*\{[^}]*height:\s*28px/)
+    expect(css).toMatch(/\.ds-select\[data-tone='neutral'\] \.ds-select-option\[aria-selected='true'\]\s*\{[^}]*color:\s*var\(--ds-text-primary\)/)
+    const neutral = css.split('\n').filter(line => line.includes("[data-tone='neutral']") || /^\s+--ds-input-shadow-(?:hover|focus)/.test(line))
+    expect(neutral.length).toBeGreaterThan(0)
+    expect(css.match(/\.ds-select\[data-tone='neutral'\][^{]*\{[^}]*\}/g)?.join('\n')).not.toContain('brand-primary')
+  })
   it('复用按钮触发器与菜单项契约，不渲染原生 select，选择后关闭并归还焦点', () => {
     const { container } = render(<Controlled />)
     const trigger = screen.getByRole('combobox', { name: '来源 App' })

@@ -8,7 +8,10 @@ export const connectionIdSchema = z.uuid()
 export const entryIdSchema = z.string().regex(/^[a-f0-9]{64}$/)
 export const sourceQuerySchema = z.strictObject({
   connectionId: connectionIdSchema.optional(), source: sourceSchema.optional(),
-  query: z.string().max(200).default(''), offset: z.number().int().min(0).default(0),
+  query: z.string().max(200).default(''),
+  // 工作目录是日志自报的展示信息，只做精确匹配；父会话 ID 只用于列出某个主会话下的子会话。
+  workspace: z.string().min(1).max(1024).optional(), parentSessionId: z.string().min(1).max(512).optional(),
+  offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(100).default(50),
 })
 export type SourceQuery = z.input<typeof sourceQuerySchema>
@@ -29,15 +32,28 @@ export interface SourceConnection {
 export interface SourceEntry {
   id: string; connectionId: string; source: BrowsableSource; sourceSessionId?: string
   title: string; project: string; updatedAt: string; revision?: string; kind?: SourceRecordKind
+  /** 日志自报的绝对工作目录，仅用于分组展示；不据此读取任何文件。 */
+  workspace?: string
+  /** 子会话所属主会话的来源会话 ID，由日志目录结构得出；不跨连接解析。 */
+  parentSessionId?: string
+  /** 主列表中折叠在此会话下的子会话数；只在列表响应里按需计算。 */
+  subagentCount?: number
   availability: 'unread' | 'readable' | 'unsupported' | 'unreadable'; reason?: string
 }
+export interface SourceWorkspaceFacet { path: string; count: number }
 export interface SourcePage {
   items: SourceEntry[]; total: number; offset: number; hasMore: boolean
   connections: SourceConnection[]; version?: number; snapshot?: string
+  /** 已加载主会话的工作目录分面，不随 workspace 筛选收窄；按数量降序。 */
+  workspaces?: SourceWorkspaceFacet[]
 }
 /** snapshot 属于完整筛选结果，与 offset / limit 和其他来源无关；兼容旧测试桥的 version。 */
 export function sameSourceSnapshot(left: SourcePage, right: SourcePage): boolean {
   return left.snapshot !== undefined && right.snapshot !== undefined ? left.snapshot === right.snapshot : left.version === right.version
+}
+/** 工作目录的展示名：末级目录，兼容 POSIX 与 Windows 分隔符；根目录回退为完整路径。 */
+export function workspaceName(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 }
 export type SourceRecordKind = 'conversation' | 'browser-task' | 'subagent' | 'internal'
 export interface SourcePresentation {

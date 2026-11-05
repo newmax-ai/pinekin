@@ -119,7 +119,8 @@ describe('来源列表的 Claude Code 标题', () => {
     const { scan } = await setup(jsonl(prompt('  修复\t标题 ' + '😀'.repeat(240) + '\n不把正文第二行挤进列表')))
     const title = (await scan()).items[0].title
     expect(title).toMatch(/^修复 标题 😀/)
-    expect(Array.from(title).length).toBeLessThanOrEqual(81)
+    expect(Array.from(title)).toHaveLength(200)
+    expect(title.endsWith('😀…')).toBe(true)
     expect(title).not.toMatch(/[\n\r\t�]/)
   })
   it.each([null, [], '损坏', 4, { type: 'ai-title', aiTitle: {} }, { type: 'custom-title', customTitle: ' ' }])('异常元数据 %j 不阻塞发现', async record => {

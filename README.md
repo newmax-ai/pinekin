@@ -65,7 +65,7 @@ flowchart LR
 | --- | --- | --- |
 | NewMax | `~/.newmax/newmax.db`、`NEWMAX_USER_DATA_DIR` | 普通主会话；隐私、分叉、非 App 会话不支持 |
 | Cindy | `Cindy` / `CindyGlobal` 下的账号库 | 普通桌面会话当前问答；分叉、协作、远程、隐藏会话不支持 |
-| Claude Code | `~/.claude/projects` 或单项目目录 | 当前文件单根父链；不追读父文件，压缩日志不支持 |
+| Claude Code | `~/.claude/projects` 或单项目目录 | 当前文件单根父链；不追读父文件，压缩日志不支持；按日志自报的工作目录筛选，`subagents/` 子会话折叠在主会话下 |
 | Codex | `sessions`、`archived_sessions` | 当前文件内主／子会话；跨文件继承历史不追读 |
 | DeepSeek Harness | `~/.dsh/sessions`、`DSH_HOME`；其他位置手动选择 | v4 独立主会话问答文本；不是 DeepSeek 网页聊天 |
 | WorkBuddy | `.workbuddy/projects` | 本地普通主会话；分叉、压缩、重发回退不支持 |

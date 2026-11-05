@@ -557,6 +557,11 @@ describe('Staithe 中性主题与图标契约', () => {
     expect(styles).toMatch(/\.session-card\s*\{[^}]*padding: 8px 12px;[^}]*margin: 0 0 1px;/)
     expect(styles).toMatch(/\.nav-item\s*\{[^}]*margin-bottom: 1px;/)
   })
+  it('Tooltip 文本换行防止末行单字孤立，并为不支持 auto-phrase 的环境降级', () => {
+    const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
+    expect(styles).toMatch(/\.ds-tooltip\s*\{[^}]*text-wrap: pretty;[^}]*line-break: strict;[^}]*word-break: auto-phrase;/)
+    expect(styles).toMatch(/@supports not \(word-break: auto-phrase\)\s*\{[\s\S]*?\.ds-tooltip\s*\{\s*word-break: keep-all;/)
+  })
   it('会话卡片纵向紧凑，标题字重 400 且最多两行', () => {
     const styles = readFileSync(resolve('src/renderer/src/styles.css'), 'utf8')
     expect(styles).toMatch(/\.card-meta\s*\{[^}]*line-height: 16px;[^}]*margin-bottom: 4px;/)

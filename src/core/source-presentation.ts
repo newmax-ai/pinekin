@@ -82,11 +82,13 @@ export function sourceMessageParts(content: string, source: Source, role: Messag
   return { primary, context: contexts.join('\n') }
 }
 
+// 受会话标题 schema 的 200 字上限约束（含省略号）；列表单行渐隐，完整标题由 Tooltip 展示。
+const titleLimit = 200
 export function sourcePromptTitle(content: string, source: Source): string {
   const { primary } = sourceMessageParts(content, source, 'user')
   const line = primary.trim().split(/\r?\n/).find(value => value.trim() && !/^(`{3,}|~{3,})[\w+.-]*\s*$/.test(value))?.replace(/\s+/g, ' ').trim() ?? ''
   const characters = Array.from(line)
-  return characters.slice(0, 80).join('') + (characters.length > 80 ? '…' : '')
+  return characters.length > titleLimit ? characters.slice(0, titleLimit - 1).join('') + '…' : line
 }
 
 export function isBrowserTask(content: string): boolean {

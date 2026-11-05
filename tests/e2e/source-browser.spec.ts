@@ -335,7 +335,7 @@ test('连接弹窗默认点击遮罩关闭，内部点击和拖出不误关并�
   }
 })
 
-test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来源与档案一致', async () => {
+test('来源卡片标题单行渐隐、档案卡片两行仅末行渐隐，调宽后均取消', async () => {
   const title = '合成播放任务 file:///synthetic/' + 'WorkspacePath'.repeat(4)
   const shortTitle = '合成短标题'
   for (let index = 0; index < 65; index++) {
@@ -343,14 +343,15 @@ test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来�
       { type: 'custom-title', customTitle: index === 64 ? shortTitle : title }]))
   }
   await connect()
-  const verify = async () => {
+  const verify = async (lines: 1 | 2) => {
     const long = page.locator('.session-card h3').filter({ hasText: title }).first()
     const short = page.getByRole('heading', { level: 3, name: shortTitle, exact: true })
     const handle = page.getByRole('separator', { name: '调整会话栏宽度' })
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await handle.focus(); await page.keyboard.press('Home')
-      await expect(long).toHaveAttribute('data-lines', '2')
+      if (lines === 2) await expect(long).toHaveAttribute('data-lines', '2')
+      else await expect(long).not.toHaveAttribute('data-lines', /.*/)
       await expect(long).toHaveAttribute('data-overflow', 'true')
       await expect(long).toHaveAttribute('title', title)
       await expect(long).toHaveText(title)
@@ -361,11 +362,15 @@ test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来�
         return { mask: styles.maskImage, size: styles.maskSize, repeat: styles.maskRepeat,
           lineHeight: parseFloat(styles.lineHeight), height: element.getBoundingClientRect().height }
       })
-      expect(css.mask.match(/linear-gradient/g)).toHaveLength(2)
-      expect(css.mask).toContain('64px')
-      expect(css.size).toContain('calc(100% - ')
-      expect(css.repeat).toBe('no-repeat, no-repeat')
-      expect(css.height).toBeCloseTo(css.lineHeight * 2, 1)
+      if (lines === 2) {
+        expect(css.mask.match(/linear-gradient/g)).toHaveLength(2)
+        expect(css.mask).toContain('64px')
+        expect(css.size).toContain('calc(100% - ')
+        expect(css.repeat).toBe('no-repeat, no-repeat')
+      } else {
+        expect(css.mask.match(/linear-gradient/g)).toHaveLength(1)
+      }
+      expect(css.height).toBeCloseTo(css.lineHeight * lines, 1)
       await expect(short).toHaveAttribute('data-overflow', 'false')
       await expect(short).toHaveCSS('mask-image', 'none')
       const card = long.locator('..')
@@ -374,11 +379,11 @@ test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来�
       await handle.focus(); await page.keyboard.press('End')
       await expect(long).toHaveAttribute('data-overflow', 'false')
       await expect(long).toHaveCSS('mask-image', 'none')
-      expect(await long.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(css.lineHeight * 2)
+      expect(await long.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(css.lineHeight * lines)
     }
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1380, 900))
-  await verify()
+  await verify(1)
   await app.close()
   await writeFile(join(data, 'library.json'), JSON.stringify([
     { ...fixtureSessions[0], id: 'mask-long', title },
@@ -388,7 +393,7 @@ test('会话卡片两行标题仅末行截断处渐隐，调宽后取消且来�
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1380, 900))
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send('staithe:open-session', 'mask-long'))
   await expect(page.getByRole('button', { name: '返回来源会话' })).toBeVisible()
-  await verify()
+  await verify(2)
   await background()
 })
 
