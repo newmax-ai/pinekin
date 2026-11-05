@@ -18,10 +18,16 @@ export function inspectLogSupport(path: string, root: string, source: LogSource,
       const metadata = await readWorkbuddyMetadata(path, root, authorized)
       if (workbuddyRevision(revision, metadata.revision) !== expectedRevision) throw new Error('来源在目录检查期间变化，请刷新')
       const fileId = basename(path, '.jsonl'), parser = createWorkbuddyIndexer({ fileId, meta: metadata.meta })
-      await scan((record, line) => parser.accept(record, line))
+      let workspace: unknown
+      await scan((record, line) => {
+        parser.accept(record, line)
+        // WorkBuddy 5.9.3 从历史中首个非空 cwd 提取落盘会话目录；
+        // session-meta 的持久化白名单不含 cwd，不将任意侧车字段当作工作区。
+        if (!workspace && record.type !== 'session-meta' && record.cwd) workspace = record.cwd
+      })
       const index = parser.finish()
       if ((await readWorkbuddyMetadata(path, root, authorized)).revision !== metadata.revision) throw new Error('WorkBuddy 元数据在检查期间变化，请刷新')
-      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: fileId, title: index.session.title, workspace: undefined }
+      return { reason: undefined, kind: 'conversation' as const, sourceSessionId: fileId, title: index.session.title, workspace }
     }
     if (revision !== expectedRevision) throw new Error('来源在目录检查期间变化，请刷新')
     if (source === 'qwen-code') {

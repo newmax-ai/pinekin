@@ -162,7 +162,7 @@ describe('来源列表：按工作目录筛选', () => {
 })
 
 describe.each([
-  ['newmax', 'NewMax'], ['codex', 'Codex'], ['cindy', 'Cindy'], ['deepseek', 'DeepSeek Harness'], ['qwen-code', 'Qwen Code'],
+  ['newmax', 'NewMax'], ['codex', 'Codex'], ['cindy', 'Cindy'], ['deepseek', 'DeepSeek Harness'], ['qwen-code', 'Qwen Code'], ['workbuddy', 'WorkBuddy'],
 ] as const)('%s 来源：复用工作区筛选', (source, label) => {
   it('可选择工作区并切回全部目录；换来源时清除工作区条件', async () => {
     const selectedConnection = { ...connection, source }

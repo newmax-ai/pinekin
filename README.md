@@ -68,7 +68,7 @@ flowchart LR
 | Claude Code | `~/.claude/projects` 或单项目目录 | 当前文件单根父链；不追读父文件，压缩日志不支持；按日志自报的工作目录筛选，`subagents/` 子会话折叠在主会话下 |
 | Codex | `sessions`、`archived_sessions` | 当前文件内主／子会话；普通及压缩日志支持按自报工作目录筛选；跨文件继承历史不追读 |
 | DeepSeek Harness | `~/.dsh/sessions`、`DSH_HOME`；其他位置手动选择 | v4 独立主会话问答文本，普通及压缩日志支持按会话头工作目录筛选；不是 DeepSeek 网页聊天 |
-| WorkBuddy | `.workbuddy/projects` | 本地普通主会话；项目路径归属尚未验证，不按存储目录名猜测筛选项；分叉、压缩、重发回退不支持 |
+| WorkBuddy | `.workbuddy/projects` | 本地普通主会话，支持按历史记录自报的首个工作目录筛选（字段核对本机 5.9.3）；不等同原 App 显式工作区分类，不按存储目录名猜测归属；分叉、压缩、重发回退不支持 |
 | Qwen Code | `.qwen/projects` | 独立主会话单根父链，支持按根记录工作目录筛选；分叉、子会话、压缩不支持 |
 
 - 显示数量是授权位置内**排除已知不支持条目后**的会话数，不是客户端全部记录；过滤不删除原件。

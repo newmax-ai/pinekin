@@ -94,7 +94,7 @@ describe('其他日志来源的项目目录筛选（仅合成日志）', () => {
     expect(after.items[0].workspace).toBe('/synthetic/work/beta-longer')
     expect((await browser.page({ source, workspace: '/synthetic/work/alpha' })).total).toBe(0)
   })
-  it('WorkBuddy 未验证的 cwd 或元数据不被当作项目归属', async () => {
+  it('WorkBuddy 不从未经持久化契约确认的 sidecar cwd 或 workingDir 推断项目归属', async () => {
     const { input, browser } = await setup('workbuddy')
     await writeFile(join(input, 'synthetic-workbuddy.jsonl'), workbuddyFixture())
     await writeFile(join(input, 'synthetic-workbuddy.meta.json'), JSON.stringify({ cwd: '/synthetic/unverified', workingDir: '/synthetic/unverified' }))
